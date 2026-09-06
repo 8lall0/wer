@@ -4,7 +4,7 @@ struct Mmu {
 	char[65536] ram;
 }
 
-fn char Mmu.get(&self, char address) {
+fn char Mmu.get(&self, ushort address) {
 	return self.ram[address];
 }
 
