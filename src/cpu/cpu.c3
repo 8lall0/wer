@@ -1,6 +1,6 @@
 module cpu;
 
-import mmu, std::io;
+import mmu, std::io, cpu;
 
 fn bool check_bit3_overflow(char a, char b) {
 	char low_a = a & 0x0F;
@@ -24,6 +24,19 @@ fn bool check_bit11_overflow(ushort a, ushort b) {
 }
 
 fn bool check_bit15_overflow(ushort a, ushort b) {
+	ushort sum = a + b;
+
+	return sum < a;
+}
+
+fn bool check_bit11_signed_overflow(ushort a, short b) {
+	ushort low_a = a & 0x0FFF;
+	ushort low_b = b & 0x0FFF;
+
+	return (low_a + low_b) > 0x0FFF;
+}
+
+fn bool check_bit15_signed_overflow(ushort a, short b) {
 	ushort sum = a + b;
 
 	return sum < a;
@@ -101,118 +114,6 @@ fn char Cpu.getFlag(&self, Flag flag) {
 	return self.af.lo &= 1 << flag;
 }
 
-fn void Cpu.adc_a_r8(&self, char *reg) {
-	char carriage = self.getFlag(C);
-	if (check_bit3_overflow(self.af.hi, *reg + carriage)) {
-		self.setFlag(H);
-	}
-	if (check_bit7_overflow(self.af.hi, *reg + carriage)) {
-		self.setFlag(C);
-	}
-
-	self.af.hi += *reg + carriage;
-
-	if (self.af.hi == 0) {
-		self.setFlag(Z);
-	}
-
-	self.required_cycles = 2;
-}
-
-fn void Cpu.add_a_r8(&self, char *reg) {
-	if (check_bit3_overflow(self.af.hi, *reg)) {
-		self.setFlag(H);
-	}
-	if (check_bit7_overflow(self.af.hi, *reg)) {
-		self.setFlag(C);
-	}
-
-	self.af.hi += *reg;
-
-	if (self.af.hi == 0) {
-		self.setFlag(Z);
-	}
-
-	self.required_cycles = 2;
-}
-
-fn void Cpu.adc_a_hl(&self, mmu::Mmu *mmu, HiLoReg *reg) {
-	char carriage = self.getFlag(C);
-	char value = mmu.get(reg.reg);
-
-	if (check_bit3_overflow(self.af.hi, value + carriage)) {
-		self.setFlag(H);
-	}
-	if (check_bit7_overflow(self.af.hi, value + carriage)) {
-		self.setFlag(C);
-	}
-
-	self.af.hi += value + carriage;
-
-	if (self.af.hi == 0) {
-		self.setFlag(Z);
-	}
-
-	self.required_cycles = 2;
-}
-
-fn void Cpu.add_a_hl(&self, mmu::Mmu *mmu, HiLoReg *reg) {
-	char value = mmu.get(reg.reg);
-
-	if (check_bit3_overflow(self.af.hi, value)) {
-		self.setFlag(H);
-	}
-	if (check_bit7_overflow(self.af.hi, value)) {
-		self.setFlag(C);
-	}
-
-	self.af.hi += value;
-
-	if (self.af.hi == 0) {
-		self.setFlag(Z);
-	}
-
-	self.required_cycles = 2;
-}
-
-fn void Cpu.adc_a_n8(&self, char value) {
-	char carriage = self.getFlag(C);
-
-	if (check_bit3_overflow(self.af.hi, value + carriage)) {
-		self.setFlag(H);
-	}
-	if (check_bit7_overflow(self.af.hi, value + carriage)) {
-		self.setFlag(C);
-	}
-
-	self.af.hi += value + carriage;
-
-	if (self.af.hi == 0) {
-		self.setFlag(Z);
-	}
-
-	self.required_cycles = 2;
-}
-
-fn void Cpu.add_a_n8(&self, char value) {
-	if (check_bit3_overflow(self.af.hi, value)) {
-		self.setFlag(H);
-	}
-	if (check_bit7_overflow(self.af.hi, value)) {
-		self.setFlag(C);
-	}
-
-	self.af.hi += value;
-
-	if (self.af.hi == 0) {
-		self.setFlag(Z);
-	}
-
-	self.required_cycles = 2;
-}
-
-
-
 fn void Cpu.add_hl_sp(&self) {
 	if (check_bit15_overflow(self.af.hi, self.sp)) {
 		self.setFlag(H);
@@ -227,24 +128,19 @@ fn void Cpu.add_hl_sp(&self) {
 }
 
 fn void Cpu.add_sp_e8(&self, short value) {
-	// TODO: change those, we need to handle signed
-	self.af.flag.h = check_bit15_overflow(self.hl.reg, self.sp);
-	self.af.flag.c = check_bit11_overflow(self.hl.reg, self.sp);
+	if (cpu::check_bit15_signed_overflow(self.sp, value)) {
+		self.setFlag(H);
+	}
+	if (self.check_bit11_signed_overflow(self.sp, value)) {
+		self.setFlag(C);
+	}
 
 	self.sp += (ushort)value;
 
 	self.required_cycles = 4;
 }
 
-fn void Cpu.and_a_r8(&self, char *reg) {
-	self.setFlag(H);
-	self.af.hi &= *reg;
-	if (self.af.hi == 0) {
-		self.setFlag(Z);
-	}
 
-	self.required_cycles = 2;
-}
 
 fn void Cpu.call_n16(&self) {
 
@@ -265,27 +161,9 @@ fn void Cpu.a_r8(&self, char *reg) {
 	self.setFlag(H);
 }
 
-fn void Cpu.and_a_n8(&self, char value) {
-	self.setFlag(H);
-	self.af.hi &= value;
 
-	if (self.af.hi == 0) {
-		self.setFlag(Z);
-	}
 
-	self.required_cycles = 2;
-}
 
-fn void Cpu.and_a_hl(&self, mmu::Mmu *mmu) {
-	self.setFlag(H);
-	self.af.hi &= mmu.get(self.hl.reg);
-
-	if (self.af.hi == 0) {
-		self.setFlag(Z);
-	}
-
-	self.required_cycles = 1;
-}
 
 fn void? Cpu.ld_r8_r8(&self, HiLoReg *reg) {
 	reg.lo = reg.hi;
