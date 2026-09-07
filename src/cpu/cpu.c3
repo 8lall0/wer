@@ -161,10 +161,6 @@ fn void Cpu.a_r8(&self, char *reg) {
 	self.setFlag(H);
 }
 
-
-
-
-
 fn void? Cpu.ld_r8_r8(&self, HiLoReg *reg) {
 	reg.lo = reg.hi;
 	self.required_cycles = 1;

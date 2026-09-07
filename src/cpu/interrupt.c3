@@ -1,8 +1,6 @@
 module cpu;
 
 /*
-DI
-EI
 HALT
 */
 

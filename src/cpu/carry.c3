@@ -1,10 +1,5 @@
 module cpu;
 
-/*
-CCF
-SCF
-*/
-
 fn void Cpu.ccf(&self) {
 	if (self.getFlag(C) == 0) {
 		self.setFlag(C);
