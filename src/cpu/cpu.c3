@@ -115,19 +115,6 @@ fn char Cpu.getFlag(&self, Flag flag) {
 	return self.af.lo &= 1 << flag;
 }
 
-fn void Cpu.add_hl_sp(&self) {
-	if (check_bit15_overflow(self.af.hi, self.sp)) {
-		self.setFlag(H);
-	}
-	if (check_bit11_overflow(self.af.hi, self.sp)) {
-		self.setFlag(C);
-	}
-
-	self.hl.reg += self.sp;
-
-	self.required_cycles = 2;
-}
-
 fn void Cpu.add_sp_e8(&self, short value) {
 	if (check_bit15_signed_overflow(self.sp, value)) {
 		self.setFlag(H);
@@ -156,15 +143,10 @@ fn void Cpu.a_r8(&self, char *reg) {
 
 	if (self.af.hi == 0) {
 		self.setFlag(Z);
+	} else {
+		self.unsetFlag(Z);
 	}
 	self.unsetFlag(C);
 	self.unsetFlag(N);
 	self.setFlag(H);
-}
-
-
-
-
-fn void Cpu.xor_a_n8(&self, char value) {
-	self.af.hi ^= value;
 }

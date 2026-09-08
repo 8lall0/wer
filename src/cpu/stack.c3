@@ -16,15 +16,15 @@ PUSH r16
 
 // TODO: check overflow!
 fn void Cpu.add_hl_sp(&self) {
-	cpu.unsetFlag(N);
-	if (check_bit15_overflow(self.hl, self.sp)) {
+	self.unsetFlag(N);
+	if (check_bit15_overflow(self.hl.reg, self.sp)) {
 		self.setFlag(H);
 	}
-	if (check_bit11_overflow(self.hl, self.sp)) {
+	if (check_bit11_overflow(self.hl.reg, self.sp)) {
 		self.setFlag(C);
 	}
 
-	self.hl += self.sp;
+	self.hl.reg += self.sp;
 
 	self.required_cycles = 2;
 }

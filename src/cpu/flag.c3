@@ -18,6 +18,8 @@ fn void Cpu.bit_u3_r8(&self, char *reg, uint u3) {
 
 	if (val == 0) {
 		self.setFlag(Z);
+	} else {
+		self.unsetFlag(Z);
 	}
 	self.unsetFlag(N);
 	self.setFlag(H);

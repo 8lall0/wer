@@ -1,22 +1,19 @@
 module cpu;
 
 import mmu;
-/*
-CPL
-OR A,r8
-OR A,[HL]
-OR A,n8
-XOR A,r8
-XOR A,[HL]
-XOR A,n8
-*/
 
 // AND
 fn void Cpu.and_a_r8(&self, char *reg) {
-	self.setFlag(H);
+
 	self.af.hi &= *reg;
+	self.setFlag(H);
+	self.unsetFlag(N);
+	self.unsetFlag(C);
+
 	if (self.af.hi == 0) {
 		self.setFlag(Z);
+	} else {
+		self.unsetFlag(Z);
 	}
 
 	self.required_cycles = 2;
@@ -28,6 +25,8 @@ fn void Cpu.and_a_hl(&self, mmu::Mmu *mmu) {
 
 	if (self.af.hi == 0) {
 		self.setFlag(Z);
+	} else {
+		self.unsetFlag(Z);
 	}
 
 	self.required_cycles = 1;
@@ -39,6 +38,107 @@ fn void Cpu.and_a_n8(&self, char value) {
 
 	if (self.af.hi == 0) {
 		self.setFlag(Z);
+	} else {
+		self.unsetFlag(Z);
+	}
+
+	self.required_cycles = 2;
+}
+
+fn void Cpu.cpl(&self) {
+	self.af.hi = ~self.af.hi;
+
+	self.setFlag(N);
+	self.setFlag(H);
+
+	self.required_cycles = 1;
+}
+
+fn void Cpu.or_a_r8(&self, char *reg) {
+	self.af.hi |= *reg;
+
+	self.unsetFlag(N);
+	self.unsetFlag(H);
+	self.unsetFlag(C);
+	if (self.af.hi == 0) {
+		self.setFlag(Z);
+	} else {
+		self.unsetFlag(Z);
+	}
+
+	self.required_cycles = 1;
+}
+
+fn void Cpu.or_a_hl(&self, mmu::Mmu mmu) {
+	self.af.hi |= mmu.get(self.hl.reg);
+
+	self.unsetFlag(N);
+	self.unsetFlag(H);
+	self.unsetFlag(C);
+	if (self.af.hi == 0) {
+		self.setFlag(Z);
+	} else {
+		self.unsetFlag(Z);
+	}
+
+	self.required_cycles = 2;
+}
+
+fn void Cpu.or_a_n8(&self, char value) {
+	self.af.hi |= value;
+
+	self.unsetFlag(N);
+	self.unsetFlag(H);
+	self.unsetFlag(C);
+	if (self.af.hi == 0) {
+		self.setFlag(Z);
+	} else {
+		self.unsetFlag(Z);
+	}
+
+	self.required_cycles = 2;
+}
+
+fn void Cpu.xor_a_r8(&self, char *reg) {
+	self.af.hi ^= *reg;
+
+	self.unsetFlag(N);
+	self.unsetFlag(H);
+	self.unsetFlag(C);
+	if (self.af.hi == 0) {
+		self.setFlag(Z);
+	} else {
+		self.unsetFlag(Z);
+	}
+
+	self.required_cycles = 1;
+}
+
+fn void Cpu.xor_a_hl(&self, mmu::Mmu mmu) {
+	self.af.hi ^= mmu.get(self.hl.reg);
+
+	self.unsetFlag(N);
+	self.unsetFlag(H);
+	self.unsetFlag(C);
+	if (self.af.hi == 0) {
+		self.setFlag(Z);
+	} else {
+		self.unsetFlag(Z);
+	}
+
+	self.required_cycles = 2;
+}
+
+fn void Cpu.xor_a_n8(&self, char value) {
+	self.af.hi ^= value;
+
+	self.unsetFlag(N);
+	self.unsetFlag(H);
+	self.unsetFlag(C);
+	if (self.af.hi == 0) {
+		self.setFlag(Z);
+	} else {
+		self.unsetFlag(Z);
 	}
 
 	self.required_cycles = 2;

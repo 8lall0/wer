@@ -31,6 +31,8 @@ fn void Cpu.adc_a_r8(&self, char *reg) {
 
 	if (self.af.hi == 0) {
 		self.setFlag(Z);
+	} else {
+		self.unsetFlag(Z);
 	}
 
 	self.required_cycles = 2;
@@ -51,6 +53,8 @@ fn void Cpu.adc_a_hl(&self, mmu::Mmu *mmu, HiLoReg *reg) {
 
 	if (self.af.hi == 0) {
 		self.setFlag(Z);
+	} else {
+		self.unsetFlag(Z);
 	}
 
 	self.required_cycles = 2;
@@ -70,6 +74,8 @@ fn void Cpu.adc_a_n8(&self, char value) {
 
 	if (self.af.hi == 0) {
 		self.setFlag(Z);
+	} else {
+		self.unsetFlag(Z);
 	}
 
 	self.required_cycles = 2;
@@ -89,6 +95,8 @@ fn void Cpu.add_a_n8(&self, char value) {
 
 	if (self.af.hi == 0) {
 		self.setFlag(Z);
+	} else {
+		self.unsetFlag(Z);
 	}
 
 	self.required_cycles = 2;
@@ -106,6 +114,8 @@ fn void Cpu.add_a_r8(&self, char *reg) {
 
 	if (self.af.hi == 0) {
 		self.setFlag(Z);
+	} else {
+		self.unsetFlag(Z);
 	}
 
 	self.required_cycles = 2;
@@ -125,6 +135,8 @@ fn void Cpu.add_a_hl(&self, mmu::Mmu *mmu, HiLoReg *reg) {
 
 	if (self.af.hi == 0) {
 		self.setFlag(Z);
+	} else {
+		self.unsetFlag(Z);
 	}
 
 	self.required_cycles = 2;
