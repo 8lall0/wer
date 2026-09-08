@@ -1,6 +1,6 @@
 module cpu;
 
-import mmu, std::io, cpu;
+import mmu;
 
 fn bool check_bit3_overflow(char a, char b) {
 	char low_a = a & 0x0F;
@@ -29,6 +29,7 @@ fn bool check_bit15_overflow(ushort a, ushort b) {
 	return sum < a;
 }
 
+// TODO: check how to operate with unsigned and signed
 fn bool check_bit11_signed_overflow(ushort a, short b) {
 	ushort low_a = a & 0x0FFF;
 	ushort low_b = b & 0x0FFF;
@@ -128,10 +129,10 @@ fn void Cpu.add_hl_sp(&self) {
 }
 
 fn void Cpu.add_sp_e8(&self, short value) {
-	if (cpu::check_bit15_signed_overflow(self.sp, value)) {
+	if (check_bit15_signed_overflow(self.sp, value)) {
 		self.setFlag(H);
 	}
-	if (self.check_bit11_signed_overflow(self.sp, value)) {
+	if (check_bit11_signed_overflow(self.sp, value)) {
 		self.setFlag(C);
 	}
 
@@ -161,20 +162,8 @@ fn void Cpu.a_r8(&self, char *reg) {
 	self.setFlag(H);
 }
 
-fn void? Cpu.ld_r8_r8(&self, HiLoReg *reg) {
-	reg.lo = reg.hi;
-	self.required_cycles = 1;
-}
 
-fn void? Cpu.ld_r8_n8(&self, char *reg, char value) {
-	*reg = value;
-	self.required_cycles = 2;
-}
 
-fn void? Cpu.ld_r16_n16(&self, HiLoReg *reg, ushort value) {
-	reg.reg = value;
-	self.required_cycles = 3;
-}
 
 fn void Cpu.xor_a_n8(&self, char value) {
 	self.af.hi ^= value;
