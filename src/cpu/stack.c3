@@ -72,7 +72,7 @@ fn void Cpu.ld_sp_hl(&self) {
 }
 
 fn void Cpu.pop_af(&self, mmu::Mmu mmu) {
-	self.af.low = mmu.get(self.sp);
+	self.af.lo = mmu.get(self.sp);
 	self.sp++;
 	self.af.hi = mmu.get(self.sp);
 	self.sp++;
@@ -81,7 +81,7 @@ fn void Cpu.pop_af(&self, mmu::Mmu mmu) {
 }
 
 fn void Cpu.pop_r16(&self, mmu::Mmu mmu, HiLoReg *reg) {
-	reg.low = mmu.get(self.sp);
+	reg.lo = mmu.get(self.sp);
 	self.sp++;
 	reg.hi = mmu.get(self.sp);
 	self.sp++;
@@ -93,7 +93,7 @@ fn void Cpu.push_af(&self, mmu::Mmu mmu) {
 	self.sp--;
 	mmu.set(self.sp, self.af.hi);
 	self.sp--;
-	mmu.set(self.sp, self.af.low);
+	mmu.set(self.sp, self.af.lo);
 
 	self.required_cycles = 4;
 }
@@ -102,7 +102,7 @@ fn void Cpu.push_r16(&self, mmu::Mmu mmu, HiLoReg *reg) {
 	self.sp--;
 	mmu.set(self.sp, reg.hi);
 	self.sp--;
-	mmu.set(self.sp, reg.low);
+	mmu.set(self.sp, reg.lo);
 
 	self.required_cycles = 4;
 }
