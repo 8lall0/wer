@@ -1,23 +1,8 @@
 module cpu;
 
 import mmu;
-/*
-CP A,r8
-CP A,[HL]
-CP A,n8
-DEC r8
-DEC [HL]
-INC r8
-INC [HL]
-SBC A,r8
-SBC A,[HL]
-SBC A,n8
-SUB A,r8
-SUB A,[HL]
-SUB A,n8
-*/
 
-// Addition with carriage
+// Sum with carriage
 fn void Cpu.adc_a_r8(&self, char *reg) {
 	char carriage = self.getFlag(C);
 	if (check_bit3_overflow(self.af.hi, *reg + carriage)) {
@@ -81,7 +66,7 @@ fn void Cpu.adc_a_n8(&self, char value) {
 	self.required_cycles = 2;
 }
 
-// Addition without carriage
+// Sum without carriage
 
 fn void Cpu.add_a_n8(&self, char value) {
 	if (check_bit3_overflow(self.af.hi, value)) {

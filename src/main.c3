@@ -7,6 +7,5 @@ fn int main(String[] args)
 	io::printn(cpu.af.hi);
 	cpu.xor_a_n8(10);
 	io::printn(cpu.af.hi);
-	io::printn("Hello, World!");
 	return 0;
 }

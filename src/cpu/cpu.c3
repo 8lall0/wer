@@ -16,6 +16,21 @@ fn bool check_bit7_overflow(char a, char b) {
 	return (low_a + low_b) > 0x0F;
 }
 
+fn bool check_bit3_signed_overflow(ushort a, ichar b) {
+	int mask = 0x7;
+	int carry = ((a & mask) + (b & mask)) >> 3;
+
+	return carry != 0;
+}
+
+fn bool check_bit7_signed_overflow(ushort a, ichar b) {
+	int mask = 0x7;
+	int carry = ((a & mask) + (b & mask)) >> 7;
+
+	return carry != 0;
+}
+
+
 fn bool check_bit11_overflow(ushort a, ushort b) {
 	ushort low_a = a & 0x0FFF;
 	ushort low_b = b & 0x0FFF;
@@ -31,24 +46,27 @@ fn bool check_bit15_overflow(ushort a, ushort b) {
 
 // TODO: check how to operate with unsigned and signed
 fn bool check_bit11_signed_overflow(ushort a, short b) {
-	ushort low_a = a & 0x0FFF;
-	ushort low_b = b & 0x0FFF;
+	int mask = (1 << 11) - 1; // 0x7FF
 
-	return (low_a + low_b) > 0x0FFF;
+	int carry = ((a & mask) + (b & mask)) >> 11;
+
+	return carry != 0;
 }
 
 fn bool check_bit15_signed_overflow(ushort a, short b) {
-	ushort sum = a + b;
+	int mask = 0x7FFF;
 
-	return sum < a;
+	int carry = ((a & mask) + (b & mask)) >> 15;
+
+	return carry != 0;
 }
 
 alias Flag = char;
 
-const Flag C = 3;
-const Flag H = 4;
-const Flag N = 5;
-const Flag Z = 6;
+const Flag C = 4;
+const Flag H = 5;
+const Flag N = 6;
+const Flag Z = 7;
 
 /*
 AF	A	-	Accumulator & Flags
@@ -113,40 +131,4 @@ fn void Cpu.unsetFlag(&self, Flag flag) {
 
 fn char Cpu.getFlag(&self, Flag flag) {
 	return self.af.lo &= 1 << flag;
-}
-
-fn void Cpu.add_sp_e8(&self, short value) {
-	if (check_bit15_signed_overflow(self.sp, value)) {
-		self.setFlag(H);
-	}
-	if (check_bit11_signed_overflow(self.sp, value)) {
-		self.setFlag(C);
-	}
-
-	self.sp += (ushort)value;
-
-	self.required_cycles = 4;
-}
-
-
-
-fn void Cpu.call_n16(&self) {
-
-}
-
-fn void Cpu.call_cc_n16(&self) {
-
-}
-
-fn void Cpu.a_r8(&self, char *reg) {
-	char res = self.af.hi - *reg;
-
-	if (self.af.hi == 0) {
-		self.setFlag(Z);
-	} else {
-		self.unsetFlag(Z);
-	}
-	self.unsetFlag(C);
-	self.unsetFlag(N);
-	self.setFlag(H);
 }

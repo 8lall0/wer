@@ -2,6 +2,15 @@ module cpu;
 
 import mmu;
 
+fn void Cpu.cpl(&self) {
+	self.af.hi = ~self.af.hi;
+
+	self.setFlag(N);
+	self.setFlag(H);
+
+	self.required_cycles = 1;
+}
+
 // AND
 fn void Cpu.and_a_r8(&self, char *reg) {
 
@@ -45,15 +54,7 @@ fn void Cpu.and_a_n8(&self, char value) {
 	self.required_cycles = 2;
 }
 
-fn void Cpu.cpl(&self) {
-	self.af.hi = ~self.af.hi;
-
-	self.setFlag(N);
-	self.setFlag(H);
-
-	self.required_cycles = 1;
-}
-
+// OR
 fn void Cpu.or_a_r8(&self, char *reg) {
 	self.af.hi |= *reg;
 
@@ -99,6 +100,7 @@ fn void Cpu.or_a_n8(&self, char value) {
 	self.required_cycles = 2;
 }
 
+//XOR
 fn void Cpu.xor_a_r8(&self, char *reg) {
 	self.af.hi ^= *reg;
 

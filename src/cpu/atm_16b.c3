@@ -1,11 +1,5 @@
 module cpu;
 
-/*
-ADD HL,r16
-DEC r16
-INC r16
-*/
-
 fn void Cpu.add_hl_r16(&self, HiLoReg *reg) {
 	if (check_bit15_overflow(self.af.hi, reg.reg)) {
 		self.setFlag(H);
