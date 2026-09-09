@@ -64,6 +64,13 @@ const Flag H = 5; // Half carry (BCD)
 const Flag N = 6; // Subtraction (BCD)
 const Flag Z = 7; // Zero
 
+// Interrupt-related I/O registers, and the mask of the 5 real interrupt lines
+// (VBlank, LCD STAT, Timer, Serial, Joypad).
+const ushort IE_ADDR = 0xFFFF; // Interrupt Enable
+const ushort IF_ADDR = 0xFF0F; // Interrupt Flag (pending)
+const ushort DIV_ADDR = 0xFF04; // Divider register (reset by STOP)
+const char INT_MASK = 0x1F;
+
 // Little-endian host only: the first field is the low byte.
 union HiLoReg {
 	struct {
@@ -86,6 +93,13 @@ struct Cpu {
 	char required_cycles;
 
 	bool ime;
+
+	// HALT: CPU is idle until an interrupt is pending.
+	bool halted;
+	// STOP: CPU (and on DMG the whole system) is idle until a button is pressed.
+	bool stopped;
+	// HALT bug: the next opcode fetch must not advance PC (it is read twice).
+	bool halt_bug;
 }
 
 // Post-boot DMG register state (boot ROM skipped).

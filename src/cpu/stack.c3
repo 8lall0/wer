@@ -45,6 +45,19 @@ fn void Cpu.add_sp_e8(&self, ichar e8) {
 	self.required_cycles = 4;
 }
 
+// LD HL,SP+e8 : HL = SP + (signed) e8, SP unchanged. Flags identical to
+// ADD SP,e8 (Z=0, N=0, H/C from the unsigned low nibble/byte of e8).
+fn void Cpu.ld_hl_sp_e8(&self, ichar e8) {
+	self.unsetFlag(Z);
+	self.unsetFlag(N);
+	self.assignFlag(H, check_bit3_signed_overflow(self.sp, e8));
+	self.assignFlag(C, check_bit7_signed_overflow(self.sp, e8));
+
+	self.hl.reg = (ushort)((int)self.sp + (int)e8);
+
+	self.required_cycles = 3;
+}
+
 fn void Cpu.dec_sp(&self) {
 	self.sp--;
 
