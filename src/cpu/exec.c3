@@ -2,18 +2,10 @@ module cpu;
 
 import mmu;
 
-fn char Cpu.step(&self, mmu::Mmu *mmu) {
-	char ic = self.service_interrupt(mmu);
-	if (ic > 0) {
-		self.clk += ic;
-		return ic;
-	}
-
-	if (self.halted || self.stopped) {
-		self.clk += 1;
-		return 1;
-	}
-
+// Fetch and run exactly one instruction: no interrupt check, no halt/stop
+// idling. Returns the M-cycles it cost. Used by `step` and by the
+// SingleStepTests harness (which wants pure single-instruction semantics).
+fn char Cpu.execute_one(&self, mmu::Mmu *mmu) {
 	char op = self.fetch8(mmu);
 	if (self.halt_bug) {
 		// The HALT bug: the byte after HALT is read without advancing PC.
@@ -30,8 +22,26 @@ fn char Cpu.step(&self, mmu::Mmu *mmu) {
 		if (self.ime_delay == 0) self.ime = true;
 	}
 
-	self.clk += self.required_cycles;
 	return self.required_cycles;
+}
+
+// Run one step: service a pending interrupt, idle one cycle while halted /
+// stopped, or fetch+execute one instruction. Returns the M-cycles consumed.
+fn char Cpu.step(&self, mmu::Mmu *mmu) {
+	char ic = self.service_interrupt(mmu);
+	if (ic > 0) {
+		self.clk += ic;
+		return ic;
+	}
+
+	if (self.halted || self.stopped) {
+		self.clk += 1;
+		return 1;
+	}
+
+	char cycles = self.execute_one(mmu);
+	self.clk += cycles;
+	return cycles;
 }
 
 fn void Cpu.illegal(&self, char op) {
