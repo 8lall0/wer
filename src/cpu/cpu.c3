@@ -100,6 +100,9 @@ struct Cpu {
 	bool stopped;
 	// HALT bug: the next opcode fetch must not advance PC (it is read twice).
 	bool halt_bug;
+	// EI is delayed by one instruction. Counts down at the end of each step;
+	// IME is set when it reaches 0. DI resets it to 0.
+	char ime_delay;
 }
 
 // Post-boot DMG register state (boot ROM skipped).
