@@ -58,7 +58,7 @@ fn void Cpu.ld_sp_n16(&self, ushort value) {
 	self.required_cycles = 3;
 }
 
-fn void Cpu.ld_n16_sp(&self, mmu::Mmu mmu, ushort address) {
+fn void Cpu.ld_n16_sp(&self, mmu::Mmu *mmu, ushort address) {
 	mmu.set(address, (char)(self.sp & 0xFF));
 	mmu.set(address+1, (char)(self.sp >> 8));
 
@@ -71,7 +71,7 @@ fn void Cpu.ld_sp_hl(&self) {
 	self.required_cycles = 2;
 }
 
-fn void Cpu.pop_af(&self, mmu::Mmu mmu) {
+fn void Cpu.pop_af(&self, mmu::Mmu *mmu) {
 	self.af.lo = mmu.get(self.sp);
 	self.sp++;
 	self.af.hi = mmu.get(self.sp);
@@ -80,7 +80,7 @@ fn void Cpu.pop_af(&self, mmu::Mmu mmu) {
 	self.required_cycles = 3;
 }
 
-fn void Cpu.pop_r16(&self, mmu::Mmu mmu, HiLoReg *reg) {
+fn void Cpu.pop_r16(&self, mmu::Mmu *mmu, HiLoReg *reg) {
 	reg.lo = mmu.get(self.sp);
 	self.sp++;
 	reg.hi = mmu.get(self.sp);
@@ -89,7 +89,7 @@ fn void Cpu.pop_r16(&self, mmu::Mmu mmu, HiLoReg *reg) {
 	self.required_cycles = 3;
 }
 
-fn void Cpu.push_af(&self, mmu::Mmu mmu) {
+fn void Cpu.push_af(&self, mmu::Mmu *mmu) {
 	self.sp--;
 	mmu.set(self.sp, self.af.hi);
 	self.sp--;
@@ -98,7 +98,7 @@ fn void Cpu.push_af(&self, mmu::Mmu mmu) {
 	self.required_cycles = 4;
 }
 
-fn void Cpu.push_r16(&self, mmu::Mmu mmu, HiLoReg *reg) {
+fn void Cpu.push_r16(&self, mmu::Mmu *mmu, HiLoReg *reg) {
 	self.sp--;
 	mmu.set(self.sp, reg.hi);
 	self.sp--;

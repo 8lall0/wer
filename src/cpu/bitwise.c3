@@ -70,7 +70,7 @@ fn void Cpu.or_a_r8(&self, char *reg) {
 	self.required_cycles = 1;
 }
 
-fn void Cpu.or_a_hl(&self, mmu::Mmu mmu) {
+fn void Cpu.or_a_hl(&self, mmu::Mmu *mmu) {
 	self.af.hi |= mmu.get(self.hl.reg);
 
 	self.unsetFlag(N);
@@ -116,7 +116,7 @@ fn void Cpu.xor_a_r8(&self, char *reg) {
 	self.required_cycles = 1;
 }
 
-fn void Cpu.xor_a_hl(&self, mmu::Mmu mmu) {
+fn void Cpu.xor_a_hl(&self, mmu::Mmu *mmu) {
 	self.af.hi ^= mmu.get(self.hl.reg);
 
 	self.unsetFlag(N);
