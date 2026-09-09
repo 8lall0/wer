@@ -335,6 +335,90 @@ fn void inc_dec_hl_memory() @test
 }
 
 // ---------------------------------------------------------------------------
+// DAA
+// ---------------------------------------------------------------------------
+
+// Helper: run A = x + y through ADD then DAA, return adjusted A.
+macro char bcd_add(char x, char y)
+{
+	cpu::Cpu c = cpu::init();
+	c.af.hi = x;
+	c.af.lo = 0;
+	char yy = y;
+	c.add_a_r8(&yy);
+	c.daa();
+	return c.af.hi;
+}
+
+macro char bcd_sub(char x, char y)
+{
+	cpu::Cpu c = cpu::init();
+	c.af.hi = x;
+	c.af.lo = 0;
+	char yy = y;
+	c.sub_a_r8(&yy);
+	c.daa();
+	return c.af.hi;
+}
+
+fn void daa_after_add() @test
+{
+	test::eq((char)0x17, bcd_add(0x09, 0x08)); // 9 + 8 = 17
+	test::eq((char)0x83, bcd_add(0x45, 0x38)); // 45 + 38 = 83
+	test::eq((char)0x00, bcd_add(0x00, 0x00));
+	test::eq((char)0x70, bcd_add(0x90, 0x80)); // 90 + 80 = 170 -> 0x70 + carry
+}
+
+fn void daa_after_add_sets_carry_and_zero() @test
+{
+	cpu::Cpu c = cpu::init();
+	c.af.hi = 0x90;
+	c.af.lo = 0;
+	char n = 0x80;
+	c.add_a_r8(&n); // 0x10, C=1
+	c.daa();
+
+	test::eq((char)0x70, c.af.hi);
+	test::@check(c.getFlag(cpu::C) == 1, "C: BCD result > 99");
+	test::@check(c.getFlag(cpu::H) == 0, "H always cleared by DAA");
+	test::@check(c.getFlag(cpu::N) == 0, "N preserved (was add)");
+
+	// 99 + 01 = 100 -> 0x00 with carry
+	c = cpu::init();
+	c.af.hi = 0x99;
+	c.af.lo = 0;
+	char one = 0x01;
+	c.add_a_r8(&one);
+	c.daa();
+	test::eq((char)0x00, c.af.hi);
+	test::@check(c.getFlag(cpu::Z) == 1, "Z: adjusted result is 0");
+	test::@check(c.getFlag(cpu::C) == 1, "C: wrapped past 99");
+}
+
+fn void daa_after_sub() @test
+{
+	test::eq((char)0x07, bcd_sub(0x45, 0x38)); // 45 - 38 = 07
+	test::eq((char)0x00, bcd_sub(0x50, 0x50));
+	test::eq((char)0x18, bcd_sub(0x20, 0x02)); // 20 - 2 = 18
+}
+
+fn void daa_after_sub_preserves_n_and_borrow_carry() @test
+{
+	cpu::Cpu c = cpu::init();
+	// 0x05 - 0x11 -> binary 0xF4, N=1, C=1 (borrow). BCD: 05 - 11 = -6 -> 94 with borrow.
+	c.af.hi = 0x05;
+	c.af.lo = 0;
+	char n = 0x11;
+	c.sub_a_r8(&n);
+	c.daa();
+
+	test::eq((char)0x94, c.af.hi);
+	test::@check(c.getFlag(cpu::N) == 1, "N preserved (was sub)");
+	test::@check(c.getFlag(cpu::C) == 1, "C: borrow kept through DAA");
+	test::@check(c.getFlag(cpu::H) == 0, "H cleared");
+}
+
+// ---------------------------------------------------------------------------
 // 16-bit arithmetic
 // ---------------------------------------------------------------------------
 
@@ -390,6 +474,151 @@ fn void and_or_xor_flags() @test
 	c.af.hi = 0x00;
 	c.or_a_n8(0x00);
 	test::@check(c.getFlag(cpu::Z) == 1, "OR: zero");
+}
+
+// ---------------------------------------------------------------------------
+// Rotates & shifts
+// ---------------------------------------------------------------------------
+
+fn void rlc_rotates_and_sets_carry() @test
+{
+	cpu::Cpu c = cpu::init();
+	char reg = 0x85; // 1000_0101
+	c.af.lo = 0;
+	c.rlc_r8(&reg);
+
+	test::eq((char)0x0B, reg); // 0000_1011
+	test::@check(c.getFlag(cpu::C) == 1, "C = old bit 7");
+	test::@check(c.getFlag(cpu::Z) == 0, "Z clear");
+	test::@check(c.getFlag(cpu::N) == 0 && c.getFlag(cpu::H) == 0, "N=H=0");
+	test::eq((char)2, c.required_cycles);
+}
+
+fn void rrc_rotates_and_sets_carry() @test
+{
+	cpu::Cpu c = cpu::init();
+	char reg = 0x01;
+	c.af.lo = 0;
+	c.rrc_r8(&reg);
+
+	test::eq((char)0x80, reg);
+	test::@check(c.getFlag(cpu::C) == 1, "C = old bit 0");
+	test::@check(c.getFlag(cpu::Z) == 0, "Z clear");
+}
+
+fn void rl_through_carry() @test
+{
+	cpu::Cpu c = cpu::init();
+	char reg = 0x80;
+	c.af.lo = 0; // carry-in 0
+	c.rl_r8(&reg);
+
+	test::eq((char)0x00, reg);
+	test::@check(c.getFlag(cpu::C) == 1, "C = old bit 7");
+	test::@check(c.getFlag(cpu::Z) == 1, "Z: result is 0");
+
+	reg = 0x00;
+	c.setFlag(cpu::C); // carry-in 1
+	c.rl_r8(&reg);
+	test::eq((char)0x01, reg);
+	test::@check(c.getFlag(cpu::C) == 0, "C = old bit 7 (0)");
+}
+
+fn void rr_through_carry() @test
+{
+	cpu::Cpu c = cpu::init();
+	char reg = 0x01;
+	c.af.lo = 0;
+	c.setFlag(cpu::C); // carry-in 1
+	c.rr_r8(&reg);
+
+	test::eq((char)0x80, reg);
+	test::@check(c.getFlag(cpu::C) == 1, "C = old bit 0");
+}
+
+fn void sla_shifts_in_zero() @test
+{
+	cpu::Cpu c = cpu::init();
+	char reg = 0x80;
+	c.af.lo = 0;
+	c.sla_r8(&reg);
+
+	test::eq((char)0x00, reg);
+	test::@check(c.getFlag(cpu::C) == 1, "C = old bit 7");
+	test::@check(c.getFlag(cpu::Z) == 1, "Z: result is 0");
+}
+
+fn void sra_preserves_sign_bit() @test
+{
+	cpu::Cpu c = cpu::init();
+	char reg = 0x81; // 1000_0001
+	c.af.lo = 0;
+	c.sra_r8(&reg);
+
+	test::eq((char)0xC0, reg); // 1100_0000 - bit 7 kept
+	test::@check(c.getFlag(cpu::C) == 1, "C = old bit 0");
+	test::@check(c.getFlag(cpu::Z) == 0, "Z clear");
+}
+
+fn void srl_shifts_in_zero() @test
+{
+	cpu::Cpu c = cpu::init();
+	char reg = 0x81;
+	c.af.lo = 0;
+	c.srl_r8(&reg);
+
+	test::eq((char)0x40, reg); // 0100_0000 - bit 7 forced 0
+	test::@check(c.getFlag(cpu::C) == 1, "C = old bit 0");
+	test::@check(c.getFlag(cpu::N) == 0 && c.getFlag(cpu::H) == 0, "N=H=0");
+}
+
+fn void swap_exchanges_nibbles() @test
+{
+	cpu::Cpu c = cpu::init();
+	char reg = 0xF0;
+	c.af.lo = 0xF0; // all flags stale-set incl. C
+	c.swap_r8(&reg);
+
+	test::eq((char)0x0F, reg);
+	test::@check(c.getFlag(cpu::C) == 0, "SWAP clears C");
+	test::@check(c.getFlag(cpu::Z) == 0, "Z clear");
+	test::@check(c.getFlag(cpu::N) == 0 && c.getFlag(cpu::H) == 0, "N=H=0");
+
+	reg = 0x00;
+	c.swap_r8(&reg);
+	test::@check(c.getFlag(cpu::Z) == 1, "Z: result 0");
+}
+
+fn void accumulator_rotates_always_clear_z() @test
+{
+	cpu::Cpu c = cpu::init();
+
+	c.af.hi = 0x00;
+	c.af.lo = 0;
+	c.rlca(); // result 0, but Z must stay 0
+	test::eq((char)0x00, c.af.hi);
+	test::@check(c.getFlag(cpu::Z) == 0, "RLCA clears Z even when result is 0");
+	test::eq((char)1, c.required_cycles);
+
+	c.af.hi = 0x01;
+	c.rrca(); // -> 0x80, C=1
+	test::eq((char)0x80, c.af.hi);
+	test::@check(c.getFlag(cpu::C) == 1, "RRCA: C = old bit 0");
+	test::@check(c.getFlag(cpu::Z) == 0, "RRCA clears Z");
+}
+
+fn void shift_on_hl_memory() @test
+{
+	cpu::Cpu c = cpu::init();
+	mmu::Mmu m;
+	c.hl.reg = 0xC000;
+	m.set(0xC000, 0x85);
+	c.af.lo = 0;
+
+	c.rlc_hl(&m);
+	test::eq((char)0x0B, m.get(0xC000));
+	test::@check(c.getFlag(cpu::C) == 1, "C = old bit 7");
+	test::eq((char)4, c.required_cycles);
 }
 
 // ---------------------------------------------------------------------------
@@ -550,6 +779,36 @@ fn void pop_af_masks_low_nibble() @test
 	test::eq((char)0xF0, c.af.lo); // low nibble forced to 0
 }
 
+fn void ld_hl_sp_e8_computes_without_touching_sp() @test
+{
+	cpu::Cpu c = cpu::init();
+	c.sp = 0xFFF8;
+	c.af.lo = 0xF0;
+
+	c.ld_hl_sp_e8(0x08); // 0xFFF8 + 8 = 0x0000 (wraps)
+	test::eq((ushort)0x0000, c.hl.reg);
+	test::eq((ushort)0xFFF8, c.sp); // SP untouched
+	test::@check(c.getFlag(cpu::Z) == 0, "Z always 0");
+	test::@check(c.getFlag(cpu::N) == 0, "N always 0");
+	test::@check(c.getFlag(cpu::H) == 1, "H: 0x8 + 0x8 crosses bit 3");
+	test::@check(c.getFlag(cpu::C) == 1, "C: 0xF8 + 0x08 crosses bit 7");
+	test::eq((char)3, c.required_cycles);
+}
+
+fn void ld_hl_sp_e8_negative_offset() @test
+{
+	cpu::Cpu c = cpu::init();
+	c.sp = 0x0005;
+	c.af.lo = 0;
+
+	c.ld_hl_sp_e8(-1); // 0x0004
+	test::eq((ushort)0x0004, c.hl.reg);
+	test::eq((ushort)0x0005, c.sp);
+	// H/C use the unsigned byte 0xFF: 0x5 + 0xF -> bit3 carry; 0x05 + 0xFF -> bit7 carry
+	test::@check(c.getFlag(cpu::H) == 1, "H from unsigned nibble");
+	test::@check(c.getFlag(cpu::C) == 1, "C from unsigned byte");
+}
+
 fn void add_sp_e8_flags() @test
 {
 	cpu::Cpu c = cpu::init();
@@ -566,6 +825,73 @@ fn void add_sp_e8_flags() @test
 	c.sp = 0x0001;
 	c.add_sp_e8(-1);
 	test::eq((ushort)0x0000, c.sp);
+}
+
+// ---------------------------------------------------------------------------
+// HALT / STOP
+// ---------------------------------------------------------------------------
+
+fn void halt_with_ime_halts() @test
+{
+	cpu::Cpu c = cpu::init();
+	mmu::Mmu m;
+	c.ime = true;
+	m.set(0xFFFF, 0x01); // IE: VBlank enabled
+	m.set(0xFF0F, 0x00); // IF: nothing pending
+
+	c.halt(&m);
+	test::@check(c.halted, "HALT sets halted");
+	test::@check(!c.halt_bug, "no halt bug when IME=1");
+}
+
+fn void halt_without_ime_no_pending_halts() @test
+{
+	cpu::Cpu c = cpu::init();
+	mmu::Mmu m;
+	c.ime = false;
+	m.set(0xFFFF, 0x1F);
+	m.set(0xFF0F, 0x00); // nothing pending
+
+	c.halt(&m);
+	test::@check(c.halted, "halted when nothing pending");
+	test::@check(!c.halt_bug, "no halt bug without a pending interrupt");
+}
+
+fn void halt_bug_when_ime_clear_and_pending() @test
+{
+	cpu::Cpu c = cpu::init();
+	mmu::Mmu m;
+	c.ime = false;
+	m.set(0xFFFF, 0x04); // IE: timer
+	m.set(0xFF0F, 0x04); // IF: timer pending
+
+	c.halt(&m);
+	test::@check(!c.halted, "HALT bug: CPU does not halt");
+	test::@check(c.halt_bug, "HALT bug flag set");
+}
+
+fn void halt_pending_but_masked_still_halts() @test
+{
+	cpu::Cpu c = cpu::init();
+	mmu::Mmu m;
+	c.ime = false;
+	m.set(0xFFFF, 0x01); // IE: only VBlank enabled
+	m.set(0xFF0F, 0x04); // IF: timer pending but not enabled
+
+	c.halt(&m);
+	test::@check(c.halted, "masked pending interrupt does not trigger the bug");
+	test::@check(!c.halt_bug, "no halt bug");
+}
+
+fn void stop_sets_flag_and_resets_div() @test
+{
+	cpu::Cpu c = cpu::init();
+	mmu::Mmu m;
+	m.set(0xFF04, 0xAB); // DIV has some value
+
+	c.stop(&m);
+	test::@check(c.stopped, "STOP sets stopped");
+	test::eq((char)0x00, m.get(0xFF04));
 }
 
 // ---------------------------------------------------------------------------
