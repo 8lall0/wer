@@ -828,6 +828,190 @@ fn void add_sp_e8_flags() @test
 }
 
 // ---------------------------------------------------------------------------
+// fetch / decode / execute
+// ---------------------------------------------------------------------------
+
+macro load_program(mmu::Mmu *m, ushort at, char[] bytes)
+{
+	foreach (i, b : bytes) {
+		m.set(at + (ushort)i, b);
+	}
+}
+
+fn void execute_ld_and_alu_block() @test
+{
+	cpu::Cpu c = cpu::init();
+	mmu::Mmu m;
+	// LD A,0x10 ; LD B,A ; INC B ; ADD A,B
+	load_program(&m, 0x0100, { 0x3E, 0x10, 0x47, 0x04, 0x80 });
+	c.pc = 0x0100;
+
+	c.step(&m); // LD A,0x10
+	test::eq((char)0x10, c.af.hi);
+	c.step(&m); // LD B,A
+	test::eq((char)0x10, c.bc.hi);
+	c.step(&m); // INC B
+	test::eq((char)0x11, c.bc.hi);
+	c.step(&m); // ADD A,B  -> 0x21
+	test::eq((char)0x21, c.af.hi);
+	test::eq((ushort)0x0105, c.pc);
+}
+
+fn void execute_ld_hl_indirect() @test
+{
+	cpu::Cpu c = cpu::init();
+	mmu::Mmu m;
+	c.hl.reg = 0xC000;
+	m.set(0xC000, 0x99);
+	// LD D,(HL)  ; LD (HL),E
+	load_program(&m, 0x0100, { 0x56, 0x73 });
+	c.pc = 0x0100;
+	c.de.lo = 0x77; // E
+
+	char cy = c.step(&m); // LD D,(HL)
+	test::eq((char)0x99, c.de.hi);
+	test::eq((char)2, cy); // (HL) source -> 2 cycles
+
+	c.step(&m); // LD (HL),E
+	test::eq((char)0x77, m.get(0xC000));
+}
+
+fn void execute_jr_backwards() @test
+{
+	cpu::Cpu c = cpu::init();
+	mmu::Mmu m;
+	// at 0x0100: JR -2  (0x18 0xFE) -> jumps back onto itself
+	load_program(&m, 0x0100, { 0x18, 0xFE });
+	c.pc = 0x0100;
+
+	c.step(&m);
+	test::eq((ushort)0x0100, c.pc); // pc advanced to 0x0102, then -2
+}
+
+fn void execute_call_ret_roundtrip() @test
+{
+	cpu::Cpu c = cpu::init();
+	mmu::Mmu m;
+	c.sp = 0xFFFE;
+	// 0x0100: CALL 0x0150   (0xCD 0x50 0x01)
+	// 0x0150: RET           (0xC9)
+	load_program(&m, 0x0100, { 0xCD, 0x50, 0x01 });
+	m.set(0x0150, 0xC9);
+	c.pc = 0x0100;
+
+	c.step(&m); // CALL
+	test::eq((ushort)0x0150, c.pc);
+	test::eq((ushort)0xFFFC, c.sp);
+
+	c.step(&m); // RET
+	test::eq((ushort)0x0103, c.pc); // instruction after CALL
+	test::eq((ushort)0xFFFE, c.sp);
+}
+
+fn void execute_cb_prefix() @test
+{
+	cpu::Cpu c = cpu::init();
+	mmu::Mmu m;
+	c.bc.hi = 0x85;
+	c.af.lo = 0;
+	// CB 00 = RLC B
+	load_program(&m, 0x0100, { 0xCB, 0x00 });
+	c.pc = 0x0100;
+
+	char cy = c.step(&m);
+	test::eq((char)0x0B, c.bc.hi);
+	test::@check(c.getFlag(cpu::C) == 1, "RLC B: C = old bit 7");
+	test::eq((char)2, cy);
+	test::eq((ushort)0x0102, c.pc);
+}
+
+fn void execute_cb_bit_does_not_write() @test
+{
+	cpu::Cpu c = cpu::init();
+	mmu::Mmu m;
+	c.bc.lo = 0xFF; // C register
+	c.af.lo = 0;
+	// CB 0x49 = BIT 1,C
+	load_program(&m, 0x0100, { 0xCB, 0x49 });
+	c.pc = 0x0100;
+
+	c.step(&m);
+	test::eq((char)0xFF, c.bc.lo); // unchanged
+	test::@check(c.getFlag(cpu::Z) == 0, "bit 1 of 0xFF is set");
+	test::@check(c.getFlag(cpu::H) == 1, "H set by BIT");
+}
+
+fn void step_illegal_opcode_stops() @test
+{
+	cpu::Cpu c = cpu::init();
+	mmu::Mmu m;
+	load_program(&m, 0x0100, { 0xD3 });
+	c.pc = 0x0100;
+
+	c.step(&m);
+	test::@check(c.stopped, "illegal opcode halts the core");
+}
+
+fn void step_ei_is_delayed_one_instruction() @test
+{
+	cpu::Cpu c = cpu::init();
+	mmu::Mmu m;
+	// EI ; NOP ; NOP
+	load_program(&m, 0x0100, { 0xFB, 0x00, 0x00 });
+	c.pc = 0x0100;
+	c.ime = false;
+
+	c.step(&m); // EI
+	test::@check(!c.ime, "IME not set immediately by EI");
+	c.step(&m); // NOP (the instruction after EI)
+	test::@check(c.ime, "IME set after the instruction following EI");
+}
+
+fn void step_di_cancels_pending_ei() @test
+{
+	cpu::Cpu c = cpu::init();
+	mmu::Mmu m;
+	load_program(&m, 0x0100, { 0xFB, 0xF3 }); // EI ; DI
+	c.pc = 0x0100;
+	c.ime = false;
+
+	c.step(&m); // EI
+	c.step(&m); // DI
+	test::@check(!c.ime, "DI right after EI keeps interrupts disabled");
+}
+
+fn void step_services_interrupt() @test
+{
+	cpu::Cpu c = cpu::init();
+	mmu::Mmu m;
+	c.pc = 0x0200;
+	c.sp = 0xFFFE;
+	c.ime = true;
+	m.set(0xFFFF, 0x04); // IE: timer
+	m.set(0xFF0F, 0x04); // IF: timer pending
+
+	char cy = c.step(&m);
+	test::eq((char)5, cy);
+	test::eq((ushort)0x0050, c.pc); // timer vector
+	test::@check(!c.ime, "IME cleared on dispatch");
+	test::eq((char)0x00, m.get(0xFF0F) & 0x04); // IF bit acked
+	test::eq((ushort)0x0200, c.pop16(&m)); // return address pushed
+}
+
+fn void step_interrupt_wakes_halt() @test
+{
+	cpu::Cpu c = cpu::init();
+	mmu::Mmu m;
+	c.halted = true;
+	c.ime = false; // won't service, but must still wake
+	m.set(0xFFFF, 0x01);
+	m.set(0xFF0F, 0x01);
+
+	c.step(&m);
+	test::@check(!c.halted, "pending interrupt wakes HALT even with IME=0");
+}
+
+// ---------------------------------------------------------------------------
 // HALT / STOP
 // ---------------------------------------------------------------------------
 
