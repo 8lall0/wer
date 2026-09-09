@@ -1,92 +1,74 @@
 module cpu;
 
 import mmu;
+import std::core::env;
 
-fn bool check_bit3_overflow(char a, char b) {
-	char low_a = a & 0x0F;
-	char low_b = b & 0x0F;
+// The HiLoReg union below aliases two `char` fields over a `ushort` and relies
+// on the host byte order to place `hi`/`lo` correctly. Only little-endian hosts
+// are supported; fail the build loudly anywhere else.
+$assert !env::BIG_ENDIAN : "wer assumes a little-endian host (see HiLoReg).";
 
-	return (low_a + low_b) > 0x0F;
+// ---------------------------------------------------------------------------
+// Flag helpers
+// ---------------------------------------------------------------------------
+
+// Half-carry out of bit 3 for an 8-bit addition `a + b + carry`.
+fn bool check_bit3_overflow(char a, char b, char carry) {
+	return ((a & 0x0F) + (b & 0x0F) + (carry & 0x0F)) > 0x0F;
 }
 
-fn bool check_bit7_overflow(char a, char b) {
-	char low_a = a & 0x0F;
-	char low_b = b & 0x0F;
-
-	return (low_a + low_b) > 0x0F;
+// Carry out of bit 7 for an 8-bit addition `a + b + carry`.
+fn bool check_bit7_overflow(char a, char b, char carry) {
+	return ((uint)a + (uint)b + (uint)carry) > 0xFF;
 }
 
-fn bool check_bit3_signed_overflow(ushort a, ichar b) {
-	int mask = 0x7;
-	int carry = ((a & mask) + (b & mask)) >> 3;
-
-	return carry != 0;
+// Half-borrow out of bit 4 for an 8-bit subtraction `a - b - carry`.
+fn bool check_bit3_borrow(char a, char b, char carry) {
+	return ((int)(a & 0x0F) - (int)(b & 0x0F) - (int)(carry & 0x0F)) < 0;
 }
 
-fn bool check_bit7_signed_overflow(ushort a, ichar b) {
-	int mask = 0x7;
-	int carry = ((a & mask) + (b & mask)) >> 7;
-
-	return carry != 0;
+// Borrow out of bit 8 for an 8-bit subtraction `a - b - carry`.
+fn bool check_bit7_borrow(char a, char b, char carry) {
+	return ((int)a - (int)b - (int)carry) < 0;
 }
 
-
+// Half-carry out of bit 11 for a 16-bit addition `a + b`.
 fn bool check_bit11_overflow(ushort a, ushort b) {
-	ushort low_a = a & 0x0FFF;
-	ushort low_b = b & 0x0FFF;
-
-	return (low_a + low_b) > 0x0FFF;
+	return ((a & 0x0FFF) + (b & 0x0FFF)) > 0x0FFF;
 }
 
+// Carry out of bit 15 for a 16-bit addition `a + b`.
 fn bool check_bit15_overflow(ushort a, ushort b) {
-	ushort sum = a + b;
-
-	return sum < a;
+	return ((uint)a + (uint)b) > 0xFFFF;
 }
 
-// TODO: check how to operate with unsigned and signed
-fn bool check_bit11_signed_overflow(ushort a, short b) {
-	int mask = (1 << 11) - 1; // 0x7FF
-
-	int carry = ((a & mask) + (b & mask)) >> 11;
-
-	return carry != 0;
+// ADD SP,e8 / LD HL,SP+e8 compute H and C from the *unsigned* low nibble/byte
+// of the (signed) offset added to SP.
+fn bool check_bit3_signed_overflow(ushort sp, ichar e8) {
+	return ((sp & 0x0F) + ((char)e8 & 0x0F)) > 0x0F;
 }
 
-fn bool check_bit15_signed_overflow(ushort a, short b) {
-	int mask = 0x7FFF;
-
-	int carry = ((a & mask) + (b & mask)) >> 15;
-
-	return carry != 0;
+fn bool check_bit7_signed_overflow(ushort sp, ichar e8) {
+	return ((sp & 0xFF) + ((char)e8 & 0xFF)) > 0xFF;
 }
+
+// ---------------------------------------------------------------------------
+// Registers
+// ---------------------------------------------------------------------------
 
 alias Flag = char;
 
-const Flag C = 4;
-const Flag H = 5;
-const Flag N = 6;
-const Flag Z = 7;
+// Bit positions inside the F register.
+const Flag C = 4; // Carry
+const Flag H = 5; // Half carry (BCD)
+const Flag N = 6; // Subtraction (BCD)
+const Flag Z = 7; // Zero
 
-/*
-AF	A	-	Accumulator & Flags
-BC	B	C	BC
-DE	D	E	DE
-HL	H	L	HL
-SP	-	-	Stack Pointer
-PC	-	-	Program Counter/Pointer
-
-lower af:
-7	z	Zero flag
-6	n	Subtraction flag (BCD)
-5	h	Half Carry flag (BCD)
-4	c	Carry flag
-*/
-
+// Little-endian host only: the first field is the low byte.
 union HiLoReg {
 	struct {
-		char hi;
 		char lo;
+		char hi;
 	}
 	ushort reg;
 }
@@ -106,29 +88,48 @@ struct Cpu {
 	bool ime;
 }
 
+// Post-boot DMG register state (boot ROM skipped).
 fn Cpu init() {
 	return (Cpu) {
 		.af.reg = 0x01B0,
 		.bc.reg = 0x0013,
-		.de.reg = (ushort)0x00D8,
-		.hl.reg = (ushort)0x014D,
-		.sp = (ushort)0xFFFE,
-		.pc = (ushort)0x0100,
+		.de.reg = 0x00D8,
+		.hl.reg = 0x014D,
+		.sp = 0xFFFE,
+		.pc = 0x0100,
 	};
 }
+
+// ---------------------------------------------------------------------------
+// Flag access (flags live in F, the low byte of AF)
+// ---------------------------------------------------------------------------
 
 fn void Cpu.resetFlag(&self) {
 	self.af.lo = 0;
 }
 
 fn void Cpu.setFlag(&self, Flag flag) {
-	self.af.lo |= 1 << flag;
+	self.af.lo |= (char)(1 << flag);
 }
 
 fn void Cpu.unsetFlag(&self, Flag flag) {
-	self.af.lo &= ~(1 << flag);
+	self.af.lo &= (char)~(1 << flag);
 }
 
+// Returns 0 or 1. Does not mutate F.
 fn char Cpu.getFlag(&self, Flag flag) {
-	return self.af.lo &= 1 << flag;
+	return (self.af.lo >> flag) & 1;
+}
+
+fn void Cpu.assignFlag(&self, Flag flag, bool value) {
+	if (value) {
+		self.setFlag(flag);
+	} else {
+		self.unsetFlag(flag);
+	}
+}
+
+// Z is set if `value` is zero.
+fn void Cpu.updateZero(&self, char value) {
+	self.assignFlag(Z, value == 0);
 }
