@@ -30,10 +30,10 @@
   // Targets.
   "targets": {
     "wer": {
-      // Executable or library.
       "type": "executable",
-      // Additional libraries, sources
-      // and overrides of global settings here.
+      // SDL3 (system library) is used by src/display.c3 for the window,
+      // renderer and audio. Only the executable links it; `c3c test` does not.
+      "linked-libraries": [ "SDL3" ],
     },
   },
   // Global settings.
