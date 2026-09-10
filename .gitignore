@@ -1,3 +1,9 @@
 .idea/
 build/
 test/sm83/
+resources/*.gb
+resources/*.gbc
+wer-frame.ppm
+wer-audio.wav
+resources/*.sav
+*.sav

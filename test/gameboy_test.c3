@@ -5,7 +5,8 @@ import std::core::test;
 
 fn void load_rom_copies_into_rom() @test
 {
-	gameboy::GameBoy gb = gameboy::new();
+	gameboy::GameBoy gb = gameboy::new(false);
+	defer gb.destroy();
 	gb.load_rom({ 0x00, 0xC3, 0x50, 0x01 });
 	test::eq((char)0xC3, gb.mmu.get(0x0001));
 	test::eq((char)0x01, gb.mmu.get(0x0003));
@@ -13,7 +14,8 @@ fn void load_rom_copies_into_rom() @test
 
 fn void step_runs_cpu_and_ticks_peripherals() @test
 {
-	gameboy::GameBoy gb = gameboy::new();
+	gameboy::GameBoy gb = gameboy::new(false);
+	defer gb.destroy();
 	// NOP * 64  -> 64 M-cycles = 256 T-cycles -> DIV ticks to 1
 	char[64] nops;
 	gb.load_rom(nops[..]);
@@ -27,7 +29,8 @@ fn void step_runs_cpu_and_ticks_peripherals() @test
 
 fn void timer_interrupt_is_serviced() @test
 {
-	gameboy::GameBoy gb = gameboy::new();
+	gameboy::GameBoy gb = gameboy::new(false);
+	defer gb.destroy();
 
 	// Program at 0x0000: EI ; then spin with JR -2.
 	gb.load_rom({ 0xFB, 0x18, 0xFE });
