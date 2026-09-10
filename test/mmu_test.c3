@@ -12,6 +12,19 @@ fn void wram_and_echo_alias() @test
 	test::eq((char)0x77, m.get(0xC100));
 }
 
+fn void rom_area_is_read_only() @test
+{
+	mmu::Mmu m;
+	m.load(0x2000, { 0x20, 0x99 });
+	test::eq((char)0x20, m.get(0x2000));
+
+	// A game writing an MBC bank-select value must NOT alter the ROM buffer.
+	m.set(0x2000, 0x01);
+	m.set(0x0147, 0xEE);
+	test::eq((char)0x20, m.get(0x2000));
+	test::eq((char)0x99, m.get(0x2001));
+}
+
 fn void unusable_region_reads_ff() @test
 {
 	mmu::Mmu m;
