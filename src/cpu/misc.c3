@@ -36,8 +36,8 @@ fn void Cpu.nop(&self) {
 	self.required_cycles = 1;
 }
 
+// NB: stop is just a simple DIV handling, on emulation we don't need to preserve power.
 fn void Cpu.stop(&self, mmu::Mmu *mmu) {
-	self.stopped = true;
 	mmu.set(DIV_ADDR, 0);
 
 	self.required_cycles = 1;
