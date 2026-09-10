@@ -833,9 +833,7 @@ fn void add_sp_e8_flags() @test
 
 macro load_program(mmu::Mmu *m, ushort at, char[] bytes)
 {
-	foreach (i, b : bytes) {
-		m.set(at + (ushort)i, b);
-	}
+	m.load(at, bytes); // $0000-$7FFF is read-only via set(); write the buffer directly
 }
 
 fn void execute_ld_and_alu_block() @test
@@ -896,7 +894,7 @@ fn void execute_call_ret_roundtrip() @test
 	// 0x0100: CALL 0x0150   (0xCD 0x50 0x01)
 	// 0x0150: RET           (0xC9)
 	load_program(&m, 0x0100, { 0xCD, 0x50, 0x01 });
-	m.set(0x0150, 0xC9);
+	m.load(0x0150, { 0xC9 });
 	c.pc = 0x0100;
 
 	c.step(&m); // CALL
@@ -1067,14 +1065,14 @@ fn void halt_pending_but_masked_still_halts() @test
 	test::@check(!c.halt_bug, "no halt bug");
 }
 
-fn void stop_sets_flag_and_resets_div() @test
+fn void stop_resets_div_and_continues() @test
 {
 	cpu::Cpu c = cpu::init();
 	mmu::Mmu m;
-	m.set(0xFF04, 0xAB); // DIV has some value
+	m.tick(80); // let DIV advance
 
 	c.stop(&m);
-	test::@check(c.stopped, "STOP sets stopped");
+	test::@check(!c.stopped, "STOP does not permanently halt the core");
 	test::eq((char)0x00, m.get(0xFF04));
 }
 

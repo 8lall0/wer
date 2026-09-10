@@ -58,14 +58,11 @@ fn bool check_bit7_signed_overflow(ushort sp, ichar e8) {
 
 alias Flag = char;
 
-// Bit positions inside the F register.
 const Flag C = 4; // Carry
 const Flag H = 5; // Half carry (BCD)
 const Flag N = 6; // Subtraction (BCD)
 const Flag Z = 7; // Zero
 
-// Interrupt-related I/O registers, and the mask of the 5 real interrupt lines
-// (VBlank, LCD STAT, Timer, Serial, Joypad).
 const ushort IE_ADDR = 0xFFFF; // Interrupt Enable
 const ushort IF_ADDR = 0xFF0F; // Interrupt Flag (pending)
 const ushort DIV_ADDR = 0xFF04; // Divider register (reset by STOP)
@@ -105,7 +102,7 @@ struct Cpu {
 	char ime_delay;
 }
 
-// Post-boot DMG register state (boot ROM skipped).
+// Post-boot DMG register state (boot ROM skipped): execution starts at $0100.
 fn Cpu init() {
 	return (Cpu) {
 		.af.reg = 0x01B0,
@@ -117,9 +114,9 @@ fn Cpu init() {
 	};
 }
 
-// ---------------------------------------------------------------------------
-// Flag access (flags live in F, the low byte of AF)
-// ---------------------------------------------------------------------------
+fn Cpu init_cold() {
+	return (Cpu) {};
+}
 
 fn void Cpu.resetFlag(&self) {
 	self.af.lo = 0;
