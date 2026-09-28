@@ -1,6 +1,10 @@
 module wer;
-import std::io, std::io::file;
+import std::io, std::io::file, std::time::clock, std::thread::os;
 import gameboy, ppu, display;
+
+// 70224 T-cycles per frame / 4 194 304 Hz ≈ 59.73 fps.
+const NanoDuration PERIOD = (NanoDuration)16_742_706;
+const NanoDuration MAX_LAG = (NanoDuration)100_000_000;
 
 const char[12] PPM_PALETTE = {
 	0xE0, 0xF8, 0xD0,  0x88, 0xC0, 0x70,  0x34, 0x68, 0x56,  0x08, 0x18, 0x20,
@@ -83,6 +87,7 @@ fn int main(String[] args)
 	defer screen.close();
 
 	short[4096] audio;
+	Clock next = clock::now();
 	while (true) {
 		display::Input in = screen.poll();
 		if (in.quit) break;
@@ -91,6 +96,11 @@ fn int main(String[] args)
 		gb.run_frame();
 		screen.present(gb.framebuffer());
 		screen.queue_audio(&audio, gb.audio(&audio));
+		next += PERIOD;
+		Clock now = clock::now();
+		if (now - next > MAX_LAG) next = now;
+		NanoDuration remaining = next - now;
+		(void)os::native_sleep_nano(remaining);
 	}
 	return 0;
 }

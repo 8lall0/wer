@@ -44,7 +44,7 @@ fn Display? open(ZString title) {
 		sdl::quit();
 		return SDL_FAILED~;
 	}
-	sdl::set_render_vsync(d.renderer, 1);
+	sdl::set_render_vsync(d.renderer, 0);
 
 	d.texture = sdl::create_texture(d.renderer, sdl::PIXELFORMAT_ABGR8888,
 		sdl::TEXTUREACCESS_STREAMING, ppu::WIDTH, ppu::HEIGHT);
