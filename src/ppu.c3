@@ -182,7 +182,7 @@ fn void Ppu.render_line(&self) {
 		self.fb[row + x] = shade(self.bgp, idx);
 	}
 
-	if (win_row) self.win_line++;
+	if (win_row && win_x0 < WIDTH) self.win_line++;
 
 	if (self.lcdc & LCDC_OBJ_ENABLE) self.render_sprites(y);
 }
