@@ -173,10 +173,12 @@ fn void Ppu.render_line(&self) {
 
 	for (int x = 0; x < WIDTH; x++) {
 		char idx = 0;
-		if (win_row && x >= win_x0) {
-			idx = self.tile_pixel(win_map, signed_tiles, x - win_x0, self.win_line);
-		} else if (bg_on) {
-			idx = self.tile_pixel(bg_map, signed_tiles, (x + self.scx) & 0xFF, (y + self.scy) & 0xFF);
+		if (bg_on) {
+			if (win_row && x >= win_x0) {
+				idx = self.tile_pixel(win_map, signed_tiles, x - win_x0, self.win_line);
+			} else {
+				idx = self.tile_pixel(bg_map, signed_tiles, (x + self.scx) & 0xFF, (y + self.scy) & 0xFF);
+			}
 		}
 		self.bg_color[x] = idx;
 		self.fb[row + x] = shade(self.bgp, idx);

@@ -133,6 +133,42 @@ fn void renders_background_tile() @test
 	test::eq((char)0, fb[8]); // second tile column is blank
 }
 
+// Solid window at the top-left corner: tile 1 = colour 3 in the $9C00 map,
+// WX=7 / WY=0 so the window covers the whole first line.
+fn void setup_window(gameboy::GameBoy* gb, char lcdc) {
+	gb.mmu.set(0xFF47, 0xE4); // BGP: identity
+	solid_tile(gb, 1, 3);
+	gb.mmu.set(0x9C00, 0x01); // window map (0,0) -> tile 1
+	gb.mmu.set(0xFF4A, 0);    // WY
+	gb.mmu.set(0xFF4B, 7);    // WX: window starts at x = 0
+	gb.mmu.set(0xFF40, lcdc);
+}
+
+fn void renders_window() @test
+{
+	gameboy::GameBoy gb = gameboy::new(false);
+	defer gb.destroy();
+
+	setup_window(&gb, ppu::LCDC_ENABLE | ppu::LCDC_BG_ENABLE | ppu::LCDC_WIN_ENABLE
+		| ppu::LCDC_WIN_MAP | ppu::LCDC_TILE_DATA);
+	advance(&gb, 80);
+
+	test::eq((char)3, gb.framebuffer()[0]);
+}
+
+fn void bg_enable_off_hides_window() @test
+{
+	gameboy::GameBoy gb = gameboy::new(false);
+	defer gb.destroy();
+
+	// Same as renders_window but LCDC bit 0 clear: on DMG it blanks BG *and* window.
+	setup_window(&gb, ppu::LCDC_ENABLE | ppu::LCDC_WIN_ENABLE
+		| ppu::LCDC_WIN_MAP | ppu::LCDC_TILE_DATA);
+	advance(&gb, 80);
+
+	test::eq((char)0, gb.framebuffer()[0]);
+}
+
 fn void background_scroll() @test
 {
 	gameboy::GameBoy gb = gameboy::new(false);
