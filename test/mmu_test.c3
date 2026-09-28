@@ -64,6 +64,39 @@ fn void tac_unused_bits_read_high() @test
 	test::eq((char)0xFD, m.get(0xFF07)); // 0x05 | 0xF8
 }
 
+fn void if_unused_bits_read_high() @test
+{
+	mmu::Mmu m;
+	m.set(0xFF0F, 0x00);
+	test::eq((char)0xE0, m.get(0xFF0F));
+	m.set(0xFF0F, 0x04);
+	test::eq((char)0xE4, m.get(0xFF0F));
+}
+
+fn void sc_unused_bits_read_high() @test
+{
+	mmu::Mmu m;
+	m.set(0xFF02, 0x00);
+	test::eq((char)0x7E, m.get(0xFF02));
+}
+
+fn void sb_reads_back_written_value() @test
+{
+	mmu::Mmu m;
+	m.set(0xFF01, 0x5A);
+	test::eq((char)0x5A, m.get(0xFF01));
+}
+
+fn void unmapped_io_reads_ff() @test
+{
+	mmu::Mmu m;
+	ushort[*] unmapped = { 0xFF03, 0xFF08, 0xFF0E, 0xFF4C, 0xFF4D, 0xFF50, 0xFF7F };
+	foreach (addr : unmapped) {
+		m.set(addr, 0x00);
+		test::eq((char)0xFF, m.get(addr));
+	}
+}
+
 fn void mmu_tick_raises_timer_interrupt() @test
 {
 	mmu::Mmu m;

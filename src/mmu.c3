@@ -88,7 +88,11 @@ fn char Mmu.io_get(&self, ushort addr) {
 		case 0xFF49:   return self.ppu.obp1;
 		case 0xFF4A:   return self.ppu.wy;
 		case 0xFF4B:   return self.ppu.wx;
-		default:       return self.io[addr - 0xFF00];
+		case 0xFF01:   // SB: all 8 bits
+		case DMA_REG:  return self.io[addr - 0xFF00];
+		case 0xFF02:   return self.io[0x02] | 0x7E;             // SC: only bits 7 and 0 exist
+		case IF_REG:   return self.io[IF_REG - 0xFF00] | 0xE0;  // IF: bits 5-7 unused
+		default:       return 0xFF;                             // unmapped
 	}
 }
 
