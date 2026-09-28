@@ -115,3 +115,10 @@ fn Input Display.poll(&self) {
 
 	return in;
 }
+
+fn int Display.audio_queued(&self) {
+	if (self.audio == null) {
+		return 0;
+	}
+	return sdl::get_audio_stream_queued(self.audio);
+}

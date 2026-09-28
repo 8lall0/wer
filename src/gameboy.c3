@@ -144,3 +144,7 @@ fn void GameBoy.run_frame(&self) {
 	while (!self.mmu.ppu.frame_ready && self.cpu.clk < deadline) self.step();
 	self.mmu.ppu.frame_ready = false;
 }
+
+fn void GameBoy.set_audio_rate(&self, uint rate) {
+	self.mmu.apu.out_rate = rate;
+}

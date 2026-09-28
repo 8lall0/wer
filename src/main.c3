@@ -1,10 +1,15 @@
 module wer;
-import std::io, std::io::file, std::time::clock, std::thread::os;
+import std::io, std::io::file, std::time::clock, std::thread::os, std::math;
 import gameboy, ppu, display;
 
 // 70224 T-cycles per frame / 4 194 304 Hz ≈ 59.73 fps.
 const NanoDuration PERIOD = (NanoDuration)16_742_706;
 const NanoDuration MAX_LAG = (NanoDuration)100_000_000;
+
+const float AUDIO_TARGET_BYTES = 9600;  // 50 ms of s16 stereo @ 48 kHz
+const float MAX_RATE_ADJ = 0.005; // ±0.5%
+const float MAX_INTEG = 0.002;  // ±0.2%
+const float INTEG_GAIN = 0.000004; // per frame; slow enough not to chase startup spikes.
 
 const char[12] PPM_PALETTE = {
 	0xE0, 0xF8, 0xD0,  0x88, 0xC0, 0x70,  0x34, 0x68, 0x56,  0x08, 0x18, 0x20,
@@ -88,6 +93,8 @@ fn int main(String[] args)
 
 	short[4096] audio;
 	Clock next = clock::now();
+	float avg = AUDIO_TARGET_BYTES;
+	float integ = 0;
 	while (true) {
 		display::Input in = screen.poll();
 		if (in.quit) break;
@@ -96,6 +103,13 @@ fn int main(String[] args)
 		gb.run_frame();
 		screen.present(gb.framebuffer());
 		screen.queue_audio(&audio, gb.audio(&audio));
+		int queued = screen.audio_queued();
+		avg += (queued - avg) / 32;
+		float e = (avg - AUDIO_TARGET_BYTES) / AUDIO_TARGET_BYTES;
+		e = math::clamp(e, -1, 1);
+		integ += e * INTEG_GAIN;
+		integ = math::clamp(integ, -MAX_INTEG, +MAX_INTEG);
+		gb.set_audio_rate((uint)(display::AUDIO_RATE * (1 - MAX_RATE_ADJ * e - integ)));
 		next += PERIOD;
 		Clock now = clock::now();
 		if (now - next > MAX_LAG) next = now;

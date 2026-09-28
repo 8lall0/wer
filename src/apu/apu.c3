@@ -35,11 +35,14 @@ struct Apu {
 	usz     w;
 	usz     r;
 	usz     count;
+
+	uint out_rate;
 }
 
 fn void Apu.init(&self) {
 	self.ch1.has_sweep = true;
 	self.cap = (usz)self.ring.len;
+	self.out_rate = SAMPLE_RATE;
 }
 
 fn void Apu.set_ring(&self, short[] buf) {
@@ -85,7 +88,7 @@ fn void Apu.tick(&self, uint t, uint frame_steps) {
 
 	for (uint i = 0; i < frame_steps; i++) self.frame_step();
 
-	self.sample_acc += (ulong)t * SAMPLE_RATE;
+	self.sample_acc += (ulong)t * self.out_rate;
 	while (self.sample_acc >= CPU_HZ) {
 		self.sample_acc -= CPU_HZ;
 		self.emit_sample();
@@ -93,7 +96,7 @@ fn void Apu.tick(&self, uint t, uint frame_steps) {
 }
 
 fn void Apu.push_silence(&self, uint t) {
-	self.sample_acc += (ulong)t * SAMPLE_RATE;
+	self.sample_acc += (ulong)t * self.out_rate;
 	while (self.sample_acc >= CPU_HZ) {
 		self.sample_acc -= CPU_HZ;
 		self.write_sample(0, 0);
