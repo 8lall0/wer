@@ -7,3 +7,4 @@ wer-frame.ppm
 wer-audio.wav
 resources/*.sav
 *.sav
+test/acid2/
