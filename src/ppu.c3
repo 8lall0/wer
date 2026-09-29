@@ -7,7 +7,11 @@ const int DOTS_PER_LINE = 456;
 const int TOTAL_LINES   = 154;
 const int VBLANK_LINE   = 144;
 const int MODE2_DOTS    = 80;   // OAM scan
-const int MODE3_DOTS    = 172;  // drawing (fixed; really 172-289)
+const int MODE3_DOTS    = 172;  // drawing, minimum; see Ppu.mode3_length
+// A line with objects ends mode 3 this many dots before the plain Pan Docs
+// sum. Measured on Mooneye intr_2_mode0_timing_sprites (which only sees whole
+// M-cycles): with it, every case of that test lines up.
+const int OBJ_PENALTY_ADJUST = 3;
 // LY (and the LY=LYC compare) move to the next line this many dots before
 // the line itself ends: for one M-cycle LY is already new while the old
 // line's HBlank is still running (Mooneye lcdon_timing).
@@ -59,6 +63,7 @@ struct Ppu {
 	bool stat_line;    // OR of the enabled STAT sources (see update_stat_line)
 	bool first_line;
 	int  line;         // line being processed (LY runs LY_EARLY_DOTS ahead of it)
+	int  mode3_len;    // length of this line's mode 3, fixed when it starts
 
 	char[WIDTH] bg_color; // BG colour index per pixel of the current line (sprite priority)
 }
@@ -169,13 +174,48 @@ fn void Ppu.check_lyc(&self) {
 	}
 }
 
+// How long mode 3 lasts on the current line (Pan Docs "Mode 3 length"):
+//   172 dots, + SCX % 8 (pixels discarded from the first tile),
+//   + 6 if the window starts on this line,
+//   + per object on the line: 6, plus max(0, 5 - (X + SCX) % 8) for the first
+//     object whose left edge falls in a given BG tile (X = 0 always pays 11).
+fn int Ppu.mode3_length(&self) {
+	int len = MODE3_DOTS + (self.scx & 7);
+
+	bool win = (self.lcdc & LCDC_WIN_ENABLE) != 0 && self.line >= (int)self.wy && self.wx <= 166;
+	if (win) len += 6;
+
+	if ((self.lcdc & LCDC_OBJ_ENABLE) == 0) return len;
+	int without_objects = len;
+	int height = (self.lcdc & LCDC_OBJ_SIZE) ? 16 : 8;
+	bool[32] tile_paid;
+	int n = 0;
+	for (int i = 0; i < 40 && n < 10; i++) {
+		int oy = (int)self.oam[i * 4] - 16;
+		if (self.line < oy || self.line >= oy + height) continue;
+		n++;                                   // counts towards the 10-object limit
+		int x = self.oam[i * 4 + 1];
+		if (x >= 168) continue;                // off the right edge: never fetched
+		len += 6;
+		int tile = (x + (self.scx & 7)) >> 3;
+		if (tile_paid[tile]) continue;
+		tile_paid[tile] = true;
+		int extra = x == 0 ? 5 : 5 - ((x + self.scx) & 7);
+		if (extra > 0) len += extra;
+	}
+	if (len > without_objects) len -= OBJ_PENALTY_ADJUST;
+	return len;
+}
+
 fn char Ppu.update_mode(&self) {
+	if (self.dot == MODE2_DOTS && self.line < VBLANK_LINE) self.mode3_len = self.mode3_length();
+
 	char want;
 	if (self.line >= VBLANK_LINE) {
 		want = 1;
 	} else if (self.dot < MODE2_DOTS) {
 		want = 2;
-	} else if (self.dot < MODE2_DOTS + MODE3_DOTS) {
+	} else if (self.dot < MODE2_DOTS + self.mode3_len) {
 		want = 3;
 	} else {
 		want = 0;
