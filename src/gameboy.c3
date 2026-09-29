@@ -39,6 +39,7 @@ fn GameBoy new(bool boot = true, mmu::Model model = DMG) {
 	gb.mmu.apu.clock_hz = model.clock_hz();
 	gb.mmu.apu.cgb = model == CGB;
 	gb.mmu.ppu.cgb_hw = model == CGB;
+	gb.mmu.ppu.sgb_hw = model.is_sgb();
 	gb.mmu.apu.set_ring(mem::new_array(short, 16384));
 	if (model == CGB) {
 		gb.mmu.wram_ext = mem::new_array(char, mmu::WRAM_EXT_SIZE).ptr;
@@ -69,6 +70,7 @@ fn GameBoy new(bool boot = true, mmu::Model model = DMG) {
 		// The boot ROM turned the LCD on long ago: normal line 0, not the
 		// special first line after LCD-on.
 		gb.mmu.ppu.first_line = false;
+		gb.mmu.ppu.lcd_on_by_cpu = false; // switched on by the boot ROM, long ago
 		gb.mmu.ppu.dot = 0;
 		gb.mmu.ppu.line = 0;
 		gb.mmu.ppu.mode = 2;
@@ -150,6 +152,11 @@ fn Cartridge GameBoy.load_rom_named(&self, char[] data, String save_path) {
 	}
 	c.cgb       = data.len >= 0x150 && (data[0x143] & 0x80) != 0;
 	c.logo_ok   = cart::logo_matches(data);
+
+	// Started without a boot ROM: VRAM as the DMG / SGB boot ROM leaves it.
+	if (!self.mmu.boot_active && self.mmu.model != CGB && data.len >= 0x134) {
+		self.mmu.ppu.load_boot_logo(data[0x104:48]);
+	}
 
 	// A CGB turns its colour features on only for games that support them.
 	// With the boot ROM running, it decides that itself (KEY0, then $FF50);

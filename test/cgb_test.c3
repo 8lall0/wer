@@ -219,14 +219,15 @@ fn void compat_without_boot_rom_is_grey() @test
 	test::@check(gb.mmu.ppu.compat, "compatibility mode");
 
 	gb.mmu.set(0xFF47, 0xE4);                     // BGP: identity
-	gb.mmu.ppu.line = 0;
-	gb.mmu.ppu.render_line();                     // an empty BG: colour 0
+	gb.run_frame();                               // an empty BG: colour 0
+	gb.run_frame();
 	char[] rgb = mem::new_array(char, gameboy::MAX_FRAME_RGB);
 	defer free(rgb.ptr);
 	gb.frame_rgb(rgb, {});
 	test::eq((char)0xFF, rgb[0]);                 // white, through BG palette 0
 	gb.mmu.set(0xFF47, 0xFF);                     // everything maps to shade 3
-	gb.mmu.ppu.render_line();
+	gb.run_frame();
+	gb.run_frame();
 	gb.frame_rgb(rgb, {});
 	test::eq((char)0x00, rgb[0]);                 // black
 }

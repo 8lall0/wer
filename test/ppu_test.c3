@@ -22,9 +22,9 @@ fn void registers_route_to_ppu() @test
 	gb.mmu.set(0xFF4A, 0x50); // WY
 
 	test::eq((char)0x91, gb.mmu.get(0xFF40));
-	test::eq((char)0x33, gb.mmu.ppu.scy);
+	test::eq((char)0x33, gb.mmu.get(0xFF42)); // the renderer sees it a few dots later
 	test::eq((char)0xE4, gb.mmu.get(0xFF47));
-	test::eq((char)0x50, gb.mmu.ppu.wy);
+	test::eq((char)0x50, gb.mmu.get(0xFF4A));
 
 	// STAT bit 7 always reads 1; only bits 3-6 are writable.
 	gb.mmu.set(0xFF41, 0x78);

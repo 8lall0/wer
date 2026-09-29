@@ -74,7 +74,6 @@ struct Ppu {
 
 	int  dot;          // 0..455 within the current line
 	char mode;         // 0 HBlank, 1 VBlank, 2 OAM, 3 drawing
-	int  win_line;     // internal window line counter
 	bool frame_ready;  // set when VBlank begins; cleared by the consumer
 	bool stat_line;    // OR of the enabled STAT sources (see update_stat_line)
 	bool first_line;
@@ -82,9 +81,33 @@ struct Ppu {
 	int  mode3_len;    // length of this line's mode 3, fixed when it starts
 	bool hblank_start; // a visible line entered HBlank (CGB HDMA); cleared by the Mmu
 
-	char[WIDTH] bg_color; // BG colour index per pixel of the current line (sprite priority)
-	bool[WIDTH] bg_prio;  // CGB: the BG tile's attribute bit 7 (BG over objects)
+	// Mode 3 drawing (ppu_fifo.c3), and what it sees of the registers: SCY,
+	// SCX, WY, WX and the palettes change a few dots after the CPU writes
+	// them (Ppu.write_render_reg), LCDC through r_lcdc since its enable bit
+	// must act at once.
+	Renderer r;
+	char     r_lcdc;
+	bool     wx_just_changed;
+	bool     sgb_hw;       // Super Game Boy: slightly different write timing
+	bool     lcd_on_by_cpu; // the LCD was last switched on by a CPU write (see late_oam_irq)
+	RegWrite[8] writes;
+	int      n_writes;
 }
+
+// Dot of a visible line at which mode 3 drawing starts fetching (a variable
+// so the calibration can be swept from a test).
+int render_start_dot = 89;
+
+// A register write the renderer sees `delay` dots after the CPU made it.
+struct RegWrite {
+	char reg;    // low byte of the register address; WX_SETTLED ends wx_just_changed
+	char value;
+	char old;    // LCDC_DMG: the value before the write
+	int  delay;
+}
+
+const char WX_SETTLED = 0x00;
+const char LCDC_DMG   = 0x01; // DMG LCDC write: mixed old/new value for a dot (see apply)
 
 // CGB tile attributes (VRAM bank 1, same address as the tile index).
 const char ATTR_PALETTE  = 0x07;
@@ -138,10 +161,12 @@ fn void Ppu.write_lcdc(&self, char value) {
 		self.dot = LCDON_START_DOT;
 		self.ly = 0;
 		self.line = 0;
-		self.win_line = 0;
 		self.mode = 0;
 		self.stat = self.stat & 0xFC;
 		self.frame_ready = false;
+		self.r_lcdc = value;
+		self.render_frame_start();
+		self.lcd_on_by_cpu = true;
 		self.first_line = true;
 		self.check_lyc();
 	}
@@ -167,12 +192,13 @@ fn char Ppu.write_lyc(&self, char value) {
 
 fn char Ppu.tick(&self, uint tcycles) {
 	if ((self.lcdc & LCDC_ENABLE) == 0) {
+		self.flush_writes();
 		self.dot = 0;
 		self.ly = 0;
 		self.line = 0;
-		self.win_line = 0;
 		self.mode = 0;
 		self.stat &= 0xFC;
+		self.r.active = false;
 		// stat_line and the LY=LYC flag stay frozen while the LCD is off, so
 		// turning it back on only raises an IRQ if the line really goes 0 -> 1.
 		return 0;
@@ -180,6 +206,17 @@ fn char Ppu.tick(&self, uint tcycles) {
 
 	char irq = 0;
 	for (uint i = 0; i < tcycles; i++) {
+		self.apply_writes();
+		// Mode 3 drawing for this dot (before the counters move on).
+		if (self.line < VBLANK_LINE) {
+			int scan = self.oam_scan_index();
+			if (scan >= 0) self.oam_scan(scan);
+			// The first line after the LCD is switched on has no OAM scan and
+			// starts drawing earlier.
+			int start = self.first_line ? render_start_dot - (self.cgb_hw ? 6 : 5) : render_start_dot;
+			if (self.dot == start) self.render_start();
+			if (self.r.active) self.render_dot();
+		}
 		self.dot++;
 		if (self.dot == DOTS_PER_LINE - LY_EARLY_DOTS) {
 			self.ly = (char)((self.line + 1) % TOTAL_LINES);
@@ -188,8 +225,10 @@ fn char Ppu.tick(&self, uint tcycles) {
 		if (self.dot >= DOTS_PER_LINE) {
 			self.first_line = false;
 			self.dot = 0;
+			if (self.r.active) self.render_end(); // never happens with sane timing
 			self.line = (self.line + 1) % TOTAL_LINES;
-			if (self.line == 0) self.win_line = 0;
+			if (self.line == 0) self.render_frame_start();
+			if (self.line < VBLANK_LINE) self.wy_check();
 			self.check_lyc();
 		}
 		irq |= self.update_mode();
@@ -290,186 +329,12 @@ fn char Ppu.update_mode(&self) {
 	char irq = 0;
 	switch (want) {
 		case 0:
-			self.render_line();
 			self.hblank_start = true;
 		case 1:
 			self.frame_ready = true;
 			irq |= INT_VBLANK;
 	}
 	return irq;
-}
-
-fn char Ppu.tile_pixel(&self, ushort map_base, bool signed_tiles, int px, int py) {
-	int col = (px >> 3) & 31;
-	int row = (py >> 3) & 31;
-	char tile = self.vram[map_base + row * 32 + col];
-
-	ushort base;
-	if (signed_tiles) {
-		base = (ushort)(0x1000 + (int)(ichar)tile * 16);
-	} else {
-		base = (ushort)((uint)tile * 16);
-	}
-	int fine = py & 7;
-	char lo = self.vram[base + fine * 2];
-	char hi = self.vram[base + fine * 2 + 1];
-	int bit = 7 - (px & 7);
-	return (char)((((hi >> bit) & 1) << 1) | ((lo >> bit) & 1));
-}
-
-fn void Ppu.render_line(&self) {
-	if (self.cgb) {
-		self.render_line_cgb();
-		return;
-	}
-	if (self.fb.len == 0) return;
-
-	int y = self.line;
-	int row = y * WIDTH;
-
-	bool bg_on   = (self.lcdc & LCDC_BG_ENABLE) != 0;
-	bool win_row = (self.lcdc & LCDC_WIN_ENABLE) != 0 && y >= (int)self.wy;
-	bool signed_tiles = (self.lcdc & LCDC_TILE_DATA) == 0;
-	ushort bg_map  = (self.lcdc & LCDC_BG_MAP)  ? (ushort)0x1C00 : (ushort)0x1800;
-	ushort win_map = (self.lcdc & LCDC_WIN_MAP) ? (ushort)0x1C00 : (ushort)0x1800;
-	int win_x0 = (int)self.wx - 7;
-
-	for (int x = 0; x < WIDTH; x++) {
-		char idx = 0;
-		if (bg_on) {
-			if (win_row && x >= win_x0) {
-				idx = self.tile_pixel(win_map, signed_tiles, x - win_x0, self.win_line);
-			} else {
-				idx = self.tile_pixel(bg_map, signed_tiles, (x + self.scx) & 0xFF, (y + self.scy) & 0xFF);
-			}
-		}
-		self.bg_color[x] = idx;
-		self.fb[row + x] = shade(self.bgp, idx);
-		if (self.compat) self.cfb[row + x] = pal_color(&self.bg_pal, 0, shade(self.bgp, idx));
-	}
-
-	if (win_row && win_x0 < WIDTH) self.win_line++;
-
-	if (self.lcdc & LCDC_OBJ_ENABLE) self.render_sprites(y);
-}
-
-// CGB mode: every BG/window tile has an attribute byte in VRAM bank 1 (its
-// palette, tile bank, flips and priority). LCDC bit 0 no longer hides the BG
-// and window; it takes away their priority over objects instead.
-fn void Ppu.render_line_cgb(&self) {
-	if (self.cfb.len == 0) return;
-
-	int y = self.line;
-	int row = y * WIDTH;
-
-	bool win_row = (self.lcdc & LCDC_WIN_ENABLE) != 0 && y >= (int)self.wy;
-	bool signed_tiles = (self.lcdc & LCDC_TILE_DATA) == 0;
-	ushort bg_map  = (self.lcdc & LCDC_BG_MAP)  ? (ushort)0x1C00 : (ushort)0x1800;
-	ushort win_map = (self.lcdc & LCDC_WIN_MAP) ? (ushort)0x1C00 : (ushort)0x1800;
-	int win_x0 = (int)self.wx - 7;
-
-	for (int x = 0; x < WIDTH; x++) {
-		ushort map;
-		int px;
-		int py;
-		if (win_row && x >= win_x0) {
-			map = win_map;
-			px = x - win_x0;
-			py = self.win_line;
-		} else {
-			map = bg_map;
-			px = (x + self.scx) & 0xFF;
-			py = (y + self.scy) & 0xFF;
-		}
-		usz at = (usz)map + (usz)((py >> 3) & 31) * 32 + (usz)((px >> 3) & 31);
-		char tile = self.vram[at];
-		char attr = self.vram1[at];
-
-		ushort base = signed_tiles ? (ushort)(0x1000 + (int)(ichar)tile * 16) : (ushort)((uint)tile * 16);
-		int fine = (attr & ATTR_YFLIP) ? 7 - (py & 7) : py & 7;
-		char* data = (attr & ATTR_BANK) ? self.vram1 : &self.vram[0];
-		char lo = data[base + fine * 2];
-		char hi = data[base + fine * 2 + 1];
-		int bit = (attr & ATTR_XFLIP) ? px & 7 : 7 - (px & 7);
-		char idx = (char)((((hi >> bit) & 1) << 1) | ((lo >> bit) & 1));
-
-		self.bg_color[x] = idx;
-		self.bg_prio[x] = (attr & ATTR_PRIORITY) != 0;
-		self.cfb[row + x] = pal_color(&self.bg_pal, attr & ATTR_PALETTE, idx);
-	}
-
-	if (win_row && win_x0 < WIDTH) self.win_line++;
-
-	if (self.lcdc & LCDC_OBJ_ENABLE) self.render_sprites(y);
-}
-
-fn void Ppu.render_sprites(&self, int y) {
-	int height = (self.lcdc & LCDC_OBJ_SIZE) ? 16 : 8;
-	int row = y * WIDTH;
-
-	int[10] chosen;
-	int n = 0;
-	for (int i = 0; i < 40 && n < 10; i++) {
-		int oy = (int)self.oam[i * 4] - 16;
-		if (y >= oy && y < oy + height) chosen[n++] = i;
-	}
-
-	// DMG priority: smaller X wins; ties broken by OAM index. Sort ascending so
-	// the first sprite to touch a pixel is the winner. In CGB mode (OPRI = 0)
-	// OAM order alone decides: already the order they were picked in.
-	bool by_x = !self.cgb || (self.opri & 1) != 0;
-	for (int a = 1; a < n && by_x; a++) {
-		int v = chosen[a];
-		int vx = self.oam[v * 4 + 1];
-		int b = a - 1;
-		while (b >= 0 && (int)self.oam[chosen[b] * 4 + 1] > vx) {
-			chosen[b + 1] = chosen[b];
-			b--;
-		}
-		chosen[b + 1] = v;
-	}
-
-	bool[WIDTH] painted;
-	for (int s = 0; s < n; s++) {
-		int i = chosen[s];
-		int oy = (int)self.oam[i * 4] - 16;
-		int ox = (int)self.oam[i * 4 + 1] - 8;
-		char tile = self.oam[i * 4 + 2];
-		char flags = self.oam[i * 4 + 3];
-
-		int line = y - oy;
-		if (flags & 0x40) line = height - 1 - line; // y-flip
-		if (height == 16) tile &= 0xFE;
-
-		ushort addr = (ushort)((int)tile * 16 + line * 2);
-		// CGB: tile bank in bit 3, palette in bits 0-2 (bit 4 is unused).
-		char* data = (self.cgb && (flags & ATTR_BANK)) ? self.vram1 : &self.vram[0];
-		char lo = data[addr];
-		char hi = data[addr + 1];
-		char pal = (flags & 0x10) ? self.obp1 : self.obp0;
-		bool behind = (flags & 0x80) != 0;
-		bool xflip = (flags & 0x20) != 0;
-
-		for (int px = 0; px < 8; px++) {
-			int sx = ox + px;
-			if (sx < 0 || sx >= WIDTH || painted[sx]) continue;
-			int bit = xflip ? px : 7 - px;
-			char cidx = (char)((((hi >> bit) & 1) << 1) | ((lo >> bit) & 1));
-			if (cidx == 0) continue;              // transparent
-			painted[sx] = true;
-			if (self.cgb) {
-				// A non-zero BG pixel stays on top if either the object or the
-				// BG tile asks for it, unless LCDC bit 0 takes BG priority away.
-				bool bg_wins = (self.lcdc & LCDC_BG_ENABLE) != 0 && self.bg_color[sx] != 0
-					&& (behind || self.bg_prio[sx]);
-				if (!bg_wins) self.cfb[row + sx] = pal_color(&self.obj_pal, flags & ATTR_PALETTE, cidx);
-				continue;
-			}
-			if (behind && self.bg_color[sx] != 0) continue;
-			self.fb[row + sx] = shade(pal, cidx);
-			if (self.compat) self.cfb[row + sx] = pal_color(&self.obj_pal, (flags & 0x10) ? 1 : 0, shade(pal, cidx));
-		}
-	}
 }
 
 // The four STAT sources are OR'ed into one line; the STAT interrupt fires only
@@ -484,13 +349,169 @@ fn bool Ppu.vblank_oam_pulse(&self) {
 	return self.line == VBLANK_LINE && self.dot < LY_EARLY_DOTS;
 }
 
+// The mode 2 STAT interrupt of line 0 comes a T-cycle later than on the
+// other lines (SameBoy: "except on line 0"). Whether the CPU sees that as an
+// M-cycle later depends on where in the CPU's M-cycle the PPU's dots fall,
+// which we don't model: it does after the LCD was switched on by the CPU
+// (Mealybug tests compensate for it), not with the phase the boot ROM leaves
+// (Mooneye intr_1_2_timing).
+fn bool Ppu.late_oam_irq(&self) => self.lcd_on_by_cpu && self.line == 0 && !self.first_line && self.dot < 4;
+
 fn char Ppu.update_stat_line(&self) {
 	bool high = ((self.stat & STAT_LYC_IE)    != 0 && (self.stat & STAT_LYC_FLAG) != 0)
-	         || ((self.stat & STAT_OAM_IE)    != 0 && (self.mode == 2 || self.vblank_oam_pulse()))
+	         || ((self.stat & STAT_OAM_IE)    != 0 && ((self.mode == 2 && !self.late_oam_irq()) || self.vblank_oam_pulse()))
 	         || ((self.stat & STAT_VBLANK_IE) != 0 && self.mode == 1)
 	         || ((self.stat & STAT_HBLANK_IE) != 0 && self.mode == 0);
 
 	bool rising = high && !self.stat_line;   // was low, is high now
 	self.stat_line = high;                   // remember for the next call
 	return rising ? INT_STAT : 0;
+}
+
+// A CPU write to SCY, SCX, WY, WX, BGP, OBP0/1 or LCDC as the renderer sees
+// it, with each register's delay: SameBoy's write-conflict tables, except
+// that on a DMG LCDC and SCY land a dot earlier here (calibrated on the
+// Mealybug tests: our dots and SameBoy's T-cycles line up differently for
+// those two). The
+// register itself (what the CPU reads, and the timing code) was already set;
+// LCDC reaches the renderer through r_lcdc.
+fn void Ppu.write_render_reg(&self, char reg, char value) {
+	char old;
+	switch (reg) {
+		case 0x40: old = self.r_lcdc;
+		case 0x42: old = self.scy;
+		case 0x43: old = self.scx;
+		case 0x4A: old = self.wy;
+		case 0x4B: old = self.wx;
+		case 0x47: old = self.bgp;
+		case 0x48: old = self.obp0;
+		case 0x49: old = self.obp1;
+	}
+	old = self.cpu_view(reg, old);
+	bool dmg = !self.cgb_hw;
+	switch (reg) {
+		case 0x42: self.schedule(reg, value, dmg ? 2 : 4);
+		case 0x43: self.schedule(reg, value, dmg ? 2 : 4);
+		case 0x4A: self.schedule(reg, value, 4);
+		case 0x4B:
+			self.schedule(reg, value, dmg ? 4 : 5);
+			if (dmg) self.schedule(WX_SETTLED, 0, 5);
+		case 0x47:
+		case 0x48:
+		case 0x49:
+			// DMG: for one dot the palette reads as old | new.
+			if (dmg && !self.sgb_hw) self.schedule(reg, old | value, 2);
+			self.schedule(reg, value, 3);
+		case 0x40:
+			if (dmg && !self.sgb_hw) {
+				self.queue({ .reg = LCDC_DMG, .value = value, .old = old, .delay = 2 });
+				self.schedule(reg, value, 3);
+			} else {
+				self.schedule(reg, value, dmg ? 2 : 4);
+			}
+	}
+}
+
+// What the CPU reads back: the last value written, even if the renderer
+// hasn't seen it yet.
+fn char Ppu.cpu_view(&self, char reg, char current) {
+	for (int i = self.n_writes - 1; i >= 0; i--) {
+		if (self.writes[i].reg == reg) return self.writes[i].value;
+	}
+	return current;
+}
+
+fn void Ppu.schedule(&self, char reg, char value, int delay) {
+	self.queue({ .reg = reg, .value = value, .delay = delay });
+}
+
+fn void Ppu.queue(&self, RegWrite w) {
+	if (self.n_writes == self.writes.len) self.flush_writes();
+	self.writes[self.n_writes++] = w;
+}
+
+// Apply every pending write now (the queue is full).
+fn void Ppu.flush_writes(&self) {
+	for (int i = 0; i < self.n_writes; i++) self.apply(self.writes[i]);
+	self.n_writes = 0;
+}
+
+// Once per dot: writes that are due land, the others come a dot closer.
+fn void Ppu.apply_writes(&self) {
+	int kept = 0;
+	for (int i = 0; i < self.n_writes; i++) {
+		RegWrite w = self.writes[i];
+		if (w.delay <= 0) {
+			self.apply(w);
+		} else {
+			w.delay--;
+			self.writes[kept++] = w;
+		}
+	}
+	self.n_writes = kept;
+}
+
+fn void Ppu.apply(&self, RegWrite w) {
+	switch (w.reg) {
+		case WX_SETTLED: self.wx_just_changed = false;
+		case 0x42: self.scy = w.value;
+		case 0x43: self.scx = w.value;
+		case 0x4A:
+			self.wy = w.value;
+			if (self.line < VBLANK_LINE) self.wy_check();
+		case 0x4B:
+			self.wx = w.value;
+			if (!self.cgb_hw) self.wx_just_changed = true;
+		case 0x47: self.bgp = w.value;
+		case 0x48: self.obp0 = w.value;
+		case 0x49: self.obp1 = w.value;
+		case 0x40:
+			self.r_lcdc = (self.r_lcdc & LCDC_ENABLE) | (w.value & 0x7F);
+			// Enabling the window re-checks WY (SameBoy: after an LCDC write).
+			if (self.line < VBLANK_LINE) self.wy_check();
+		case LCDC_DMG:
+			// The new LCDC, except the BG and object enable bits, which take a
+			// dot longer, unless disabling objects meets an object fetch in
+			// progress or the first pixel (SameBoy's DMG LCDC conflict).
+			char keep = LCDC_BG_ENABLE | LCDC_OBJ_ENABLE;
+			if ((w.value & LCDC_OBJ_ENABLE) == 0 && (self.r.pos == 0 || self.r.obj_step != NONE)) keep = LCDC_BG_ENABLE;
+			if ((w.old & LCDC_OBJ_ENABLE) && (w.value & LCDC_OBJ_ENABLE) == 0 && self.r.obj_step != NONE) self.r.obj_abort = true;
+			self.r_lcdc = (self.r_lcdc & LCDC_ENABLE) | (((w.value & ~keep) | (w.old & keep)) & 0x7F);
+			if ((w.old & LCDC_WIN_ENABLE) && (w.value & LCDC_WIN_ENABLE) == 0 && self.r.window_fetching) {
+				self.r.no_insert_glitch = true;
+			}
+	}
+}
+
+// The trademark symbol the DMG boot ROM draws next to the logo.
+const char[8] REGISTERED = { 0x3C, 0x42, 0xB9, 0xA5, 0xB9, 0xA5, 0x42, 0x3C };
+
+// VRAM as Nintendo's DMG boot ROM leaves it: the cartridge's header logo
+// (48 bytes, a nibble per 4-pixel row, doubled to 8x8 tiles 1-24), the
+// (R) symbol as tile 25, and both in the tile map at $9904 / $9924. Some
+// test ROMs draw with these tiles (Mealybug Tearoom's (R) sprites).
+fn void Ppu.load_boot_logo(&self, char[] logo) {
+	usz at = 0x10;
+	foreach (b : logo) {
+		foreach (nibble : (char[2]){ b >> 4, b & 0x0F }) {
+			char row;
+			for (int bit = 3; bit >= 0; bit--) {
+				row = (char)(row << 2) | (((nibble >> bit) & 1) != 0 ? 3 : 0);
+			}
+			for (int twice = 0; twice < 2; twice++) {
+				self.vram[at] = row;       // bitplane 0 only: colour 1 (BGP maps it to black)
+				self.vram[at + 1] = 0;
+				at += 2;
+			}
+		}
+	}
+	foreach (i, b : REGISTERED) {
+		self.vram[0x190 + i * 2] = b;
+		self.vram[0x190 + i * 2 + 1] = 0;
+	}
+	for (int i = 0; i < 12; i++) {
+		self.vram[0x1904 + i] = (char)(i + 1);
+		self.vram[0x1924 + i] = (char)(i + 13);
+	}
+	self.vram[0x1910] = 0x19;
 }

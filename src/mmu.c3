@@ -262,15 +262,15 @@ fn char Mmu.io_get(&self, ushort addr) {
 		case TAC_REG:  return (char)(self.timer.tac | 0xF8);
 		case 0xFF40:   return self.ppu.lcdc;
 		case 0xFF41:   return (char)(self.ppu.stat | 0x80);
-		case 0xFF42:   return self.ppu.scy;
-		case 0xFF43:   return self.ppu.scx;
+		case 0xFF42:   return self.ppu.cpu_view(0x42, self.ppu.scy);
+		case 0xFF43:   return self.ppu.cpu_view(0x43, self.ppu.scx);
 		case 0xFF44:   return self.ppu.ly;
 		case 0xFF45:   return self.ppu.lyc;
-		case 0xFF47:   return self.ppu.bgp;
-		case 0xFF48:   return self.ppu.obp0;
-		case 0xFF49:   return self.ppu.obp1;
-		case 0xFF4A:   return self.ppu.wy;
-		case 0xFF4B:   return self.ppu.wx;
+		case 0xFF47:   return self.ppu.cpu_view(0x47, self.ppu.bgp);
+		case 0xFF48:   return self.ppu.cpu_view(0x48, self.ppu.obp0);
+		case 0xFF49:   return self.ppu.cpu_view(0x49, self.ppu.obp1);
+		case 0xFF4A:   return self.ppu.cpu_view(0x4A, self.ppu.wy);
+		case 0xFF4B:   return self.ppu.cpu_view(0x4B, self.ppu.wx);
 		case 0xFF01:   // SB: all 8 bits
 		case DMA_REG:  return self.io[addr - 0xFF00];
 		case 0xFF02:   return self.io[0x02] | 0x7E;             // SC: only bits 7 and 0 exist
@@ -332,18 +332,20 @@ fn void Mmu.io_set(&self, ushort addr, char value) {
 		case TIMA_REG: self.timer.write_tima(value);
 		case TMA_REG:  self.timer.write_tma(value);
 		case TAC_REG:  self.timer.write_tac(value);
-		case 0xFF40:   self.ppu.write_lcdc(value);
+		case 0xFF40:
+			self.ppu.write_render_reg(0x40, value);
+			self.ppu.write_lcdc(value);
 		case 0xFF41:   self.request_irq(self.ppu.write_stat(value));
-		case 0xFF42:   self.ppu.scy = value;
-		case 0xFF43:   self.ppu.scx = value;
+		case 0xFF42:   self.ppu.write_render_reg(0x42, value);
+		case 0xFF43:   self.ppu.write_render_reg(0x43, value);
 		case 0xFF44:   break; // LY is read-only
 		case 0xFF45:   self.request_irq(self.ppu.write_lyc(value));
 		case DMA_REG:  self.io[DMA_REG - 0xFF00] = value; self.dma_request(value);
-		case 0xFF47:   self.ppu.bgp = value;
-		case 0xFF48:   self.ppu.obp0 = value;
-		case 0xFF49:   self.ppu.obp1 = value;
-		case 0xFF4A:   self.ppu.wy = value;
-		case 0xFF4B:   self.ppu.wx = value;
+		case 0xFF47:   self.ppu.write_render_reg(0x47, value);
+		case 0xFF48:   self.ppu.write_render_reg(0x48, value);
+		case 0xFF49:   self.ppu.write_render_reg(0x49, value);
+		case 0xFF4A:   self.ppu.write_render_reg(0x4A, value);
+		case 0xFF4B:   self.ppu.write_render_reg(0x4B, value);
 		case 0xFF50:   // unmap the boot ROM
 			if (value == 0 || !self.boot_active) break;
 			self.boot_active = false;
