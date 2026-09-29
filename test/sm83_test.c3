@@ -16,7 +16,10 @@ import std::collections::object;
 // Each vector is one instruction: set registers + flat RAM from `initial`, run
 // exactly one instruction (`Cpu.execute_one`, no interrupt dispatch), then
 // compare every register and every touched RAM byte against `final`. The
-// length of the `cycles` array is the expected M-cycle count.
+// `cycles` array is the expected bus trace, one entry per M-cycle:
+// [addr, value, "r-m" | "-wm" | "---"] = read / write / internal. Its length
+// is the M-cycle count; the entries must match Cpu.trace in order (reads and
+// writes by address and value, internal cycles by position only).
 
 const String DIR = "test/sm83/v1";
 
@@ -48,6 +51,7 @@ struct Result {
 	uint total;
 	uint state_fail;
 	uint cycle_fail;
+	uint order_fail; // right count, wrong sequence of accesses
 	int first_fail; // case index of the first failure, -1 if none
 }
 
@@ -110,6 +114,29 @@ fn void zero_ram(char[] flat, Object* st) {
 	}
 }
 
+fn bool bus_match(cpu::Cpu* c, Object* cycles) {
+	if ((sz)c.trace_len != cycles.get_len()) return false;
+	for (sz i = 0; i < cycles.get_len(); i++) {
+		Object* e = cycles.get_at(i);
+		String kind = e.get_string_at(2) ?? "";
+		cpu::BusEvent ev = c.trace[i];
+		switch (kind) {
+			case "---":
+				if (ev.op != cpu::BusOp.IDLE) return false;
+				continue;
+			case "r-m":
+				if (ev.op != cpu::BusOp.READ) return false;
+			case "-wm":
+				if (ev.op != cpu::BusOp.WRITE) return false;
+			default:
+				return false;
+		}
+		if (ev.addr != (ushort)(e.get_int_at(0) ?? -1)) return false;
+		if (ev.value != (char)(e.get_int_at(1) ?? -1)) return false;
+	}
+	return true;
+}
+
 fn bool ram_match(mmu::Mmu* m, Object* st) {
 	Object* ram = st.get("ram") ?? null;
 	if (!ram) return true;
@@ -147,18 +174,23 @@ fn bool run_file(String opcode, char[] flat, Result* out) {
 		cpu::Cpu c;
 		apply_regs(&c, initial);
 		apply_ram(&m, initial);
+		c.tracing = true;
 
 		char cycles = c.execute_one(&m);
 
 		out.total++;
 		bool state_ok = regs_match(&c, final) && ram_match(&m, final);
-		sz want_cycles = (t.get("cycles") ?? null) ? t.get("cycles")!!.get_len() : 0;
+		Object* want_bus = t.get("cycles") ?? null;
+		sz want_cycles = want_bus ? want_bus.get_len() : 0;
 
 		if (!state_ok) {
 			out.state_fail++;
 			if (out.first_fail < 0) out.first_fail = (int)i;
 		} else if ((sz)cycles != want_cycles) {
 			out.cycle_fail++;
+			if (out.first_fail < 0) out.first_fail = (int)i;
+		} else if (want_bus && !bus_match(&c, want_bus)) {
+			out.order_fail++;
 			if (out.first_fail < 0) out.first_fail = (int)i;
 		}
 
@@ -168,18 +200,19 @@ fn bool run_file(String opcode, char[] flat, Result* out) {
 	return true;
 }
 
-fn void run_one(String name, char[] flat, uint* files, uint* total, uint* state_fail, uint* cycle_fail) {
+fn void run_one(String name, char[] flat, uint* files, Result* sum) {
 	Result r;
 	if (!run_file(name, flat, &r)) return; // no vector file
 	(*files)++;
-	*total += r.total;
-	*state_fail += r.state_fail;
-	*cycle_fail += r.cycle_fail;
+	sum.total += r.total;
+	sum.state_fail += r.state_fail;
+	sum.cycle_fail += r.cycle_fail;
+	sum.order_fail += r.order_fail;
 
-	if (r.state_fail != 0 || r.cycle_fail != 0) {
-		io::eprintfn("  %-6s %d/%d  (%d state, %d cycle)  first fail: case %d",
-			name, r.total - r.state_fail - r.cycle_fail, r.total,
-			r.state_fail, r.cycle_fail, r.first_fail);
+	uint bad = r.state_fail + r.cycle_fail + r.order_fail;
+	if (bad != 0) {
+		io::eprintfn("  %-6s %d/%d  (%d state, %d cycle, %d bus order)  first fail: case %d",
+			name, r.total - bad, r.total, r.state_fail, r.cycle_fail, r.order_fail, r.first_fail);
 	}
 }
 
@@ -188,16 +221,14 @@ fn void run_all() @test {
 	defer free(flat.ptr);
 
 	uint files;
-	uint total;
-	uint state_fail;
-	uint cycle_fail;
+	Result sum;
 
 	for (int op = 0; op < 256; op++) {
 		if (skip_opcode(op)) continue;
-		run_one(string::tformat("%02x", op), flat, &files, &total, &state_fail, &cycle_fail);
+		run_one(string::tformat("%02x", op), flat, &files, &sum);
 	}
 	for (int op = 0; op < 256; op++) {
-		run_one(string::tformat("cb %02x", op), flat, &files, &total, &state_fail, &cycle_fail);
+		run_one(string::tformat("cb %02x", op), flat, &files, &sum);
 	}
 
 	if (files == 0) {
@@ -205,9 +236,10 @@ fn void run_all() @test {
 		return;
 	}
 
-	io::eprintfn("  sm83: %d files, %d cases, %d state fails, %d cycle fails",
-		files, total, state_fail, cycle_fail);
+	io::eprintfn("  sm83: %d files, %d cases, %d state fails, %d cycle fails, %d bus-order fails",
+		files, sum.total, sum.state_fail, sum.cycle_fail, sum.order_fail);
 
-	test::@check(state_fail == 0, "sm83 state mismatches (see lines above)");
-	test::@check(cycle_fail == 0, "sm83 cycle-count mismatches (see lines above)");
+	test::@check(sum.state_fail == 0, "sm83 state mismatches (see lines above)");
+	test::@check(sum.cycle_fail == 0, "sm83 cycle-count mismatches (see lines above)");
+	test::@check(sum.order_fail == 0, "sm83 bus access order mismatches (see lines above)");
 }

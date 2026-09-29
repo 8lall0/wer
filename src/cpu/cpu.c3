@@ -68,6 +68,22 @@ const ushort IF_ADDR = 0xFF0F; // Interrupt Flag (pending)
 const ushort DIV_ADDR = 0xFF04; // Divider register (reset by STOP)
 const char INT_MASK = 0x1F;
 
+// One entry of the optional bus trace (see Cpu.tracing): what the CPU did in
+// one M-cycle. Used by the SingleStepTests harness to check access order.
+enum BusOp : char {
+	READ,
+	WRITE,
+	IDLE,
+}
+
+struct BusEvent {
+	BusOp  op;
+	ushort addr;  // unused for IDLE
+	char   value;
+}
+
+const int TRACE_MAX = 8; // longest instruction is 6 M-cycles
+
 // Little-endian host only: the first field is the low byte.
 union HiLoReg {
 	struct {
@@ -88,6 +104,11 @@ struct Cpu {
 
 	ulong clk;
 	char bus_cycles; // M-cycles spent by the current step (read/write/idle calls)
+
+	// Off by default. When set, execute_one records each M-cycle in `trace`.
+	bool tracing;
+	BusEvent[TRACE_MAX] trace;
+	char trace_len;
 
 	bool ime;
 
@@ -155,9 +176,15 @@ fn void Cpu.updateZero(&self, char value) {
 // then timer/PPU/APU advance 4 T-cycles. That order was measured on Mooneye:
 // ticking before reads (or before writes) breaks a dozen timer tests.
 // ---------------------------------------------------------------------------
+fn void Cpu.record(&self, BusOp op, ushort addr, char value) @inline {
+	if (!self.tracing || self.trace_len >= TRACE_MAX) return;
+	self.trace[self.trace_len++] = { op, addr, value };
+}
+
 fn char Cpu.read(&self, mmu::Mmu* mmu, ushort addr) {
 	self.bus_cycles++;
 	char output = mmu.get(addr);
+	self.record(READ, addr, output);
 	mmu.tick(1);
 	return output;
 }
@@ -165,10 +192,12 @@ fn char Cpu.read(&self, mmu::Mmu* mmu, ushort addr) {
 fn void Cpu.write(&self, mmu::Mmu* mmu, ushort addr, char value) {
 	self.bus_cycles++;
 	mmu.set(addr, value);
+	self.record(WRITE, addr, value);
 	mmu.tick(1);
 }
 
 fn void Cpu.idle(&self, mmu::Mmu* mmu) {
 	self.bus_cycles++;
+	self.record(IDLE, 0, 0);
 	mmu.tick(1);
 }

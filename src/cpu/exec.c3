@@ -8,6 +8,7 @@ import mmu;
 // single-instruction semantics).
 fn char Cpu.execute_one(&self, mmu::Mmu *mmu) {
 	self.bus_cycles = 0;
+	self.trace_len = 0;
 	char op = self.fetch8(mmu);
 	if (self.halt_bug) {
 		// The HALT bug: the byte after HALT is read without advancing PC.
