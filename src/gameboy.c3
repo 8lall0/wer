@@ -26,8 +26,9 @@ fn bool header_checksum_ok(char[] rom) {
 	return x == rom[0x14D];
 }
 
-fn GameBoy new(bool boot = true) {
+fn GameBoy new(bool boot = true, mmu::Model model = DMG) {
 	GameBoy gb;
+	gb.mmu.model = model;
 	gb.mmu.ppu.fb = mem::new_array(char, ppu::WIDTH * ppu::HEIGHT);
 	gb.mmu.apu.init();
 	gb.mmu.apu.set_ring(mem::new_array(short, 16384));
@@ -36,7 +37,7 @@ fn GameBoy new(bool boot = true) {
 		gb.cpu = cpu::init_cold();
 		gb.mmu.boot_active = true;
 	} else {
-		gb.cpu = cpu::init();
+		gb.cpu = model == SGB ? cpu::init_sgb() : cpu::init();
 		gb.mmu.set(0xFF47, 0xFC); // BGP
 		gb.mmu.set(0xFF48, 0xFF); // OBP0
 		gb.mmu.set(0xFF49, 0xFF); // OBP1
@@ -48,7 +49,12 @@ fn GameBoy new(bool boot = true) {
 		gb.mmu.ppu.line = 0;
 		gb.mmu.ppu.mode = 2;
 		gb.mmu.ppu.stat = (gb.mmu.ppu.stat & 0xFC) | 2;
-		gb.mmu.timer.div = 0xABCC;  // DMG post-boot DIV counter (Pan Docs)
+		// DMG post-boot DIV counter (Pan Docs); the SGB boot ROM runs longer
+		// (value found with Mooneye boot_div-S).
+		gb.mmu.timer.div = model == SGB ? 0xD860 : 0xABCC;
+		// The SGB boot ROM talks to the SNES through P1 and leaves both select
+		// lines high, so P1 reads $FF.
+		if (model == SGB) gb.mmu.set(0xFF00, 0x30);
 		gb.mmu.set(0xFF0F, 0x01);   // IF: VBlank left pending by the boot ROM
 
 		// APU as the boot chime leaves it: powered, channel 1 still on but
@@ -58,7 +64,8 @@ fn GameBoy new(bool boot = true) {
 		gb.mmu.set(0xFF12, 0xF3);   // NR12: envelope
 		gb.mmu.set(0xFF24, 0x77);   // NR50: master volume
 		gb.mmu.set(0xFF25, 0xF3);   // NR51: panning
-		gb.mmu.apu.ch1.enabled = true;
+		// Only the DMG boot ROM plays the chime; the SGB's leaves channel 1 off.
+		gb.mmu.apu.ch1.enabled = model == DMG;
 	}
 	return gb;
 }

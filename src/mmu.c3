@@ -13,6 +13,13 @@ const ushort DMA_REG  = 0xFF46;
 const int DMA_STARTUP = 2;
 const int DMA_LEN     = 0xA0;
 
+// Which Game Boy is emulated. SGB = a DMG inside a Super Game Boy: same
+// hardware, plus the SNES side that colours the picture and draws a border.
+enum Model : char {
+	DMG,
+	SGB,
+}
+
 // The DMG has two memory buses. OAM DMA occupies the one its source is on.
 enum Bus : char {
 	NONE,     // IO, HRAM, IE: internal, never blocked
@@ -56,6 +63,7 @@ struct Mmu {
 	bool   serial_echo;   // when true, print each transferred byte to stderr
 
 	bool boot_active;
+	Model model;
 
 	Dma dma;
 }

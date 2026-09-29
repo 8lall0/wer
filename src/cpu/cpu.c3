@@ -135,6 +135,18 @@ fn Cpu init() {
 	};
 }
 
+// Post-boot register state on a Super Game Boy (Mooneye boot_regs-sgb).
+fn Cpu init_sgb() {
+	return (Cpu) {
+		.af.reg = 0x0100,
+		.bc.reg = 0x0014,
+		.de.reg = 0x0000,
+		.hl.reg = 0xC060,
+		.sp = 0xFFFE,
+		.pc = 0x0100,
+	};
+}
+
 fn Cpu init_cold() {
 	return (Cpu) {};
 }

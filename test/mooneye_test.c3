@@ -1,6 +1,6 @@
 module mooneye_test;
 
-import gameboy, cpu;
+import gameboy, cpu, mmu;
 import std::io;
 import std::io::file;
 import std::core::test;
@@ -142,11 +142,19 @@ const Rom[*] ROMS = {
 	{ "emulator-only/mbc5/rom_8Mb.gb", true  },
 };
 
-fn Outcome run_rom(String path) {
+// Run on a Super Game Boy (the -sgb / -S variants of the boot tests). The
+// SGB2 variants (boot_regs-sgb2, boot_div2-S) need an SGB2 model and are not run.
+const Rom[*] SGB_ROMS = {
+	{ "acceptance/boot_regs-sgb.gb", true  },
+	{ "acceptance/boot_div-S.gb", true  },
+	{ "acceptance/boot_hwio-S.gb", true  },
+};
+
+fn Outcome run_rom(String path, mmu::Model model = DMG) {
 	char[]? data = file::load_temp(path);
 	if (catch data) return MISSING;
 
-	gameboy::GameBoy gb = gameboy::new(false);
+	gameboy::GameBoy gb = gameboy::new(false, model);
 	defer gb.destroy();
 	gb.load_rom_named(data, path);
 	if (gb.mmu.cart) gb.mmu.cart.has_battery = false; // never write .sav files
@@ -164,40 +172,47 @@ fn Outcome verdict(cpu::Cpu* c) {
 	return regs == PASS_REGS ? PASS : FAIL;
 }
 
-fn void run_all() @test
-{
+struct Tally {
 	uint present;
 	uint passed;
 	uint regressed;
 	uint new_pass;
+}
 
-	foreach (rom : ROMS) {
-		Outcome o = run_rom(string::tformat("%s%s", DIR, rom.path));
-		if (o == MISSING) continue;
-		present++;
+fn void run_one(Tally* t, Rom rom, mmu::Model model) {
+	Outcome o = run_rom(string::tformat("%s%s", DIR, rom.path), model);
+	if (o == MISSING) return;
+	t.present++;
+	String tag = model == SGB ? " [SGB]" : "";
 
-		if (o == PASS) {
-			passed++;
-			if (!rom.must_pass) {
-				new_pass++;
-				io::eprintfn("  NEW PASS  %s  (mark it `true`)", rom.path);
-			}
-			continue;
+	if (o == PASS) {
+		t.passed++;
+		if (!rom.must_pass) {
+			t.new_pass++;
+			io::eprintfn("  NEW PASS  %s%s  (mark it `true`)", rom.path, tag);
 		}
-		if (rom.must_pass) {
-			regressed++;
-			io::eprintfn("  REGRESSED %s  (%s)", rom.path, o == FAIL ? "fail" : "timeout");
-		} else {
-			io::eprintfn("  %-9s %s", o == FAIL ? "fail" : "timeout", rom.path);
-		}
+		return;
 	}
+	if (rom.must_pass) {
+		t.regressed++;
+		io::eprintfn("  REGRESSED %s%s  (%s)", rom.path, tag, o == FAIL ? "fail" : "timeout");
+	} else {
+		io::eprintfn("  %-9s %s%s", o == FAIL ? "fail" : "timeout", rom.path, tag);
+	}
+}
 
-	if (present == 0) {
+fn void run_all() @test
+{
+	Tally t;
+	foreach (rom : ROMS) run_one(&t, rom, DMG);
+	foreach (rom : SGB_ROMS) run_one(&t, rom, SGB);
+
+	if (t.present == 0) {
 		io::eprintn("  mooneye: no ROMs in test/mooneye — run scripts/fetch-mooneye.sh");
 		return;
 	}
 
 	io::eprintfn("  mooneye: %d/%d pass, %d newly passing, %d regressed",
-		passed, present, new_pass, regressed);
-	test::@check(regressed == 0, "a must-pass Mooneye ROM regressed (see lines above)");
+		t.passed, t.present, t.new_pass, t.regressed);
+	test::@check(t.regressed == 0, "a must-pass Mooneye ROM regressed (see lines above)");
 }

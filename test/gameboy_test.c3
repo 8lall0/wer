@@ -55,3 +55,14 @@ fn void timer_interrupt_is_serviced() @test
 	test::@check(reached_vector, "CPU jumped to the Timer interrupt vector");
 	test::@check(!gb.cpu.ime, "IME cleared by dispatch");
 }
+
+fn void sgb_post_boot_state() @test
+{
+	gameboy::GameBoy gb = gameboy::new(false, SGB);
+	defer gb.destroy();
+	test::eq((ushort)0x0100, gb.cpu.af.reg);   // A = $01: not a CGB
+	test::eq((ushort)0x0014, gb.cpu.bc.reg);
+	test::eq((ushort)0xC060, gb.cpu.hl.reg);
+	test::eq((char)0xFF, gb.mmu.get(0xFF00));  // both P1 select lines high
+	test::eq((char)0xF0, gb.mmu.get(0xFF26));  // no boot chime: channel 1 off
+}
