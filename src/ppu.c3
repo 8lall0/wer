@@ -41,8 +41,14 @@ const char INT_STAT   = 0x02;
 
 struct Ppu {
 	char[0x2000] vram;
+	char*        vram1;  // CGB: VRAM bank 1 (heap), null otherwise
 	char[0xA0]   oam;
 	char[] fb;
+	// CGB mode: the picture as RGB555 colours (heap), and the switch between
+	// the DMG and CGB renderers (Mmu.cgb_mode's copy).
+	ushort[] cfb;
+	bool     cgb;
+	bool     compat;  // CGB running a DMG game: DMG renderer, colours from palette RAM
 
 	char lcdc;
 	char stat;
@@ -56,6 +62,15 @@ struct Ppu {
 	char wy;
 	char wx;
 
+	// CGB colour palettes: 8 BG + 8 OBJ palettes of 4 colours, each colour
+	// two bytes of little-endian RGB555. BCPS/OCPS ($FF68/$FF6A) select a
+	// byte (bits 0-5) and auto-increment after a data write (bit 7).
+	char[64] bg_pal;
+	char[64] obj_pal;
+	char     bcps;
+	char     ocps;
+	char     opri;   // $FF6C bit 0: 0 = CGB object priority (OAM order), 1 = DMG (X)
+
 	int  dot;          // 0..455 within the current line
 	char mode;         // 0 HBlank, 1 VBlank, 2 OAM, 3 drawing
 	int  win_line;     // internal window line counter
@@ -64,8 +79,51 @@ struct Ppu {
 	bool first_line;
 	int  line;         // line being processed (LY runs LY_EARLY_DOTS ahead of it)
 	int  mode3_len;    // length of this line's mode 3, fixed when it starts
+	bool hblank_start; // a visible line entered HBlank (CGB HDMA); cleared by the Mmu
 
 	char[WIDTH] bg_color; // BG colour index per pixel of the current line (sprite priority)
+	bool[WIDTH] bg_prio;  // CGB: the BG tile's attribute bit 7 (BG over objects)
+}
+
+// CGB tile attributes (VRAM bank 1, same address as the tile index).
+const char ATTR_PALETTE  = 0x07;
+const char ATTR_BANK     = 0x08;
+const char ATTR_XFLIP    = 0x20;
+const char ATTR_YFLIP    = 0x40;
+const char ATTR_PRIORITY = 0x80;
+
+// Colour `index` of CGB palette `palette` (0-7) in palette RAM, as RGB555.
+fn ushort pal_color(char[] pal, int palette, int index) {
+	int i = palette * 8 + index * 2;
+	return (ushort)(pal[i] | ((ushort)pal[i + 1] << 8));
+}
+
+// A data write through BCPD/OCPD: store at the selected byte, then advance
+// the index if auto-increment is on.
+fn void pal_write(char[] pal, char* spec, char value) {
+	pal[*spec & 0x3F] = value;
+	pal_advance(spec);
+}
+
+fn void pal_advance(char* spec) {
+	if (*spec & 0x80) *spec = (char)(0x80 | ((*spec + 1) & 0x3F));
+}
+
+// White to black in RGB555: BG palette 0 and OBJ palettes 0 and 1 for a DMG
+// game on a CGB started without the boot ROM.
+const ushort[4] GREYS = { 0x7FFF, 0x56B5, 0x294A, 0x0000 };
+
+fn void set_grey_palettes(Ppu* p) {
+	for (int i = 0; i < 4; i++) {
+		char lo = (char)GREYS[i];
+		char hi = (char)(GREYS[i] >> 8);
+		p.bg_pal[i * 2] = lo;
+		p.bg_pal[i * 2 + 1] = hi;
+		for (int obj = 0; obj < 2; obj++) {
+			p.obj_pal[obj * 8 + i * 2] = lo;
+			p.obj_pal[obj * 8 + i * 2 + 1] = hi;
+		}
+	}
 }
 
 fn char shade(char palette, char index) {
@@ -232,6 +290,7 @@ fn char Ppu.update_mode(&self) {
 	switch (want) {
 		case 0:
 			self.render_line();
+			self.hblank_start = true;
 		case 1:
 			self.frame_ready = true;
 			irq |= INT_VBLANK;
@@ -258,6 +317,10 @@ fn char Ppu.tile_pixel(&self, ushort map_base, bool signed_tiles, int px, int py
 }
 
 fn void Ppu.render_line(&self) {
+	if (self.cgb) {
+		self.render_line_cgb();
+		return;
+	}
 	if (self.fb.len == 0) return;
 
 	int y = self.line;
@@ -281,6 +344,57 @@ fn void Ppu.render_line(&self) {
 		}
 		self.bg_color[x] = idx;
 		self.fb[row + x] = shade(self.bgp, idx);
+		if (self.compat) self.cfb[row + x] = pal_color(&self.bg_pal, 0, shade(self.bgp, idx));
+	}
+
+	if (win_row && win_x0 < WIDTH) self.win_line++;
+
+	if (self.lcdc & LCDC_OBJ_ENABLE) self.render_sprites(y);
+}
+
+// CGB mode: every BG/window tile has an attribute byte in VRAM bank 1 (its
+// palette, tile bank, flips and priority). LCDC bit 0 no longer hides the BG
+// and window; it takes away their priority over objects instead.
+fn void Ppu.render_line_cgb(&self) {
+	if (self.cfb.len == 0) return;
+
+	int y = self.line;
+	int row = y * WIDTH;
+
+	bool win_row = (self.lcdc & LCDC_WIN_ENABLE) != 0 && y >= (int)self.wy;
+	bool signed_tiles = (self.lcdc & LCDC_TILE_DATA) == 0;
+	ushort bg_map  = (self.lcdc & LCDC_BG_MAP)  ? (ushort)0x1C00 : (ushort)0x1800;
+	ushort win_map = (self.lcdc & LCDC_WIN_MAP) ? (ushort)0x1C00 : (ushort)0x1800;
+	int win_x0 = (int)self.wx - 7;
+
+	for (int x = 0; x < WIDTH; x++) {
+		ushort map;
+		int px;
+		int py;
+		if (win_row && x >= win_x0) {
+			map = win_map;
+			px = x - win_x0;
+			py = self.win_line;
+		} else {
+			map = bg_map;
+			px = (x + self.scx) & 0xFF;
+			py = (y + self.scy) & 0xFF;
+		}
+		usz at = (usz)map + (usz)((py >> 3) & 31) * 32 + (usz)((px >> 3) & 31);
+		char tile = self.vram[at];
+		char attr = self.vram1[at];
+
+		ushort base = signed_tiles ? (ushort)(0x1000 + (int)(ichar)tile * 16) : (ushort)((uint)tile * 16);
+		int fine = (attr & ATTR_YFLIP) ? 7 - (py & 7) : py & 7;
+		char* data = (attr & ATTR_BANK) ? self.vram1 : &self.vram[0];
+		char lo = data[base + fine * 2];
+		char hi = data[base + fine * 2 + 1];
+		int bit = (attr & ATTR_XFLIP) ? px & 7 : 7 - (px & 7);
+		char idx = (char)((((hi >> bit) & 1) << 1) | ((lo >> bit) & 1));
+
+		self.bg_color[x] = idx;
+		self.bg_prio[x] = (attr & ATTR_PRIORITY) != 0;
+		self.cfb[row + x] = pal_color(&self.bg_pal, attr & ATTR_PALETTE, idx);
 	}
 
 	if (win_row && win_x0 < WIDTH) self.win_line++;
@@ -300,8 +414,10 @@ fn void Ppu.render_sprites(&self, int y) {
 	}
 
 	// DMG priority: smaller X wins; ties broken by OAM index. Sort ascending so
-	// the first sprite to touch a pixel is the winner.
-	for (int a = 1; a < n; a++) {
+	// the first sprite to touch a pixel is the winner. In CGB mode (OPRI = 0)
+	// OAM order alone decides: already the order they were picked in.
+	bool by_x = !self.cgb || (self.opri & 1) != 0;
+	for (int a = 1; a < n && by_x; a++) {
 		int v = chosen[a];
 		int vx = self.oam[v * 4 + 1];
 		int b = a - 1;
@@ -325,8 +441,10 @@ fn void Ppu.render_sprites(&self, int y) {
 		if (height == 16) tile &= 0xFE;
 
 		ushort addr = (ushort)((int)tile * 16 + line * 2);
-		char lo = self.vram[addr];
-		char hi = self.vram[addr + 1];
+		// CGB: tile bank in bit 3, palette in bits 0-2 (bit 4 is unused).
+		char* data = (self.cgb && (flags & ATTR_BANK)) ? self.vram1 : &self.vram[0];
+		char lo = data[addr];
+		char hi = data[addr + 1];
 		char pal = (flags & 0x10) ? self.obp1 : self.obp0;
 		bool behind = (flags & 0x80) != 0;
 		bool xflip = (flags & 0x20) != 0;
@@ -338,8 +456,17 @@ fn void Ppu.render_sprites(&self, int y) {
 			char cidx = (char)((((hi >> bit) & 1) << 1) | ((lo >> bit) & 1));
 			if (cidx == 0) continue;              // transparent
 			painted[sx] = true;
+			if (self.cgb) {
+				// A non-zero BG pixel stays on top if either the object or the
+				// BG tile asks for it, unless LCDC bit 0 takes BG priority away.
+				bool bg_wins = (self.lcdc & LCDC_BG_ENABLE) != 0 && self.bg_color[sx] != 0
+					&& (behind || self.bg_prio[sx]);
+				if (!bg_wins) self.cfb[row + sx] = pal_color(&self.obj_pal, flags & ATTR_PALETTE, cidx);
+				continue;
+			}
 			if (behind && self.bg_color[sx] != 0) continue;
 			self.fb[row + sx] = shade(pal, cidx);
+			if (self.compat) self.cfb[row + sx] = pal_color(&self.obj_pal, (flags & 0x10) ? 1 : 0, shade(pal, cidx));
 		}
 	}
 }

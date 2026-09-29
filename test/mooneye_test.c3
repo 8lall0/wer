@@ -149,6 +149,15 @@ const Rom[*] SGB_ROMS = {
 	{ "acceptance/boot_hwio-S.gb", true  },
 };
 
+// Run on a Game Boy Color (misc/: CGB-only tests).
+const Rom[*] CGB_ROMS = {
+	{ "misc/boot_regs-cgb.gb", true  },
+	{ "misc/boot_div-cgbABCDE.gb", true  },
+	{ "misc/boot_hwio-C.gb", true  },
+	{ "misc/bits/unused_hwio-C.gb", true  },
+	{ "misc/ppu/vblank_stat_intr-C.gb", false },
+};
+
 // Run on a Super Game Boy 2.
 const Rom[*] SGB2_ROMS = {
 	{ "acceptance/boot_regs-sgb2.gb", true  },
@@ -213,6 +222,7 @@ fn void run_all() @test
 	foreach (rom : ROMS) run_one(&t, rom, DMG);
 	foreach (rom : SGB_ROMS) run_one(&t, rom, SGB);
 	foreach (rom : SGB2_ROMS) run_one(&t, rom, SGB2);
+	foreach (rom : CGB_ROMS) run_one(&t, rom, CGB);
 
 	if (t.present == 0) {
 		io::eprintn("  mooneye: no ROMs in test/mooneye — run scripts/fetch-mooneye.sh");

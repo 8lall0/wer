@@ -183,3 +183,89 @@ fn void serial_transfer_takes_eight_clock_edges() @test
 	test::eq((char)0x01, m.get(0xFF02) & 0x81);  // start bit cleared
 	test::eq((char)0xFF, m.get(0xFF01));         // shifted in all 1s (no cable)
 }
+
+// A CGB in CGB mode, with its extra banks borrowed from the caller.
+fn void cgb_setup(mmu::Mmu* m, char[] wram_ext, char[] vram1)
+{
+	m.model = CGB;
+	m.cgb_mode = true;
+	m.wram_ext = wram_ext.ptr;
+	m.ppu.vram1 = vram1.ptr;
+}
+
+fn void cgb_wram_banks_at_d000() @test
+{
+	mmu::Mmu m;
+	char[mmu::WRAM_EXT_SIZE] ext;
+	char[0x2000] vram1;
+	cgb_setup(&m, &ext, &vram1);
+
+	for (char bank = 1; bank < 8; bank++) {
+		m.set(0xFF70, bank);
+		m.set(0xD123, (char)(0x10 + bank));
+	}
+	for (char bank = 1; bank < 8; bank++) {
+		m.set(0xFF70, bank);
+		test::eq((char)(0x10 + bank), m.get(0xD123));
+		test::eq((char)(0x10 + bank), m.get(0xF123)); // echo follows SVBK
+	}
+	m.set(0xFF70, 0);                                // 0 selects bank 1
+	test::eq((char)0x11, m.get(0xD123));
+	test::eq((char)0xF8, m.get(0xFF70));
+	m.set(0xC000, 0x5A);                             // bank 0 is fixed
+	m.set(0xFF70, 5);
+	test::eq((char)0x5A, m.get(0xC000));
+	test::eq((char)0xFD, m.get(0xFF70));
+}
+
+fn void cgb_vram_banks() @test
+{
+	mmu::Mmu m;
+	char[mmu::WRAM_EXT_SIZE] ext;
+	char[0x2000] vram1;
+	cgb_setup(&m, &ext, &vram1);
+
+	m.set(0x9800, 0x01);
+	m.set(0xFF4F, 1);
+	test::eq((char)0xFF, m.get(0xFF4F));
+	m.set(0x9800, 0x82);
+	test::eq((char)0x82, m.get(0x9800));
+	test::eq((char)0x82, vram1[0x1800]);
+	m.set(0xFF4F, 0);
+	test::eq((char)0xFE, m.get(0xFF4F));
+	test::eq((char)0x01, m.get(0x9800));
+}
+
+fn void cgb_palette_ram_auto_increment() @test
+{
+	mmu::Mmu m;
+	char[mmu::WRAM_EXT_SIZE] ext;
+	char[0x2000] vram1;
+	cgb_setup(&m, &ext, &vram1);
+
+	m.set(0xFF68, 0x80 | 0x3E);         // auto-increment from byte 62
+	m.set(0xFF69, 0x11);
+	m.set(0xFF69, 0x22);
+	m.set(0xFF69, 0x33);                // wraps to byte 0
+	test::eq((char)0x11, m.ppu.bg_pal[62]);
+	test::eq((char)0x22, m.ppu.bg_pal[63]);
+	test::eq((char)0x33, m.ppu.bg_pal[0]);
+	test::eq((char)0xC1, m.get(0xFF68)); // bit 6 reads 1
+
+	m.set(0xFF6A, 0x05);                // no auto-increment
+	m.set(0xFF6B, 0x44);
+	m.set(0xFF6B, 0x55);
+	test::eq((char)0x55, m.ppu.obj_pal[5]);
+	test::eq((char)0x55, m.get(0xFF6B));
+}
+
+fn void cgb_registers_absent_on_dmg() @test
+{
+	mmu::Mmu m;
+	m.set(0xFF70, 3);
+	m.set(0xFF4F, 1);
+	test::eq((char)0xFF, m.get(0xFF70));
+	test::eq((char)0xFF, m.get(0xFF4F));
+	test::eq((char)0xFF, m.get(0xFF68));
+	test::eq((char)0xFF, m.get(0xFF4D));
+}

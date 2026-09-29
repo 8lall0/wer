@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Fetch dmg-acid2 (https://github.com/mattcurrie/dmg-acid2, MIT) into test/acid2/.
+# Fetch dmg-acid2 and cgb-acid2 (https://github.com/mattcurrie/dmg-acid2,
+# https://github.com/mattcurrie/cgb-acid2, both MIT) into test/acid2/.
 #
 #   scripts/fetch-acid2.sh
 #
-# Downloads the ROM and the DMG reference screenshot, and converts the PNG to a
-# binary PGM so test/acid2_test.c3 needs no PNG decoder. Needs ImageMagick.
+# Downloads the ROMs and their reference screenshots, and converts the PNGs to
+# binary PGM/PPM so test/acid2_test.c3 needs no PNG decoder. Needs ImageMagick.
 # The files are git-ignored. Without them the test prints one line and passes.
 set -euo pipefail
 
@@ -17,4 +18,10 @@ curl -fsSL "https://raw.githubusercontent.com/mattcurrie/dmg-acid2/master/img/re
 	-o "$DEST/reference-dmg.png"
 magick "$DEST/reference-dmg.png" -colorspace gray -depth 8 "$DEST/reference-dmg.pgm"
 
-echo "fetched dmg-acid2 into $DEST"
+curl -fsSL "https://github.com/mattcurrie/cgb-acid2/releases/download/v1.1/cgb-acid2.gbc" \
+	-o "$DEST/cgb-acid2.gbc"
+curl -fsSL "https://raw.githubusercontent.com/mattcurrie/cgb-acid2/master/img/reference.png" \
+	-o "$DEST/reference-cgb.png"
+magick "$DEST/reference-cgb.png" -depth 8 "$DEST/reference-cgb.ppm"
+
+echo "fetched dmg-acid2 and cgb-acid2 into $DEST"

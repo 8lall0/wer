@@ -30,6 +30,13 @@ fn char Cpu.execute_one(&self, mmu::Mmu *mmu) {
 // Run one step: service a pending interrupt, idle one cycle while halted /
 // stopped, or fetch+execute one instruction. Returns the M-cycles consumed.
 fn char Cpu.step(&self, mmu::Mmu *mmu) {
+	// A VRAM DMA copy (Mmu.vdma_*) holds the CPU off the bus while it runs.
+	if (mmu.vdma_stall > 0) {
+		int n = mmu.vdma_stall;
+		mmu.vdma_stall = 0;
+		for (int i = 0; i < n; i++) mmu.tick(1);
+		self.clk += (ulong)n; // too long for bus_cycles
+	}
 	self.bus_cycles = 0;
 	if (!self.service_interrupt(mmu)) {
 		if (self.halted || self.stopped) {

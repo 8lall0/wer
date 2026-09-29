@@ -69,6 +69,7 @@ fn String window_title(gameboy::Cartridge* cart, mmu::Model model) {
 		case DMG:  tag = "";
 		case SGB:  tag = " [SGB]";
 		case SGB2: tag = " [SGB2]";
+		case CGB:  tag = " [CGB]";
 	}
 	return string::tformat("wer - %s%s", (ZString)&cart.title[0], tag);
 }
@@ -106,12 +107,13 @@ fn char[12] mode_colors(mmu::Model model, int pal) {
 	return colors;
 }
 
-// The model after `m` in the menu's DMG -> SGB -> SGB2 order (dir = +1 / -1).
+// The model after `m` in the menu's DMG -> SGB -> SGB2 -> CGB order (dir = +1 / -1).
 fn mmu::Model cycle_model(mmu::Model m, int dir) {
 	switch (m) {
-		case DMG:  return dir > 0 ? mmu::Model.SGB : mmu::Model.SGB2;
+		case DMG:  return dir > 0 ? mmu::Model.SGB : mmu::Model.CGB;
 		case SGB:  return dir > 0 ? mmu::Model.SGB2 : mmu::Model.DMG;
-		case SGB2: return dir > 0 ? mmu::Model.DMG : mmu::Model.SGB;
+		case SGB2: return dir > 0 ? mmu::Model.CGB : mmu::Model.SGB;
+		case CGB:  return dir > 0 ? mmu::Model.DMG : mmu::Model.SGB2;
 	}
 }
 
@@ -150,8 +152,9 @@ fn int main(String[] args)
 			case a == "--mode=dmg": model = DMG;
 			case a == "--mode=sgb": model = SGB;
 			case a == "--mode=sgb2": model = SGB2;
+			case a == "--mode=cgb": model = CGB;
 			case a.starts_with("--mode="):
-				io::eprintfn("unknown mode '%s': use dmg, sgb or sgb2", a[7..]);
+				io::eprintfn("unknown mode '%s': use dmg, sgb, sgb2 or cgb", a[7..]);
 				return 1;
 			default: rom = a;
 		}

@@ -147,6 +147,31 @@ fn Cpu init_sgb() {
 	};
 }
 
+// Post-boot register state on a Game Boy Color running a CGB game (Mooneye
+// boot_regs-cgb). A = $11 is how games detect a CGB.
+fn Cpu init_cgb() {
+	return (Cpu) {
+		.af.reg = 0x1180,
+		.bc.reg = 0x0000,
+		.de.reg = 0xFF56,
+		.hl.reg = 0x000D,
+		.sp = 0xFFFE,
+		.pc = 0x0100,
+	};
+}
+
+// The same after the CGB boot ROM started a DMG game (compatibility mode).
+fn Cpu init_cgb_dmg() {
+	return (Cpu) {
+		.af.reg = 0x1180,
+		.bc.reg = 0x0000,
+		.de.reg = 0x0008,
+		.hl.reg = 0x007C,
+		.sp = 0xFFFE,
+		.pc = 0x0100,
+	};
+}
+
 fn Cpu init_cold() {
 	return (Cpu) {};
 }

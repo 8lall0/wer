@@ -3,7 +3,8 @@ module timer;
 // Which `div` bit gates TIMA, indexed by (TAC & 3).
 const uint[4] TIMA_BIT = { 9, 3, 5, 7 };
 
-// Bit 12 of `div` clocks the 512 Hz APU frame sequencer.
+// Bit 12 of `div` clocks the 512 Hz APU frame sequencer; in CGB double
+// speed DIV counts twice as fast, and bit 13 keeps it at 512 Hz.
 const uint APU_BIT = 12;
 
 // Falling edges of this bit clock the serial port (internal clock): one bit
@@ -23,7 +24,10 @@ struct Timer {
 
 	bool reloaded;
 	ushort last_div; // DIV at the start of the previous tick (see write_tac)
+	bool double_speed;
 }
+
+fn uint Timer.apu_bit(&self) => self.double_speed ? APU_BIT + 1 : APU_BIT;
 
 struct TickResult {
 	bool timer_irq;
@@ -41,7 +45,7 @@ fn bool Timer.tima_input(&self) {
 
 fn void Timer.write_div(&self) {
 	if (self.tima_input()) self.pending_tima++;
-	if (((self.div >> APU_BIT) & 1) != 0) self.pending_apu++;
+	if (((self.div >> self.apu_bit()) & 1) != 0) self.pending_apu++;
 	if (((self.div >> SERIAL_BIT) & 1) != 0) self.pending_serial++;
 	self.div = 0;
 	self.last_div = 0;
@@ -108,7 +112,7 @@ fn TickResult Timer.tick(&self, uint tcycles) {
 	uint after = before + tcycles;
 	self.div = (ushort)after;
 
-	uint apu_shift = APU_BIT + 1;
+	uint apu_shift = self.apu_bit() + 1;
 	res.apu_steps += (after >> apu_shift) - (before >> apu_shift);
 	res.serial_edges += (after >> (SERIAL_BIT + 1)) - (before >> (SERIAL_BIT + 1));
 
