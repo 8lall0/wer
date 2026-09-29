@@ -470,11 +470,14 @@ fn void Ppu.apply(&self, RegWrite w) {
 			// Enabling the window re-checks WY (SameBoy: after an LCDC write).
 			if (self.line < VBLANK_LINE) self.wy_check();
 		case LCDC_DMG:
-			// The new LCDC, except the BG and object enable bits, which take a
-			// dot longer, unless disabling objects meets an object fetch in
-			// progress or the first pixel (SameBoy's DMG LCDC conflict).
+			// The new LCDC, except the BG and object enable bits and a window
+			// enable (not a disable), which take a dot longer; disabling objects
+			// is immediate when it meets an object fetch in progress or the
+			// first pixel (SameBoy's DMG LCDC conflict; the rest calibrated on
+			// the Mealybug tests).
 			char keep = LCDC_BG_ENABLE | LCDC_OBJ_ENABLE;
-			if ((w.value & LCDC_OBJ_ENABLE) == 0 && (self.r.pos == 0 || self.r.obj_step != NONE)) keep = LCDC_BG_ENABLE;
+			if ((w.old & LCDC_WIN_ENABLE) == 0) keep |= LCDC_WIN_ENABLE;
+			if ((w.value & LCDC_OBJ_ENABLE) == 0 && (self.r.pos == 0 || self.r.obj_step != NONE)) keep &= (char)~LCDC_OBJ_ENABLE;
 			if ((w.old & LCDC_OBJ_ENABLE) && (w.value & LCDC_OBJ_ENABLE) == 0 && self.r.obj_step != NONE) self.r.obj_abort = true;
 			self.r_lcdc = (self.r_lcdc & LCDC_ENABLE) | (((w.value & ~keep) | (w.old & keep)) & 0x7F);
 			if ((w.old & LCDC_WIN_ENABLE) && (w.value & LCDC_WIN_ENABLE) == 0 && self.r.window_fetching) {
