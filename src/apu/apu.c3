@@ -210,12 +210,7 @@ fn char Apu.read(&self, ushort addr) {
 			return 0xFF;
 	}
 
-	int idx = addr <= 0xFF14 ? addr - 0xFF10
-		: addr <= 0xFF19 ? addr - 0xFF16 + 5
-		: addr <= 0xFF1E ? addr - 0xFF1A + 10
-		: addr <= 0xFF23 ? addr - 0xFF20 + 15
-		: addr - 0xFF24 + 20;
-	return (char)(v | READ_MASK[idx]);
+	return (char)(v | READ_MASK[addr - 0xFF10]);
 }
 
 fn void Apu.write(&self, ushort addr, char value) {
