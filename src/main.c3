@@ -41,6 +41,9 @@ fn void? write_ppm(gameboy::GameBoy* gb, String path, char[12] colors) {
 
 faultdef ROM_UNREADABLE;
 
+// --sgb-log: print every command an SGB game sends.
+bool sgb_log;
+
 // Replace the running game with the ROM at `path`. The file is read first, so
 // a failed load leaves the current game untouched; destroy() writes the old
 // game's battery save before it goes away.
@@ -53,6 +56,7 @@ fn gameboy::Cartridge? load_game(gameboy::GameBoy* gb, String path, bool boot, m
 	gb.destroy();
 	*gb = gameboy::new(boot, model);
 	gb.mmu.serial_echo = true; // Blargg-style test ROMs report over serial
+	if (gb.mmu.sgb) gb.mmu.sgb.log = sgb_log;
 	gameboy::Cartridge cart = gb.load_rom_named(data, path);
 	cart.print();
 	return cart;
@@ -112,6 +116,7 @@ fn int main(String[] args)
 			case a == "--no-boot": boot = false;
 			case a.starts_with("--frames="): frames = a[9..].to_int() ?? 600;
 			case a.starts_with("--palette="): palette = a[10..];
+			case a == "--sgb-log": sgb_log = true;
 			case a == "--mode=dmg": model = DMG;
 			case a == "--mode=sgb": model = SGB;
 			case a.starts_with("--mode="):

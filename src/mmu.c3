@@ -1,6 +1,6 @@
 module mmu;
 
-import timer, ppu, joypad, apu, cart, bootrom;
+import timer, ppu, joypad, apu, cart, bootrom, sgb;
 import std::io;
 
 const ushort IF_REG   = 0xFF0F;
@@ -64,6 +64,7 @@ struct Mmu {
 
 	bool boot_active;
 	Model model;
+	sgb::Sgb* sgb;      // non-null in SGB mode (heap, freed by GameBoy.destroy)
 
 	Dma dma;
 }
@@ -110,7 +111,7 @@ fn void Mmu.set(&self, ushort addr, char value) {
 
 fn char Mmu.io_get(&self, ushort addr) {
 	switch (addr) {
-		case 0xFF00:   return self.joypad.read();
+		case 0xFF00:   return self.p1_read();
 		case DIV_REG:  return self.timer.div_reg();
 		case TIMA_REG: return self.timer.tima;
 		case TMA_REG:  return self.timer.tma;
@@ -143,7 +144,9 @@ fn void Mmu.load(&self, usz offset, char[] bytes) {
 
 fn void Mmu.io_set(&self, ushort addr, char value) {
 	switch (addr) {
-		case 0xFF00:   self.joypad.write(value);
+		case 0xFF00:
+			if (self.sgb) self.sgb.write_p1(value); // SGB command packets / multiplayer
+			self.joypad.write(value);
 		case 0xFF01:   self.io[0x01] = value; // SB
 		case 0xFF02:   // SC: bit 7 = start, bit 0 = internal clock
 			self.io[0x02] = value;
@@ -233,6 +236,17 @@ fn void Mmu.serial_shift(&self) {
 	self.serial_active = false;
 	self.io[0x02] &= 0x7F;
 	self.io[IF_REG - 0xFF00] |= 0x08;
+}
+
+// P1 as the game reads it. On an SGB in multiplayer mode the low nibble shows
+// the current joypad id while no row is selected, and joypads 2-4 (nothing
+// connected here) read as no buttons pressed.
+fn char Mmu.p1_read(&self) {
+	char v = self.joypad.read();
+	if (!self.sgb) return v;
+	if ((v & 0x30) == 0x30) return (v & 0xF0) | self.sgb.joypad_id();
+	if (self.sgb.player != 0) return v | 0x0F;
+	return v;
 }
 
 fn void Mmu.set_input(&self, char buttons, char dpad) {

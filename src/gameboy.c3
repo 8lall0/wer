@@ -1,6 +1,6 @@
 module gameboy;
 
-import cpu, mmu, ppu, apu, cart;
+import cpu, mmu, ppu, apu, cart, sgb;
 import std::io, std::io::file;
 
 // Top-level machine: owns the CPU and the memory map, drives them in step.
@@ -29,6 +29,7 @@ fn bool header_checksum_ok(char[] rom) {
 fn GameBoy new(bool boot = true, mmu::Model model = DMG) {
 	GameBoy gb;
 	gb.mmu.model = model;
+	if (model == SGB) gb.mmu.sgb = sgb::new();
 	gb.mmu.ppu.fb = mem::new_array(char, ppu::WIDTH * ppu::HEIGHT);
 	gb.mmu.apu.init();
 	gb.mmu.apu.set_ring(mem::new_array(short, 16384));
@@ -75,6 +76,10 @@ fn void GameBoy.destroy(&self) {
 		self.mmu.cart.save();
 		self.mmu.cart.free();
 		self.mmu.cart = null;
+	}
+	if (self.mmu.sgb) {
+		self.mmu.sgb.free();
+		self.mmu.sgb = null;
 	}
 	if (self.mmu.ppu.fb.len) free(self.mmu.ppu.fb.ptr);
 	if (self.mmu.apu.ring.len) free(self.mmu.apu.ring.ptr);
