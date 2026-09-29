@@ -75,7 +75,7 @@ const Rom[*] ROMS = {
 	{ "acceptance/oam_dma/basic.gb", true  },
 	{ "acceptance/oam_dma/reg_read.gb", true  },
 	{ "acceptance/oam_dma_restart.gb", false },
-	{ "acceptance/oam_dma/sources-GS.gb", false },
+	{ "acceptance/oam_dma/sources-GS.gb", true  },
 	{ "acceptance/oam_dma_start.gb", false },
 	{ "acceptance/oam_dma_timing.gb", false },
 	{ "acceptance/pop_timing.gb", false },

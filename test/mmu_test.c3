@@ -107,3 +107,20 @@ fn void mmu_tick_raises_timer_interrupt() @test
 	m.tick(5); // 20 T-cycles: overflow + reload
 	test::@check((m.get(0xFF0F) & 0x04) != 0, "Timer bit set in IF");
 }
+
+fn void oam_dma_from_high_pages_reads_wram() @test
+{
+	mmu::Mmu m;
+	for (int i = 0; i < 0xA0; i++) {
+		m.set((ushort)(0xDE00 + i), (char)i);          // what page $FE must copy
+		m.set((ushort)(0xDF00 + i), (char)(0xFF - i)); // what page $FF must copy
+	}
+
+	m.set(0xFF46, 0xFE); // DMA sees $FE00 as $DE00, not OAM itself
+	test::eq((char)0x00, m.ppu.oam[0]);
+	test::eq((char)0x9F, m.ppu.oam[0x9F]);
+
+	m.set(0xFF46, 0xFF); // ... and $FF00 as $DF00, not IO/HRAM
+	test::eq((char)0xFF, m.ppu.oam[0]);
+	test::eq((char)0x60, m.ppu.oam[0x9F]);
+}

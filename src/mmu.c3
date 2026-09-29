@@ -133,6 +133,9 @@ fn void Mmu.io_set(&self, ushort addr, char value) {
 
 fn void Mmu.oam_dma(&self, char page) {
 	ushort src = (ushort)page << 8;
+	if (src >= 0xE000) {
+		src -= 0x2000;
+	}
 	for (int i = 0; i < 0xA0; i++) {
 		self.ppu.oam[i] = self.get(src + (ushort)i);
 	}
