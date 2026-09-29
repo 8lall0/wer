@@ -98,6 +98,7 @@ extern fn void     delay(uint ms)            @cname("SDL_Delay");
 extern fn Window*   create_window(ZString title, int w, int h, ulong flags) @cname("SDL_CreateWindow");
 extern fn void      destroy_window(Window* window)                          @cname("SDL_DestroyWindow");
 extern fn bool      set_window_title(Window* window, ZString title)         @cname("SDL_SetWindowTitle");
+extern fn bool      set_window_size(Window* window, int w, int h)           @cname("SDL_SetWindowSize");
 
 extern fn void      show_open_file_dialog(DialogFileCallback callback, void* userdata, Window* window,
                         DialogFileFilter* filters, int nfilters, ZString default_location,

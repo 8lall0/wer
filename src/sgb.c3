@@ -19,6 +19,13 @@ import ppu;
 // pixels, each cell uses one of 4 palettes (`attr`), and a shade picks the
 // palette's colour. Colour 0 is shared by all four palettes.
 //
+// Border: CHR_TRN sends up to 256 SNES tiles, PCT_TRN a 32x28 map and three
+// 16-colour palettes (4-6). The output is always the SNES screen, 256x224,
+// with the Game Boy picture at (48, 40). Border colour 0 is transparent,
+// anything else covers what is behind it. Until a game sends a border (and
+// for games that never do) the frame is filled with the darkest colour of
+// palette 0.
+//
 // *_TRN commands move 4 KiB through the picture itself: the game shows tiles
 // $00-$FF on the BG and the SNES reads them out during the next frame
 // (capture_transfer).
@@ -63,6 +70,12 @@ const int ATF_COUNT = 45;         // attribute files in ATTR_TRN data
 const int ATF_LEN = 90;           // 18 rows x 5 bytes (4 cells per byte)
 const usz TRN_LEN = 4096;
 
+// The SNES screen, and where the Game Boy picture sits in it.
+const int BORDER_W = 256;
+const int BORDER_H = 224;
+const int GB_X = 48;
+const int GB_Y = 40;
+
 // MASK_EN modes
 const char MASK_NONE   = 0;
 const char MASK_FREEZE = 1;
@@ -96,8 +109,16 @@ struct Sgb {
 	char   mask;                    // MASK_EN mode
 	char[ppu::WIDTH * ppu::HEIGHT] frozen; // shades shown while MASK_FREEZE
 
+	// border
+	char[256 * 32]   border_tiles;  // SNES 4bpp tiles (CHR_TRN)
+	ushort[32 * 28]  border_map;    // PCT_TRN: tile, palette, flips
+	ushort[16][3]    border_pal;    // palettes 4-6
+	bool             has_border;    // a PCT_TRN arrived: draw the game's border
+	char[ppu::WIDTH * ppu::HEIGHT * 3] screen_rgb; // coloured GB picture before compositing
+
 	// a *_TRN command waiting for the next frame (0xFF = none)
 	char   pending_trn;
+	char   chr_half;              // CHR_TRN: 0 = tiles $00-$7F, 1 = $80-$FF
 }
 
 fn Sgb* new() {
@@ -178,7 +199,11 @@ fn void Sgb.execute(&self, char cmd, char[] data) {
 			self.apply_atf(data[1] & 0x3F);
 			if (data[1] & 0x40) self.mask = MASK_NONE;
 		case CMD_MASK_EN: self.mask = data[1] & 3;
+		case CMD_CHR_TRN:
+			self.chr_half = data[1] & 1;
+			self.pending_trn = cmd;
 		case CMD_PAL_TRN:
+		case CMD_PCT_TRN:
 		case CMD_ATTR_TRN:
 			self.pending_trn = cmd;
 		case CMD_MLT_REQ:
@@ -362,6 +387,13 @@ fn void Sgb.capture_transfer(&self, ppu::Ppu* p) {
 			for (usz i = 0; i < 512 * 4; i++) self.sys_pal[i / 4][i % 4] = le16(&buf, i * 2);
 		case CMD_ATTR_TRN:
 			for (usz i = 0; i < self.atf.len; i++) self.atf[i] = buf[i];
+		case CMD_CHR_TRN:
+			usz at = (usz)self.chr_half * TRN_LEN;
+			for (usz i = 0; i < TRN_LEN; i++) self.border_tiles[at + i] = buf[i];
+		case CMD_PCT_TRN:
+			for (usz i = 0; i < self.border_map.len; i++) self.border_map[i] = le16(&buf, i * 2);
+			for (usz i = 0; i < 3 * 16; i++) self.border_pal[i / 16][i % 16] = le16(&buf, 0x800 + i * 2);
+			self.has_border = true;
 		default:
 			break;
 	}
@@ -379,9 +411,14 @@ fn void bgr555_to_rgb(ushort c, char[] out) {
 	out[2] = (char)(((c >> 10) & 0x1F) << 3);
 }
 
-// The coloured Game Boy picture as RGB (3 bytes per pixel), from the PPU's
-// shades. Freezing keeps showing the picture from when MASK_EN froze it.
-fn void Sgb.render(&self, char[] shades, char[] rgb) {
+fn int Sgb.width(&self)  => BORDER_W;
+fn int Sgb.height(&self) => BORDER_H;
+
+// The picture as RGB (3 bytes per pixel), width() x height(): the coloured
+// Game Boy screen inside the border. Freezing keeps showing the picture
+// from when MASK_EN froze it.
+fn void Sgb.render(&self, char[] shades, char[] out) {
+	char[] rgb = &self.screen_rgb;
 	if (self.mask == MASK_FREEZE) {
 		shades = &self.frozen;
 	} else {
@@ -397,6 +434,48 @@ fn void Sgb.render(&self, char[] shades, char[] rgb) {
 				default:
 					char p = self.attr[(y / 8) * COLS + x / 8];
 					bgr555_to_rgb(self.pal[p][shades[i] & 3], px);
+			}
+		}
+	}
+	self.compose(out);
+}
+
+// Colour index 0-15 of border pixel (x, y), and its palette (0-2 for 4-6).
+fn char Sgb.border_pixel(&self, int x, int y, int* pal) {
+	ushort e = self.border_map[(y / 8) * 32 + x / 8];
+	int px = (e & 0x4000) ? 7 - (x & 7) : x & 7;
+	int py = (e & 0x8000) ? 7 - (y & 7) : y & 7;
+	usz base = (usz)(e & 0xFF) * 32 + (usz)py * 2;
+	int bit = 7 - px;
+	char idx = ((self.border_tiles[base] >> bit) & 1)
+	         | (((self.border_tiles[base + 1] >> bit) & 1) << 1)
+	         | (((self.border_tiles[base + 16] >> bit) & 1) << 2)
+	         | (((self.border_tiles[base + 17] >> bit) & 1) << 3);
+	int p = ((e >> 10) & 7) - 4;
+	*pal = p < 0 || p > 2 ? 0 : p;
+	return idx;
+}
+
+// Border over the Game Boy picture over the backdrop (shared colour 0).
+fn void Sgb.compose(&self, char[] out) {
+	for (int y = 0; y < BORDER_H; y++) {
+		for (int x = 0; x < BORDER_W; x++) {
+			char[] px = out[(usz)(y * BORDER_W + x) * 3 : 3];
+			int pal;
+			char idx = self.has_border ? self.border_pixel(x, y, &pal) : 0;
+			int gx = x - GB_X;
+			int gy = y - GB_Y;
+			if (idx != 0) {
+				bgr555_to_rgb(self.border_pal[pal][idx], px);
+			} else if (gx >= 0 && gx < ppu::WIDTH && gy >= 0 && gy < ppu::HEIGHT) {
+				usz s = (usz)(gy * ppu::WIDTH + gx) * 3;
+				px[0] = self.screen_rgb[s];
+				px[1] = self.screen_rgb[s + 1];
+				px[2] = self.screen_rgb[s + 2];
+			} else if (self.has_border) {
+				bgr555_to_rgb(self.pal[0][0], px);   // backdrop through the border
+			} else {
+				bgr555_to_rgb(self.pal[0][3], px);   // no border (yet): a plain frame
 			}
 		}
 	}

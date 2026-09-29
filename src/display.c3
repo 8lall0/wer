@@ -3,7 +3,15 @@ module display;
 import sdl, ppu, joypad, sgb;
 import std::io, std::atomic;
 
-const int SCALE = 4;
+// The window shows the picture enlarged by a whole factor (sharp square
+// pixels): --scale=N or the menu, same factor with or without SGB border.
+const int MIN_SCALE = 1;
+const int MAX_SCALE = 4;
+const int DEFAULT_SCALE = 3;
+
+// Largest picture the display is ever handed (the SGB screen).
+const int MAX_W = sgb::BORDER_W;
+const int MAX_H = sgb::BORDER_H;
 
 const char[12] PALETTE = {
 	0xE0, 0xF8, 0xD0,
@@ -59,7 +67,10 @@ struct Display {
 	sdl::Renderer*    renderer;
 	sdl::Texture*     texture;
 	sdl::AudioStream* audio;
-	char[]            pixels;
+	char[]            pixels;   // RGBA staging, sized for MAX_W x MAX_H
+	int               width;    // current picture size
+	int               height;
+	int               scale;    // window pixels per picture pixel
 }
 
 // Key presses (not held keys) for the menu, as bits in Input.pressed.
@@ -78,14 +89,15 @@ struct Input {
 	char pressed;  // KEY_* pressed this poll
 }
 
-fn Display? open(ZString title) {
+fn Display? open(ZString title, int scale = DEFAULT_SCALE) {
 	if (sdl::init(sdl::INIT_VIDEO | sdl::INIT_EVENTS | sdl::INIT_AUDIO) == 0) {
 		io::eprintfn("SDL_Init failed: %s", sdl::get_error().str_view());
 		return SDL_FAILED~;
 	}
 
 	Display d;
-	d.window = sdl::create_window(title, ppu::WIDTH * SCALE, ppu::HEIGHT * SCALE, 0);
+	d.scale = scale;
+	d.window = sdl::create_window(title, ppu::WIDTH * scale, ppu::HEIGHT * scale, 0);
 	d.renderer = d.window ? sdl::create_renderer(d.window, null) : null;
 	if (!d.renderer) {
 		io::eprintfn("SDL window/renderer failed: %s", sdl::get_error().str_view());
@@ -94,11 +106,9 @@ fn Display? open(ZString title) {
 	}
 	sdl::set_render_vsync(d.renderer, 0);
 
-	d.texture = sdl::create_texture(d.renderer, sdl::PIXELFORMAT_ABGR8888,
-		sdl::TEXTUREACCESS_STREAMING, ppu::WIDTH, ppu::HEIGHT);
-	sdl::set_texture_scale_mode(d.texture, sdl::SCALEMODE_NEAREST);
+	d.resize(ppu::WIDTH, ppu::HEIGHT);
 
-	d.pixels = mem::new_array(char, ppu::WIDTH * ppu::HEIGHT * 4);
+	d.pixels = mem::new_array(char, MAX_W * MAX_H * 4);
 
 	sdl::AudioSpec spec = { .format = sdl::AUDIO_S16, .channels = 2, .freq = AUDIO_RATE };
 	d.audio = sdl::open_audio_device_stream(sdl::AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, null, null);
@@ -137,8 +147,26 @@ fn void Display.clear_audio(&self) {
 // The frame (RGB, 3 bytes per pixel, from GameBoy.frame_rgb), plus a menu drawn
 // over it when `menu` has lines: a dimmed screen, the lines in SDL's 8x8 debug
 // font at 2x, `selected` highlighted.
-fn void Display.present(&self, char[] rgb, String[] menu = {}, int selected = -1) {
-	int pixels = ppu::WIDTH * ppu::HEIGHT;
+// A new picture size (the SGB border appearing or going away): a matching
+// texture, and a window scaled to fit it.
+fn void Display.resize(&self, int w, int h) {
+	if (self.texture) sdl::destroy_texture(self.texture);
+	self.texture = sdl::create_texture(self.renderer, sdl::PIXELFORMAT_ABGR8888,
+		sdl::TEXTUREACCESS_STREAMING, w, h);
+	sdl::set_texture_scale_mode(self.texture, sdl::SCALEMODE_NEAREST);
+	sdl::set_window_size(self.window, w * self.scale, h * self.scale);
+	self.width = w;
+	self.height = h;
+}
+
+fn void Display.set_scale(&self, int scale) {
+	self.scale = scale;
+	sdl::set_window_size(self.window, self.width * scale, self.height * scale);
+}
+
+fn void Display.present(&self, char[] rgb, int w, int h, String[] menu = {}, int selected = -1) {
+	if (w != self.width || h != self.height) self.resize(w, h);
+	int pixels = w * h;
 
 	for (int i = 0; i < pixels; i++) {
 		self.pixels[i * 4]     = rgb[i * 3];
@@ -146,25 +174,29 @@ fn void Display.present(&self, char[] rgb, String[] menu = {}, int selected = -1
 		self.pixels[i * 4 + 2] = rgb[i * 3 + 2];
 		self.pixels[i * 4 + 3] = 0xFF;
 	}
-	sdl::update_texture(self.texture, null, self.pixels.ptr, ppu::WIDTH * 4);
+	sdl::update_texture(self.texture, null, self.pixels.ptr, w * 4);
 	sdl::render_clear(self.renderer);
 	sdl::render_texture(self.renderer, self.texture, null, null);
 	if (menu.len) self.draw_menu(menu, selected);
 	sdl::render_present(self.renderer);
 }
 
-const float MENU_SCALE  = 2;   // debug font 8x8 -> 16x16 pixels
-const float MENU_LEFT   = 24;  // in scaled units (8 px each at scale 1)
-const float MENU_TOP    = 24;
-const float MENU_LINE   = 14;
+// Menu layout in window pixels per unit of window scale (so at 4x: 48 px in,
+// 28 px per line); the 8x8 font is drawn 2x from window scale 3 up.
+const int MENU_MARGIN = 12;
+const int MENU_LINE   = 7;
 
 fn void Display.draw_menu(&self, String[] lines, int selected) {
 	sdl::set_render_draw_blend_mode(self.renderer, sdl::BLENDMODE_BLEND);
 	sdl::set_render_draw_color(self.renderer, 0x08, 0x18, 0x20, 0xD0);
-	sdl::FRect all = { 0, 0, ppu::WIDTH * SCALE, ppu::HEIGHT * SCALE };
+	sdl::FRect all = { 0, 0, (float)(self.width * self.scale), (float)(self.height * self.scale) };
 	sdl::render_fill_rect(self.renderer, &all);
 
-	sdl::set_render_scale(self.renderer, MENU_SCALE, MENU_SCALE);
+	float font = self.scale >= 3 ? 2 : 1;
+	float margin = (float)(MENU_MARGIN * self.scale) / font;
+	float line_h = (float)(MENU_LINE * self.scale) / font;
+	if (line_h < 10) line_h = 10;           // never closer than the 8 px font
+	sdl::set_render_scale(self.renderer, font, font);
 	foreach (i, line : lines) {
 		bool sel = (int)i == selected;
 		if (sel) {
@@ -173,7 +205,7 @@ fn void Display.draw_menu(&self, String[] lines, int selected) {
 			sdl::set_render_draw_color(self.renderer, 0x88, 0xC0, 0x70, 0xFF);
 		}
 		String text = string::tformat("%s%s", sel ? "> " : "  ", line);
-		sdl::render_debug_text(self.renderer, MENU_LEFT, MENU_TOP + (float)i * MENU_LINE, text.zstr_tcopy());
+		sdl::render_debug_text(self.renderer, margin, margin + (float)i * line_h, text.zstr_tcopy());
 	}
 	sdl::set_render_scale(self.renderer, 1, 1);
 	sdl::set_render_draw_color(self.renderer, 0, 0, 0, 0xFF);

@@ -222,16 +222,83 @@ fn void render_colours_by_cell_and_freezes() @test
 
 	char[] shades = mem::new_array(char, ppu::WIDTH * ppu::HEIGHT);
 	defer free(shades.ptr);
-	char[] rgb = mem::new_array(char, ppu::WIDTH * ppu::HEIGHT * 3);
+	char[] rgb = mem::new_array(char, 256 * 224 * 3);
 	defer free(rgb.ptr);
 	for (usz i = 0; i < shades.len; i++) shades[i] = 3;
 
+	usz gb0 = (usz)(40 * 256 + 48) * 3;       // Game Boy pixel (0,0) in the SNES screen
 	s.render(shades, rgb);
-	test::eq((char)0xF8, rgb[0]);            // x=0: red
-	test::eq((char)0xF8, rgb[8 * 3 + 2]);    // x=8: blue
+	test::eq((char)0xF8, rgb[gb0]);          // x=0: red
+	test::eq((char)0xF8, rgb[gb0 + 8 * 3 + 2]); // x=8: blue
 
 	s.mask = sgb::MASK_FREEZE;
 	for (usz i = 0; i < shades.len; i++) shades[i] = 0;
 	s.render(shades, rgb);
-	test::eq((char)0xF8, rgb[0]);            // still the frozen picture
+	test::eq((char)0xF8, rgb[gb0]);          // still the frozen picture
+}
+
+// --- border -----------------------------------------------------------------
+
+fn void border_arrives_by_pct_trn_and_frames_the_picture() @test
+{
+	ppu::Ppu p;
+	p.lcdc = ppu::LCDC_ENABLE | ppu::LCDC_BG_ENABLE | ppu::LCDC_TILE_DATA;
+	for (int t = 0; t < 256; t++) p.vram[0x1800 + (t / 20) * 32 + t % 20] = (char)t;
+
+	sgb::Sgb* s = sgb::new();
+	defer s.free();
+	test::eq(256, s.width());                 // SGB mode is always the SNES screen
+	test::@check(!s.has_border, "no border until PCT_TRN");
+
+	// CHR_TRN: tile 1 = every pixel colour 1 (bit plane 0 set on all rows).
+	for (int row = 0; row < 8; row++) p.vram[32 + row * 2] = 0xFF;
+	char[16] chr = { sgb::CMD_CHR_TRN * 8 + 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+	run(s, &chr);
+	s.capture_transfer(&p);
+
+	// PCT_TRN: the top-left map entry uses tile 1, palette 4; palette 4
+	// colour 1 = pure red. Everything else stays tile 0 (transparent).
+	p.vram = {};
+	for (int t = 0; t < 256; t++) p.vram[0x1800 + (t / 20) * 32 + t % 20] = (char)t;
+	p.vram[0] = 0x01;                         // map entry 0 = tile 1 ...
+	p.vram[1] = 4 << 2;                       // ... palette 4 (bits 10-12)
+	p.vram[0x802] = 0x1F;                     // palette 4, colour 1 = $001F
+	char[16] pct = { sgb::CMD_PCT_TRN * 8 + 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+	run(s, &pct);
+	s.capture_transfer(&p);
+	test::@check(s.has_border, "PCT_TRN brings the border");
+	test::eq(256, s.width());
+	test::eq(224, s.height());
+
+	s.pal[0] = { 0x7FFF, 0, 0, 0x7C00 };     // colour 0 white, shade 3 blue
+	char[] shades = mem::new_array(char, ppu::WIDTH * ppu::HEIGHT);
+	defer free(shades.ptr);
+	for (usz i = 0; i < shades.len; i++) shades[i] = 3;
+	char[] rgb = mem::new_array(char, 256 * 224 * 3);
+	defer free(rgb.ptr);
+	s.render(shades, rgb);
+
+	test::eq((char)0xF8, rgb[0]);             // (0,0): the border tile, red
+	test::eq((char)0x00, rgb[2]);
+	usz inside = (usz)(40 * 256 + 48) * 3;     // top-left pixel of the Game Boy picture
+	test::eq((char)0xF8, rgb[inside + 2]);    // blue, from shade 3
+	usz backdrop = (usz)(0 * 256 + 100) * 3;   // transparent border outside the picture
+	test::eq((char)0xF8, rgb[backdrop]);      // colour 0 (white) shows through
+	test::eq((char)0xF8, rgb[backdrop + 2]);
+}
+
+fn void without_a_border_the_frame_is_the_darkest_colour() @test
+{
+	sgb::Sgb* s = sgb::new();
+	defer s.free();
+	s.set_preset({ 0x7FFF, 0x0000, 0x0000, 0x7C00 }); // colour 3 = blue
+	char[] shades = mem::new_array(char, ppu::WIDTH * ppu::HEIGHT);
+	defer free(shades.ptr);
+	char[] rgb = mem::new_array(char, 256 * 224 * 3);
+	defer free(rgb.ptr);
+	s.render(shades, rgb);
+	test::eq((char)0x00, rgb[0]);            // corner of the frame: blue
+	test::eq((char)0xF8, rgb[2]);
+	usz gb0 = (usz)(40 * 256 + 48) * 3;
+	test::eq((char)0xF8, rgb[gb0]);          // the picture itself: shade 0 = white
 }

@@ -25,14 +25,14 @@ fn void setup_demo_scene(gameboy::GameBoy* gb) {
 }
 
 fn void? write_ppm(gameboy::GameBoy* gb, String path, char[12] colors) {
-	char[] rgb = mem::new_array(char, ppu::WIDTH * ppu::HEIGHT * 3);
+	char[] rgb = mem::new_array(char, gameboy::MAX_FRAME_RGB);
 	defer free(rgb.ptr);
-	gb.frame_rgb(rgb, colors);
+	gameboy::FrameSize size = gb.frame_rgb(rgb, colors);
 	DString out;
 	out.init(mem);
 	defer out.free();
-	out.appendf("P6\n%d %d\n255\n", ppu::WIDTH, ppu::HEIGHT);
-	foreach (b : rgb) out.append_char(b);
+	out.appendf("P6\n%d %d\n255\n", size.w, size.h);
+	foreach (b : rgb[:(usz)(size.w * size.h * 3)]) out.append_char(b);
 	file::save(path, out.str_view())!;
 }
 
@@ -102,6 +102,7 @@ enum MenuItem : char {
 	OPEN,
 	MODE,
 	PALETTE,
+	SCALE,
 	RESET,
 	QUIT,
 }
@@ -114,6 +115,7 @@ fn int main(String[] args)
 	String rom;
 	String palette;
 	mmu::Model model = DMG;
+	int scale = display::DEFAULT_SCALE;
 	foreach (a : args[1..]) {
 		switch {
 			case a == "--headless": headless = true;
@@ -121,6 +123,12 @@ fn int main(String[] args)
 			case a.starts_with("--frames="): frames = a[9..].to_int() ?? 600;
 			case a.starts_with("--palette="): palette = a[10..];
 			case a == "--sgb-log": sgb_log = true;
+			case a.starts_with("--scale="):
+				scale = a[8..].to_int() ?? 0;
+				if (scale < display::MIN_SCALE || scale > display::MAX_SCALE) {
+					io::eprintfn("unknown scale '%s': use 1, 2, 3 or 4", a[8..]);
+					return 1;
+				}
 			case a == "--mode=dmg": model = DMG;
 			case a == "--mode=sgb": model = SGB;
 			case a.starts_with("--mode="):
@@ -168,7 +176,7 @@ fn int main(String[] args)
 		return 0;
 	}
 
-	display::Display? screen = display::open("wer");
+	display::Display? screen = display::open("wer", scale);
 	if (catch screen) {
 		io::eprintn("no display available; re-run with --headless");
 		return 1;
@@ -185,7 +193,7 @@ fn int main(String[] args)
 	bool menu = !has_rom;
 	int selected = 0;
 
-	char[] rgb = mem::new_array(char, ppu::WIDTH * ppu::HEIGHT * 3);
+	char[] rgb = mem::new_array(char, gameboy::MAX_FRAME_RGB);
 	defer free(rgb.ptr);
 	short[4096] audio;
 	Clock next = clock::now();
@@ -218,14 +226,15 @@ fn int main(String[] args)
 		}
 
 		// The menu: which items exist depends on whether a game is loaded.
-		MenuItem[6] items;
-		String[6] lines;
+		MenuItem[7] items;
+		String[7] lines;
 		int count = 0;
 		if (menu) {
 			if (has_rom) items[count++] = RESUME;
 			items[count++] = OPEN;
 			items[count++] = MODE;
 			if (model == SGB) items[count++] = PALETTE;
+			items[count++] = SCALE;
 			if (has_rom) items[count++] = RESET;
 			items[count++] = QUIT;
 			if (selected >= count) selected = count - 1;
@@ -255,6 +264,11 @@ fn int main(String[] args)
 					apply_preset(&gb, pal);
 				}
 			}
+			if (item == SCALE && (step != 0 || enter)) {
+				int n = display::MAX_SCALE - display::MIN_SCALE + 1;
+				scale = (scale - display::MIN_SCALE + (step < 0 ? n - 1 : 1)) % n + display::MIN_SCALE;
+				screen.set_scale(scale);
+			}
 			if (item == PALETTE && step != 0) {
 				int n = (int)PALETTE_NAMES.len;
 				pal = (pal + step + n) % n;
@@ -274,6 +288,7 @@ fn int main(String[] args)
 					case QUIT:   break;
 					case PALETTE: break;
 					case MODE:   break;
+					case SCALE:  break;
 				}
 				if (item == QUIT) break;
 			}
@@ -281,7 +296,14 @@ fn int main(String[] args)
 			for (int i = 0; i < count; i++) {
 				switch (items[i]) {
 					case RESUME:  lines[i] = "Resume";
-					case OPEN:    lines[i] = screen.dialog_open() ? "Open ROM...  (dialog open)" : "Open ROM...  (Ctrl+O)";
+					// At 1x the window is 20 characters wide: no hints there.
+					case OPEN:
+						if (scale == 1) {
+							lines[i] = "Open ROM...";
+						} else {
+							lines[i] = screen.dialog_open() ? "Open ROM...  (dialog open)" : "Open ROM...  (Ctrl+O)";
+						}
+					case SCALE:   lines[i] = string::tformat("Scale:   < %dx >", scale);
 					case MODE:    lines[i] = string::tformat("Mode:    < %s >", model == SGB ? "SGB" : "DMG");
 					case PALETTE: lines[i] = string::tformat("Palette: < %s >", PALETTE_NAMES[pal]);
 					case RESET:   lines[i] = "Reset";
@@ -303,8 +325,8 @@ fn int main(String[] args)
 			integ = math::clamp(integ, -MAX_INTEG, +MAX_INTEG);
 			gb.set_audio_rate((uint)(display::AUDIO_RATE * (1 - MAX_RATE_ADJ * e - integ)));
 		}
-		gb.frame_rgb(rgb, colors);
-		screen.present(rgb, lines[:count], selected);
+		gameboy::FrameSize size = gb.frame_rgb(rgb, colors);
+		screen.present(rgb, size.w, size.h, lines[:count], selected);
 
 		next += PERIOD;
 		Clock now = clock::now();

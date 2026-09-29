@@ -148,13 +148,22 @@ fn char[] GameBoy.framebuffer(&self) {
 	return self.mmu.ppu.fb;
 }
 
-// The finished picture as RGB, 3 bytes per pixel: coloured by the SGB in SGB
-// mode, otherwise the PPU's shades 0-3 through `colors` (4 RGB triples).
-fn void GameBoy.frame_rgb(&self, char[] rgb, char[12] colors) {
+struct FrameSize {
+	int w;
+	int h;
+}
+
+// Room for the largest picture frame_rgb produces (SGB screen with border).
+const usz MAX_FRAME_RGB = sgb::BORDER_W * sgb::BORDER_H * 3;
+
+// The finished picture as RGB, 3 bytes per pixel, and its size: coloured by
+// the SGB in SGB mode (256x224 once the game sent a border), otherwise the
+// PPU's shades 0-3 through `colors` (4 RGB triples).
+fn FrameSize GameBoy.frame_rgb(&self, char[] rgb, char[12] colors) {
 	char[] fb = self.framebuffer();
 	if (self.mmu.sgb) {
 		self.mmu.sgb.render(fb, rgb);
-		return;
+		return { self.mmu.sgb.width(), self.mmu.sgb.height() };
 	}
 	for (usz i = 0; i < fb.len; i++) {
 		usz p = (usz)(fb[i] & 3) * 3;
@@ -162,6 +171,7 @@ fn void GameBoy.frame_rgb(&self, char[] rgb, char[12] colors) {
 		rgb[i * 3 + 1] = colors[p + 1];
 		rgb[i * 3 + 2] = colors[p + 2];
 	}
+	return { ppu::WIDTH, ppu::HEIGHT };
 }
 
 fn void GameBoy.run_frame(&self) {
