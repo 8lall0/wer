@@ -15,6 +15,8 @@ struct Timer {
 	int  reload_delay;
 	uint pending_tima;
 	uint pending_apu;
+
+	bool reloaded;
 }
 
 struct TickResult {
@@ -44,6 +46,9 @@ fn void Timer.write_tac(&self, char value) {
 
 fn void Timer.write_tima(&self, char value) {
 	if (self.reload_delay > 0) self.reload_delay = 0;
+	if (self.reloaded) {
+		return;
+	}
 	self.tima = value;
 }
 
@@ -59,11 +64,14 @@ fn bool Timer.step_tima(&self) {
 fn TickResult Timer.tick(&self, uint tcycles) {
 	TickResult res;
 
+	self.reloaded = false;
+
 	if (self.reload_delay > 0) {
 		self.reload_delay -= (int)tcycles;
 		if (self.reload_delay <= 0) {
 			self.reload_delay = 0;
 			self.tima = self.tma;
+			self.reloaded = true;
 			res.timer_irq = true;
 		}
 	}
@@ -93,6 +101,7 @@ fn TickResult Timer.tick(&self, uint tcycles) {
 			uint since = after & ((1u << shift) - 1);
 			if ((int)since >= 4) {
 				self.tima = self.tma;
+				self.reloaded = true;
 				res.timer_irq = true;
 			} else {
 				self.reload_delay = 4 - (int)since;
@@ -103,4 +112,11 @@ fn TickResult Timer.tick(&self, uint tcycles) {
 	}
 
 	return res;
+}
+
+fn void Timer.write_tma(&self, char value) {
+	self.tma = value;
+	if (self.reloaded) {
+		self.tima = value;
+	}
 }

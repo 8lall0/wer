@@ -141,7 +141,7 @@ fn void Mmu.io_set(&self, ushort addr, char value) {
 			if ((value & 0x81) == 0x81) self.serial_pending = true;
 		case DIV_REG:  self.timer.write_div();
 		case TIMA_REG: self.timer.write_tima(value);
-		case TMA_REG:  self.timer.tma = value;
+		case TMA_REG:  self.timer.write_tma(value);
 		case TAC_REG:  self.timer.write_tac(value);
 		case 0xFF40:   self.ppu.write_lcdc(value);
 		case 0xFF41:   self.ppu.stat = (self.ppu.stat & 0x87) | (value & 0x78);

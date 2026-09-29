@@ -127,3 +127,40 @@ fn void div_clocks_the_apu_frame_sequencer() @test
 	r = t.tick(1);
 	test::eq((uint)1, r.apu_steps);
 }
+
+// In the M-cycle TMA is copied into TIMA, a TIMA write loses to the reload.
+fn void writing_tima_in_reload_cycle_is_ignored() @test
+{
+	timer::Timer t;
+	t.tma = 0xAB;
+	t.tima = 0xFF;
+	t.write_tac(0x05);
+
+	t.tick(16);          // overflow -> TIMA reads $00 for one M-cycle
+	t.tick(4);           // reload: TIMA = TMA
+	t.write_tima(0x42);  // same M-cycle as the reload: ignored
+	test::eq((char)0xAB, t.tima);
+
+	t.tick(4);           // one M-cycle later writes work again
+	t.write_tima(0x42);
+	test::eq((char)0x42, t.tima);
+}
+
+// In the M-cycle TMA is copied into TIMA, a TMA write is copied too.
+fn void writing_tma_in_reload_cycle_also_loads_tima() @test
+{
+	timer::Timer t;
+	t.tma = 0xAB;
+	t.tima = 0xFF;
+	t.write_tac(0x05);
+
+	t.tick(16);          // overflow
+	t.tick(4);           // reload: TIMA = $AB
+	t.write_tma(0x77);   // same M-cycle: the new TMA is what TIMA gets
+	test::eq((char)0x77, t.tima);
+	test::eq((char)0x77, t.tma);
+
+	t.tick(4);
+	t.write_tma(0x10);   // later TMA writes leave TIMA alone
+	test::eq((char)0x77, t.tima);
+}
