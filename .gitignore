@@ -9,3 +9,4 @@ resources/*.sav
 *.sav
 test/acid2/
 test/mooneye/
+test/blargg/

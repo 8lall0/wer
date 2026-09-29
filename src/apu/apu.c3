@@ -1,7 +1,8 @@
 module apu;
 
-// Functional, not cycle-exact: no length-counter trigger quirks, no wave-RAM
-// corruption bug, no DAC-disable pop. Good enough for music and SFX.
+// Models the DMG quirks Blargg's dmg_sound checks (length counter on trigger
+// and power, sweep negate exit, wave RAM access and corruption while playing).
+// Channels 1, 2 and 4 are stepped per M-cycle, not per T-cycle.
 
 const int  SAMPLE_RATE = 48000;
 const ulong CPU_HZ     = 4194304;
@@ -175,7 +176,10 @@ const char[23] READ_MASK = {
 
 fn char Apu.read(&self, ushort addr) {
 	if (addr >= 0xFF30 && addr <= 0xFF3F) {
-		return self.ch3.ram[addr - 0xFF30];
+		if (!self.ch3.enabled) return self.ch3.ram[addr - 0xFF30];
+		// While playing, only the byte the channel is fetching right now.
+		int i = self.ch3.cpu_access_index();
+		return i < 0 ? (char)0xFF : self.ch3.ram[i];
 	}
 
 	char v;
@@ -215,15 +219,38 @@ fn char Apu.read(&self, ushort addr) {
 
 fn void Apu.write(&self, ushort addr, char value) {
 	if (addr >= 0xFF30 && addr <= 0xFF3F) {
-		self.ch3.ram[addr - 0xFF30] = value;
+		if (!self.ch3.enabled) {
+			self.ch3.ram[addr - 0xFF30] = value;
+			return;
+		}
+		int i = self.ch3.cpu_access_index();
+		if (i >= 0) self.ch3.ram[i] = value;
 		return;
 	}
 
-	// While powered off only NR52 is writable (wave RAM handled above).
-	if (!self.power && addr != 0xFF26) return;
+	// While powered off only NR52 is writable (wave RAM handled above) — except
+	// that on the DMG the length counters keep working: NRx1 writes still load
+	// them (the duty bits are not stored). Blargg dmg_sound 08.
+	if (!self.power) {
+		switch (addr) {
+			case 0xFF11: self.ch1.length = 64 - (value & 0x3F);
+			case 0xFF16: self.ch2.length = 64 - (value & 0x3F);
+			case 0xFF1B: self.ch3.length = 256 - value;
+			case 0xFF20: self.ch4.length = 64 - (value & 0x3F);
+			case 0xFF26: break;
+			default:     return;
+		}
+		if (addr != 0xFF26) return;
+	}
 
 	switch (addr) {
-		case 0xFF10: self.ch1.nr0 = value;
+		case 0xFF10:
+			// Leaving subtract mode after a sweep calculation was made in it
+			// disables the channel (Blargg dmg_sound 05).
+			if ((self.ch1.nr0 & 0x08) != 0 && (value & 0x08) == 0 && self.ch1.sweep_neg_used) {
+				self.ch1.enabled = false;
+			}
+			self.ch1.nr0 = value;
 		case 0xFF11:
 			self.ch1.nr1 = value;
 			self.ch1.length = 64 - (value & 0x3F);
@@ -233,8 +260,10 @@ fn void Apu.write(&self, ushort addr, char value) {
 			if (!self.ch1.dac) self.ch1.enabled = false;
 		case 0xFF13: self.ch1.nr3 = value;
 		case 0xFF14:
+			bool off = nrx4_length(&self.ch1.length, 64, self.ch1.nr4, value, self.length_first_half());
 			self.ch1.nr4 = value;
 			if ((value & 0x80) != 0) self.ch1.trigger();
+			if (off) self.ch1.enabled = false;
 		case 0xFF16:
 			self.ch2.nr1 = value;
 			self.ch2.length = 64 - (value & 0x3F);
@@ -244,8 +273,10 @@ fn void Apu.write(&self, ushort addr, char value) {
 			if (!self.ch2.dac) self.ch2.enabled = false;
 		case 0xFF18: self.ch2.nr3 = value;
 		case 0xFF19:
+			bool off = nrx4_length(&self.ch2.length, 64, self.ch2.nr4, value, self.length_first_half());
 			self.ch2.nr4 = value;
 			if ((value & 0x80) != 0) self.ch2.trigger();
+			if (off) self.ch2.enabled = false;
 		case 0xFF1A:
 			self.ch3.nr0 = value;
 			self.ch3.dac = (value & 0x80) != 0;
@@ -256,8 +287,10 @@ fn void Apu.write(&self, ushort addr, char value) {
 		case 0xFF1C: self.ch3.nr2 = value;
 		case 0xFF1D: self.ch3.nr3 = value;
 		case 0xFF1E:
+			bool off = nrx4_length(&self.ch3.length, 256, self.ch3.nr4, value, self.length_first_half());
 			self.ch3.nr4 = value;
 			if ((value & 0x80) != 0) self.ch3.trigger();
+			if (off) self.ch3.enabled = false;
 		case 0xFF20:
 			self.ch4.nr1 = value;
 			self.ch4.length = 64 - (value & 0x3F);
@@ -267,8 +300,10 @@ fn void Apu.write(&self, ushort addr, char value) {
 			if (!self.ch4.dac) self.ch4.enabled = false;
 		case 0xFF22: self.ch4.nr3 = value;
 		case 0xFF23:
+			bool off = nrx4_length(&self.ch4.length, 64, self.ch4.nr4, value, self.length_first_half());
 			self.ch4.nr4 = value;
 			if ((value & 0x80) != 0) self.ch4.trigger();
+			if (off) self.ch4.enabled = false;
 		case 0xFF24: self.nr50 = value;
 		case 0xFF25: self.nr51 = value;
 		case 0xFF26:
@@ -280,7 +315,35 @@ fn void Apu.write(&self, ushort addr, char value) {
 	}
 }
 
+// True while the frame sequencer's next step will not clock the length
+// counters (they are clocked on steps 0, 2, 4, 6; fs_step is the next step).
+fn bool Apu.length_first_half(&self) => (self.fs_step & 1) != 0;
+
+// NRx4 length-counter quirks (Blargg dmg_sound 03). In the first half of a
+// length period, enabling the counter clocks it once right away, and a
+// trigger that reloads an empty counter loads max - 1 if length is enabled.
+// Returns true when the extra clock emptied the counter without a trigger,
+// which turns the channel off. The channel's own trigger() then sees a
+// non-zero counter and leaves it alone.
+fn bool nrx4_length(int* length, int max, char old, char value, bool first_half) {
+	bool enable = (value & 0x40) != 0;
+	bool trigger = (value & 0x80) != 0;
+	bool off = false;
+	if (first_half && enable && (old & 0x40) == 0 && *length > 0) {
+		(*length)--;
+		if (*length == 0 && !trigger) off = true;
+	}
+	if (trigger && *length == 0) {
+		*length = max;
+		if (first_half && enable) (*length)--;
+	}
+	return off;
+}
+
+// Powering off clears every register, but on the DMG not the length counters
+// (Blargg dmg_sound 08, 11) and not wave RAM.
 fn void Apu.power_off(&self) {
+	int[4] length = { self.ch1.length, self.ch2.length, self.ch3.length, self.ch4.length };
 	Square s1;
 	s1.has_sweep = true;
 	self.ch1 = s1;
@@ -289,6 +352,10 @@ fn void Apu.power_off(&self) {
 	self.ch3 = {};
 	self.ch3.ram = wave;
 	self.ch4 = {};
+	self.ch1.length = length[0];
+	self.ch2.length = length[1];
+	self.ch3.length = length[2];
+	self.ch4.length = length[3];
 	self.nr50 = 0;
 	self.nr51 = 0;
 	self.fs_step = 0;
