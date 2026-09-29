@@ -996,6 +996,37 @@ fn void step_services_interrupt() @test
 	test::eq((ushort)0x0200, c.pop16(&m)); // return address pushed
 }
 
+fn void dispatch_cancelled_when_pc_push_clears_ie() @test
+{
+	cpu::Cpu c = cpu::init();
+	mmu::Mmu m;
+	c.pc = 0x0210;       // high byte $02 lands in IE and clears the timer bit
+	c.sp = 0x0000;       // first push goes to $FFFF = IE
+	c.ime = true;
+	m.set(0xFFFF, 0x04); // IE: timer
+	m.set(0xFF0F, 0x04); // IF: timer pending
+
+	test::eq((char)5, c.step(&m));
+	test::eq((ushort)0x0000, c.pc);                 // cancelled -> $0000
+	test::eq((char)0x04, m.get(0xFF0F) & 0x1F);     // IF untouched
+	test::@check(!c.ime, "IME cleared even when cancelled");
+}
+
+fn void dispatch_repicks_after_pc_push_to_ie() @test
+{
+	cpu::Cpu c = cpu::init();
+	mmu::Mmu m;
+	c.pc = 0x0210;       // high byte $02 -> IE keeps STAT, drops VBlank
+	c.sp = 0x0000;
+	c.ime = true;
+	m.set(0xFFFF, 0x03); // IE: VBlank | STAT
+	m.set(0xFF0F, 0x03); // both pending: VBlank would win
+
+	c.step(&m);
+	test::eq((ushort)0x0048, c.pc);                 // STAT vector instead
+	test::eq((char)0x01, m.get(0xFF0F) & 0x1F);     // only STAT acked
+}
+
 fn void step_interrupt_wakes_halt() @test
 {
 	cpu::Cpu c = cpu::init();

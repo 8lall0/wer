@@ -33,14 +33,29 @@ fn char Cpu.service_interrupt(&self, mmu::Mmu *mmu) {
 
 	if (!self.ime) return 0;
 
-	// Bit 0 (VBlank) is the highest priority, bit 4 (Joypad) the lowest.
-	char bit = 0;
-	while ((pending & (char)(1 << bit)) == 0) bit++;
-
 	self.ime = false;
 	self.ime_delay = 0;  // a pending EI must not re-enable IME inside the handler
+
+	// PC is pushed by hand because the CPU picks the interrupt only after the
+	// high byte is on the stack: with SP = $0000 that byte lands in IE ($FFFF)
+	// and can disable the very interrupt being dispatched (Mooneye ie_push).
+	self.sp--;
+	mmu.set(self.sp, (char)(self.pc >> 8));
+	char pending_now = (char)(mmu.get(IE_ADDR) & mmu.get(IF_ADDR) & INT_MASK);
+	self.sp--;
+	mmu.set(self.sp, (char)(self.pc & 0xFF));
+
+	if (pending_now == 0) {
+		// Cancelled: jump to $0000, IF untouched. IME stays off.
+		self.pc = 0x0000;
+		return 5;
+	}
+
+	// Bit 0 (VBlank) is the highest priority, bit 4 (Joypad) the lowest.
+	char bit = 0;
+	while ((pending_now & (char)(1 << bit)) == 0) bit++;
+
 	mmu.set(IF_ADDR, (char)(mmu.get(IF_ADDR) & ~(1 << bit)));
-	self.push16(mmu, self.pc);
 	self.pc = (ushort)(0x0040 + (int)bit * 8);
 
 	return 5;

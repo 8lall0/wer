@@ -67,7 +67,7 @@ const Rom[*] ROMS = {
 	{ "acceptance/halt_ime1_timing.gb", true  },
 	{ "acceptance/if_ie_registers.gb", true  },
 	{ "acceptance/instr/daa.gb", true  },
-	{ "acceptance/interrupts/ie_push.gb", false },
+	{ "acceptance/interrupts/ie_push.gb", true  },
 	{ "acceptance/intr_timing.gb", true  },
 	{ "acceptance/jp_cc_timing.gb", false },
 	{ "acceptance/jp_timing.gb", false },
