@@ -23,7 +23,7 @@ fn void Cpu.adc_a_r8(&self, char *reg) {
 }
 
 fn void Cpu.adc_a_hl(&self, mmu::Mmu *mmu) {
-	self.add_a(mmu.get(self.hl.reg), self.getFlag(C));
+	self.add_a(self.read(mmu, self.hl.reg), self.getFlag(C));
 	self.required_cycles = 2;
 }
 
@@ -44,7 +44,7 @@ fn void Cpu.add_a_n8(&self, char value) {
 }
 
 fn void Cpu.add_a_hl(&self, mmu::Mmu *mmu) {
-	self.add_a(mmu.get(self.hl.reg), 0);
+	self.add_a(self.read(mmu, self.hl.reg), 0);
 	self.required_cycles = 2;
 }
 
@@ -67,7 +67,7 @@ fn void Cpu.cp_a_r8(&self, char *reg) {
 }
 
 fn void Cpu.cp_a_hl(&self, mmu::Mmu *mmu) {
-	self.sub_a(mmu.get(self.hl.reg), 0);
+	self.sub_a(self.read(mmu, self.hl.reg), 0);
 	self.required_cycles = 2;
 }
 
@@ -82,7 +82,7 @@ fn void Cpu.sub_a_r8(&self, char *reg) {
 }
 
 fn void Cpu.sub_a_hl(&self, mmu::Mmu *mmu) {
-	self.af.hi = self.sub_a(mmu.get(self.hl.reg), 0);
+	self.af.hi = self.sub_a(self.read(mmu, self.hl.reg), 0);
 	self.required_cycles = 2;
 }
 
@@ -98,7 +98,7 @@ fn void Cpu.sbc_a_r8(&self, char *reg) {
 }
 
 fn void Cpu.sbc_a_hl(&self, mmu::Mmu *mmu) {
-	self.af.hi = self.sub_a(mmu.get(self.hl.reg), self.getFlag(C));
+	self.af.hi = self.sub_a(self.read(mmu, self.hl.reg), self.getFlag(C));
 	self.required_cycles = 2;
 }
 
@@ -140,11 +140,11 @@ fn void Cpu.dec_r8(&self, char *reg) {
 }
 
 fn void Cpu.inc_hl(&self, mmu::Mmu *mmu) {
-	mmu.set(self.hl.reg, self.inc_value(mmu.get(self.hl.reg)));
+	self.write(mmu, self.hl.reg, self.inc_value(self.read(mmu, self.hl.reg)));
 	self.required_cycles = 3;
 }
 
 fn void Cpu.dec_hl(&self, mmu::Mmu *mmu) {
-	mmu.set(self.hl.reg, self.dec_value(mmu.get(self.hl.reg)));
+	self.write(mmu, self.hl.reg, self.dec_value(self.read(mmu, self.hl.reg)));
 	self.required_cycles = 3;
 }

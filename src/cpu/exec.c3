@@ -6,6 +6,7 @@ import mmu;
 // idling. Returns the M-cycles it cost. Used by `step` and by the
 // SingleStepTests harness (which wants pure single-instruction semantics).
 fn char Cpu.execute_one(&self, mmu::Mmu *mmu) {
+	self.bus_cycles = 0;
 	char op = self.fetch8(mmu);
 	if (self.halt_bug) {
 		// The HALT bug: the byte after HALT is read without advancing PC.
@@ -15,6 +16,10 @@ fn char Cpu.execute_one(&self, mmu::Mmu *mmu) {
 
 	self.required_cycles = 1;
 	self.execute(mmu, op);
+	// Transition check (M-cycle refactor): every M-cycle must be exactly one
+	// read/write/idle call, so the calls must add up to the table value.
+	assert(self.bus_cycles == self.required_cycles,
+		"opcode $%02x: %d bus cycles, table says %d", op, self.bus_cycles, self.required_cycles);
 
 	// A pending EI becomes effective one instruction after it ran.
 	if (self.ime_delay > 0) {
@@ -35,6 +40,7 @@ fn char Cpu.step(&self, mmu::Mmu *mmu) {
 	}
 
 	if (self.halted || self.stopped) {
+		self.idle(mmu);
 		self.clk += 1;
 		return 1;
 	}
@@ -89,66 +95,66 @@ fn void Cpu.execute(&self, mmu::Mmu *mmu, char op) {
 		case 0x00: self.nop();
 		case 0x01: self.ld_r16_n16(&self.bc, self.fetch16(mmu));
 		case 0x02: self.ld_r16_a(mmu, &self.bc);
-		case 0x03: self.inc_r16(&self.bc);
+		case 0x03: self.inc_r16(mmu, &self.bc);
 		case 0x04: self.inc_r8(&self.bc.hi);
 		case 0x05: self.dec_r8(&self.bc.hi);
 		case 0x06: self.ld_r8_n8(&self.bc.hi, self.fetch8(mmu));
 		case 0x07: self.rlca();
 		case 0x08: self.ld_n16_sp(mmu, self.fetch16(mmu));
-		case 0x09: self.add_hl_r16(&self.bc);
+		case 0x09: self.add_hl_r16(mmu, &self.bc);
 		case 0x0A: self.ld_a_r16(mmu, &self.bc);
-		case 0x0B: self.dec_r16(&self.bc);
+		case 0x0B: self.dec_r16(mmu, &self.bc);
 		case 0x0C: self.inc_r8(&self.bc.lo);
 		case 0x0D: self.dec_r8(&self.bc.lo);
 		case 0x0E: self.ld_r8_n8(&self.bc.lo, self.fetch8(mmu));
 		case 0x0F: self.rrca();
 
-		case 0x10: self.fetch8(mmu); self.stop(mmu); // STOP: consume the $00 pad byte
+		case 0x10: self.pc++; self.stop(mmu); // STOP: skip the $00 pad byte (no bus cycle)
 		case 0x11: self.ld_r16_n16(&self.de, self.fetch16(mmu));
 		case 0x12: self.ld_r16_a(mmu, &self.de);
-		case 0x13: self.inc_r16(&self.de);
+		case 0x13: self.inc_r16(mmu, &self.de);
 		case 0x14: self.inc_r8(&self.de.hi);
 		case 0x15: self.dec_r8(&self.de.hi);
 		case 0x16: self.ld_r8_n8(&self.de.hi, self.fetch8(mmu));
 		case 0x17: self.rla();
-		case 0x18: self.jr_n16((ichar)self.fetch8(mmu));
-		case 0x19: self.add_hl_r16(&self.de);
+		case 0x18: self.jr_n16(mmu, (ichar)self.fetch8(mmu));
+		case 0x19: self.add_hl_r16(mmu, &self.de);
 		case 0x1A: self.ld_a_r16(mmu, &self.de);
-		case 0x1B: self.dec_r16(&self.de);
+		case 0x1B: self.dec_r16(mmu, &self.de);
 		case 0x1C: self.inc_r8(&self.de.lo);
 		case 0x1D: self.dec_r8(&self.de.lo);
 		case 0x1E: self.ld_r8_n8(&self.de.lo, self.fetch8(mmu));
 		case 0x1F: self.rra();
 
-		case 0x20: self.jr_cc_n16(self.cond(0), (ichar)self.fetch8(mmu));
+		case 0x20: self.jr_cc_n16(mmu, self.cond(0), (ichar)self.fetch8(mmu));
 		case 0x21: self.ld_r16_n16(&self.hl, self.fetch16(mmu));
 		case 0x22: self.ld_hli_a(mmu);
-		case 0x23: self.inc_r16(&self.hl);
+		case 0x23: self.inc_r16(mmu, &self.hl);
 		case 0x24: self.inc_r8(&self.hl.hi);
 		case 0x25: self.dec_r8(&self.hl.hi);
 		case 0x26: self.ld_r8_n8(&self.hl.hi, self.fetch8(mmu));
 		case 0x27: self.daa();
-		case 0x28: self.jr_cc_n16(self.cond(1), (ichar)self.fetch8(mmu));
-		case 0x29: self.add_hl_r16(&self.hl);
+		case 0x28: self.jr_cc_n16(mmu, self.cond(1), (ichar)self.fetch8(mmu));
+		case 0x29: self.add_hl_r16(mmu, &self.hl);
 		case 0x2A: self.ld_a_hli(mmu);
-		case 0x2B: self.dec_r16(&self.hl);
+		case 0x2B: self.dec_r16(mmu, &self.hl);
 		case 0x2C: self.inc_r8(&self.hl.lo);
 		case 0x2D: self.dec_r8(&self.hl.lo);
 		case 0x2E: self.ld_r8_n8(&self.hl.lo, self.fetch8(mmu));
 		case 0x2F: self.cpl();
 
-		case 0x30: self.jr_cc_n16(self.cond(2), (ichar)self.fetch8(mmu));
+		case 0x30: self.jr_cc_n16(mmu, self.cond(2), (ichar)self.fetch8(mmu));
 		case 0x31: self.ld_sp_n16(self.fetch16(mmu));
 		case 0x32: self.ld_hld_a(mmu);
-		case 0x33: self.inc_sp();
+		case 0x33: self.inc_sp(mmu);
 		case 0x34: self.inc_hl(mmu);
 		case 0x35: self.dec_hl(mmu);
 		case 0x36: self.ld_hl_n8(mmu, self.fetch8(mmu));
 		case 0x37: self.scf();
-		case 0x38: self.jr_cc_n16(self.cond(3), (ichar)self.fetch8(mmu));
-		case 0x39: self.add_hl_sp();
+		case 0x38: self.jr_cc_n16(mmu, self.cond(3), (ichar)self.fetch8(mmu));
+		case 0x39: self.add_hl_sp(mmu);
 		case 0x3A: self.ld_a_hld(mmu);
-		case 0x3B: self.dec_sp();
+		case 0x3B: self.dec_sp(mmu);
 		case 0x3C: self.inc_r8(&self.af.hi);
 		case 0x3D: self.dec_r8(&self.af.hi);
 		case 0x3E: self.ld_r8_n8(&self.af.hi, self.fetch8(mmu));
@@ -157,15 +163,15 @@ fn void Cpu.execute(&self, mmu::Mmu *mmu, char op) {
 		// ================= 0xC0 - 0xFF =================
 		case 0xC0: self.ret_cc(mmu, self.cond(0));
 		case 0xC1: self.pop_r16(mmu, &self.bc);
-		case 0xC2: self.jp_cc_n16(self.cond(0), self.fetch16(mmu));
-		case 0xC3: self.jp_n16(self.fetch16(mmu));
+		case 0xC2: self.jp_cc_n16(mmu, self.cond(0), self.fetch16(mmu));
+		case 0xC3: self.jp_n16(mmu, self.fetch16(mmu));
 		case 0xC4: self.call_cc_n16(mmu, self.cond(0), self.fetch16(mmu));
 		case 0xC5: self.push_r16(mmu, &self.bc);
 		case 0xC6: self.add_a_n8(self.fetch8(mmu));
 		case 0xC7: self.rst_vec(mmu, 0x00);
 		case 0xC8: self.ret_cc(mmu, self.cond(1));
 		case 0xC9: self.ret(mmu);
-		case 0xCA: self.jp_cc_n16(self.cond(1), self.fetch16(mmu));
+		case 0xCA: self.jp_cc_n16(mmu, self.cond(1), self.fetch16(mmu));
 		case 0xCB: self.execute_cb(mmu, self.fetch8(mmu));
 		case 0xCC: self.call_cc_n16(mmu, self.cond(1), self.fetch16(mmu));
 		case 0xCD: self.call_n16(mmu, self.fetch16(mmu));
@@ -174,7 +180,7 @@ fn void Cpu.execute(&self, mmu::Mmu *mmu, char op) {
 
 		case 0xD0: self.ret_cc(mmu, self.cond(2));
 		case 0xD1: self.pop_r16(mmu, &self.de);
-		case 0xD2: self.jp_cc_n16(self.cond(2), self.fetch16(mmu));
+		case 0xD2: self.jp_cc_n16(mmu, self.cond(2), self.fetch16(mmu));
 		case 0xD3: self.illegal(op);
 		case 0xD4: self.call_cc_n16(mmu, self.cond(2), self.fetch16(mmu));
 		case 0xD5: self.push_r16(mmu, &self.de);
@@ -182,7 +188,7 @@ fn void Cpu.execute(&self, mmu::Mmu *mmu, char op) {
 		case 0xD7: self.rst_vec(mmu, 0x10);
 		case 0xD8: self.ret_cc(mmu, self.cond(3));
 		case 0xD9: self.reti(mmu);
-		case 0xDA: self.jp_cc_n16(self.cond(3), self.fetch16(mmu));
+		case 0xDA: self.jp_cc_n16(mmu, self.cond(3), self.fetch16(mmu));
 		case 0xDB: self.illegal(op);
 		case 0xDC: self.call_cc_n16(mmu, self.cond(3), self.fetch16(mmu));
 		case 0xDD: self.illegal(op);
@@ -197,7 +203,7 @@ fn void Cpu.execute(&self, mmu::Mmu *mmu, char op) {
 		case 0xE5: self.push_r16(mmu, &self.hl);
 		case 0xE6: self.and_a_n8(self.fetch8(mmu));
 		case 0xE7: self.rst_vec(mmu, 0x20);
-		case 0xE8: self.add_sp_e8((ichar)self.fetch8(mmu));
+		case 0xE8: self.add_sp_e8(mmu, (ichar)self.fetch8(mmu));
 		case 0xE9: self.jp_hl();
 		case 0xEA: self.ld_n16_a(mmu, self.fetch16(mmu));
 		case 0xEB: self.illegal(op);
@@ -214,8 +220,8 @@ fn void Cpu.execute(&self, mmu::Mmu *mmu, char op) {
 		case 0xF5: self.push_af(mmu);
 		case 0xF6: self.or_a_n8(self.fetch8(mmu));
 		case 0xF7: self.rst_vec(mmu, 0x30);
-		case 0xF8: self.ld_hl_sp_e8((ichar)self.fetch8(mmu));
-		case 0xF9: self.ld_sp_hl();
+		case 0xF8: self.ld_hl_sp_e8(mmu, (ichar)self.fetch8(mmu));
+		case 0xF9: self.ld_sp_hl(mmu);
 		case 0xFA: self.ld_a_n16(mmu, self.fetch16(mmu));
 		case 0xFB: self.ei();
 		case 0xFC: self.illegal(op);

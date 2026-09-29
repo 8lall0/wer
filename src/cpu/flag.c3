@@ -21,7 +21,7 @@ fn void Cpu.bit_u3_r8(&self, char *reg, uint u3) {
 }
 
 fn void Cpu.bit_u3_hl(&self, mmu::Mmu *mmu, uint u3) {
-	char value = mmu.get(self.hl.reg);
+	char value = self.read(mmu, self.hl.reg);
 
 	self.updateZero((char)(value & (1 << u3)));
 	self.unsetFlag(N);
@@ -38,9 +38,9 @@ fn void Cpu.res_u3_r8(&self, char *reg, uint u3) {
 }
 
 fn void Cpu.res_u3_hl(&self, mmu::Mmu *mmu, uint u3) {
-	char value = mmu.get(self.hl.reg);
+	char value = self.read(mmu, self.hl.reg);
 	value &= (char)~(1 << u3);
-	mmu.set(self.hl.reg, value);
+	self.write(mmu, self.hl.reg, value);
 
 	self.required_cycles = 4;
 }
@@ -53,9 +53,9 @@ fn void Cpu.set_u3_r8(&self, char *reg, uint u3) {
 }
 
 fn void Cpu.set_u3_hl(&self, mmu::Mmu *mmu, uint u3) {
-	char value = mmu.get(self.hl.reg);
+	char value = self.read(mmu, self.hl.reg);
 	value |= (char)(1 << u3);
-	mmu.set(self.hl.reg, value);
+	self.write(mmu, self.hl.reg, value);
 
 	self.required_cycles = 4;
 }

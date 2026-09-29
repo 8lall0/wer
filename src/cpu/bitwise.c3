@@ -30,7 +30,7 @@ fn void Cpu.and_a_r8(&self, char *reg) {
 }
 
 fn void Cpu.and_a_hl(&self, mmu::Mmu *mmu) {
-	self.and_a(mmu.get(self.hl.reg));
+	self.and_a(self.read(mmu, self.hl.reg));
 	self.required_cycles = 2;
 }
 
@@ -57,7 +57,7 @@ fn void Cpu.or_a_r8(&self, char *reg) {
 }
 
 fn void Cpu.or_a_hl(&self, mmu::Mmu *mmu) {
-	self.or_a(mmu.get(self.hl.reg));
+	self.or_a(self.read(mmu, self.hl.reg));
 	self.required_cycles = 2;
 }
 
@@ -84,7 +84,7 @@ fn void Cpu.xor_a_r8(&self, char *reg) {
 }
 
 fn void Cpu.xor_a_hl(&self, mmu::Mmu *mmu) {
-	self.xor_a(mmu.get(self.hl.reg));
+	self.xor_a(self.read(mmu, self.hl.reg));
 	self.required_cycles = 2;
 }
 

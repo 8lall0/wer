@@ -8,7 +8,7 @@ import mmu;
 // ---------------------------------------------------------------------------
 
 fn char Cpu.fetch8(&self, mmu::Mmu *mmu) {
-	char v = mmu.get(self.pc);
+	char v = self.read(mmu, self.pc);
 	self.pc++;
 	return v;
 }
@@ -46,13 +46,13 @@ fn bool Cpu.r8_is_mem(&self, char code) {
 }
 
 fn char Cpu.read_r8(&self, mmu::Mmu *mmu, char code) {
-	if (self.r8_is_mem(code)) return mmu.get(self.hl.reg);
+	if (self.r8_is_mem(code)) return self.read(mmu, self.hl.reg);
 	return *self.r8_ptr(code);
 }
 
 fn void Cpu.write_r8(&self, mmu::Mmu *mmu, char code, char value) {
 	if (self.r8_is_mem(code)) {
-		mmu.set(self.hl.reg, value);
+		self.write(mmu, self.hl.reg, value);
 		return;
 	}
 	*self.r8_ptr(code) = value;

@@ -3,6 +3,8 @@ module cpu;
 import mmu;
 
 // True when at least one enabled interrupt line is pending (IE & IF).
+// IE/IF are read directly, not through Cpu.read: the interrupt controller
+// sees these lines without spending a bus cycle.
 fn bool Cpu.interrupt_pending(&self, mmu::Mmu *mmu) {
 	return (mmu.get(IE_ADDR) & mmu.get(IF_ADDR) & INT_MASK) != 0;
 }
@@ -35,19 +37,23 @@ fn char Cpu.service_interrupt(&self, mmu::Mmu *mmu) {
 
 	self.ime = false;
 	self.ime_delay = 0;  // a pending EI must not re-enable IME inside the handler
+	// 5 M-cycles: 2 internal, push PC high, push PC low, 1 internal (jump).
+	self.idle(mmu);
+	self.idle(mmu);
 
 	// PC is pushed by hand because the CPU picks the interrupt only after the
 	// high byte is on the stack: with SP = $0000 that byte lands in IE ($FFFF)
 	// and can disable the very interrupt being dispatched (Mooneye ie_push).
 	self.sp--;
-	mmu.set(self.sp, (char)(self.pc >> 8));
+	self.write(mmu, self.sp, (char)(self.pc >> 8));
 	char pending_now = (char)(mmu.get(IE_ADDR) & mmu.get(IF_ADDR) & INT_MASK);
 	self.sp--;
-	mmu.set(self.sp, (char)(self.pc & 0xFF));
+	self.write(mmu, self.sp, (char)(self.pc & 0xFF));
 
 	if (pending_now == 0) {
 		// Cancelled: jump to $0000, IF untouched. IME stays off.
 		self.pc = 0x0000;
+		self.idle(mmu);
 		return 5;
 	}
 
@@ -57,6 +63,7 @@ fn char Cpu.service_interrupt(&self, mmu::Mmu *mmu) {
 
 	mmu.set(IF_ADDR, (char)(mmu.get(IF_ADDR) & ~(1 << bit)));
 	self.pc = (ushort)(0x0040 + (int)bit * 8);
+	self.idle(mmu);
 
 	return 5;
 }

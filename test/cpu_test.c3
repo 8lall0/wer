@@ -424,12 +424,13 @@ fn void daa_after_sub_preserves_n_and_borrow_carry() @test
 
 fn void add_hl_r16_flags() @test
 {
+	mmu::Mmu m; // the methods count their internal cycle through it
 	cpu::Cpu c = cpu::init();
 	c.hl.reg = 0x0FFF;
 	c.af.lo = 0;
 	cpu::HiLoReg de;
 	de.reg = 0x0001;
-	c.add_hl_r16(&de);
+	c.add_hl_r16(&m, &de);
 
 	test::eq((ushort)0x1000, c.hl.reg);
 	test::@check(c.getFlag(cpu::N) == 0, "N cleared");
@@ -439,14 +440,15 @@ fn void add_hl_r16_flags() @test
 
 fn void inc_dec_r16_no_flags() @test
 {
+	mmu::Mmu m; // the methods count their internal cycle through it
 	cpu::Cpu c = cpu::init();
 	c.af.lo = 0xF0;
 	cpu::HiLoReg r;
 	r.reg = 0x00FF;
-	c.inc_r16(&r);
+	c.inc_r16(&m, &r);
 	test::eq((ushort)0x0100, r.reg);
-	c.dec_r16(&r);
-	c.dec_r16(&r);
+	c.dec_r16(&m, &r);
+	c.dec_r16(&m, &r);
 	test::eq((ushort)0x00FE, r.reg);
 	test::eq((char)0xF0, c.af.lo); // untouched
 }
@@ -781,11 +783,12 @@ fn void pop_af_masks_low_nibble() @test
 
 fn void ld_hl_sp_e8_computes_without_touching_sp() @test
 {
+	mmu::Mmu m; // the methods count their internal cycle through it
 	cpu::Cpu c = cpu::init();
 	c.sp = 0xFFF8;
 	c.af.lo = 0xF0;
 
-	c.ld_hl_sp_e8(0x08); // 0xFFF8 + 8 = 0x0000 (wraps)
+	c.ld_hl_sp_e8(&m, 0x08); // 0xFFF8 + 8 = 0x0000 (wraps)
 	test::eq((ushort)0x0000, c.hl.reg);
 	test::eq((ushort)0xFFF8, c.sp); // SP untouched
 	test::@check(c.getFlag(cpu::Z) == 0, "Z always 0");
@@ -797,11 +800,12 @@ fn void ld_hl_sp_e8_computes_without_touching_sp() @test
 
 fn void ld_hl_sp_e8_negative_offset() @test
 {
+	mmu::Mmu m; // the methods count their internal cycle through it
 	cpu::Cpu c = cpu::init();
 	c.sp = 0x0005;
 	c.af.lo = 0;
 
-	c.ld_hl_sp_e8(-1); // 0x0004
+	c.ld_hl_sp_e8(&m, -1); // 0x0004
 	test::eq((ushort)0x0004, c.hl.reg);
 	test::eq((ushort)0x0005, c.sp);
 	// H/C use the unsigned byte 0xFF: 0x5 + 0xF -> bit3 carry; 0x05 + 0xFF -> bit7 carry
@@ -811,11 +815,12 @@ fn void ld_hl_sp_e8_negative_offset() @test
 
 fn void add_sp_e8_flags() @test
 {
+	mmu::Mmu m; // the methods count their internal cycle through it
 	cpu::Cpu c = cpu::init();
 	c.sp = 0x000F;
 	c.af.lo = 0xF0;
 
-	c.add_sp_e8(1);
+	c.add_sp_e8(&m, 1);
 	test::eq((ushort)0x0010, c.sp);
 	test::@check(c.getFlag(cpu::Z) == 0, "Z always 0");
 	test::@check(c.getFlag(cpu::N) == 0, "N always 0");
@@ -823,7 +828,7 @@ fn void add_sp_e8_flags() @test
 	test::@check(c.getFlag(cpu::C) == 0, "C: no byte carry");
 
 	c.sp = 0x0001;
-	c.add_sp_e8(-1);
+	c.add_sp_e8(&m, -1);
 	test::eq((ushort)0x0000, c.sp);
 }
 
@@ -1113,25 +1118,27 @@ fn void stop_resets_div_and_continues() @test
 
 fn void jr_relative() @test
 {
+	mmu::Mmu m; // the methods count their internal cycle through it
 	cpu::Cpu c = cpu::init();
 	c.pc = 0x0200;
-	c.jr_n16(-5);
+	c.jr_n16(&m, -5);
 	test::eq((ushort)0x01FB, c.pc);
 
 	c.pc = 0x0200;
-	c.jr_n16(0x10);
+	c.jr_n16(&m, 0x10);
 	test::eq((ushort)0x0210, c.pc);
 }
 
 fn void jr_cc_cycles_and_branch() @test
 {
+	mmu::Mmu m; // the methods count their internal cycle through it
 	cpu::Cpu c = cpu::init();
 	c.pc = 0x0200;
-	c.jr_cc_n16(false, 0x10);
+	c.jr_cc_n16(&m, false, 0x10);
 	test::eq((ushort)0x0200, c.pc);
 	test::eq((char)2, c.required_cycles);
 
-	c.jr_cc_n16(true, 0x10);
+	c.jr_cc_n16(&m, true, 0x10);
 	test::eq((ushort)0x0210, c.pc);
 	test::eq((char)3, c.required_cycles);
 }

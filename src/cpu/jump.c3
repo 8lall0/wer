@@ -13,6 +13,7 @@ taken; each handler sets `required_cycles` accordingly.
 */
 
 fn void Cpu.call_n16(&self, mmu::Mmu *mmu, ushort address) {
+	self.idle(mmu);
 	self.push16(mmu, self.pc);
 	self.pc = address;
 
@@ -33,14 +34,16 @@ fn void Cpu.jp_hl(&self) {
 	self.required_cycles = 1;
 }
 
-fn void Cpu.jp_n16(&self, ushort address) {
+fn void Cpu.jp_n16(&self, mmu::Mmu *mmu, ushort address) {
+	self.idle(mmu);
 	self.pc = address;
 
 	self.required_cycles = 4;
 }
 
-fn void Cpu.jp_cc_n16(&self, bool condition, ushort address) {
+fn void Cpu.jp_cc_n16(&self, mmu::Mmu *mmu, bool condition, ushort address) {
 	if (condition) {
+		self.idle(mmu);
 		self.pc = address;
 		self.required_cycles = 4;
 		return;
@@ -48,14 +51,16 @@ fn void Cpu.jp_cc_n16(&self, bool condition, ushort address) {
 	self.required_cycles = 3;
 }
 
-fn void Cpu.jr_n16(&self, ichar e8) {
+fn void Cpu.jr_n16(&self, mmu::Mmu *mmu, ichar e8) {
+	self.idle(mmu);
 	self.pc = (ushort)((int)self.pc + (int)e8);
 
 	self.required_cycles = 3;
 }
 
-fn void Cpu.jr_cc_n16(&self, bool condition, ichar e8) {
+fn void Cpu.jr_cc_n16(&self, mmu::Mmu *mmu, bool condition, ichar e8) {
 	if (condition) {
+		self.idle(mmu);
 		self.pc = (ushort)((int)self.pc + (int)e8);
 		self.required_cycles = 3;
 		return;
@@ -65,13 +70,16 @@ fn void Cpu.jr_cc_n16(&self, bool condition, ichar e8) {
 
 fn void Cpu.ret(&self, mmu::Mmu *mmu) {
 	self.pc = self.pop16(mmu);
+	self.idle(mmu);
 
 	self.required_cycles = 4;
 }
 
 fn void Cpu.ret_cc(&self, mmu::Mmu *mmu, bool condition) {
+	self.idle(mmu);
 	if (condition) {
 		self.pc = self.pop16(mmu);
+		self.idle(mmu);
 		self.required_cycles = 5;
 		return;
 	}
@@ -80,6 +88,7 @@ fn void Cpu.ret_cc(&self, mmu::Mmu *mmu, bool condition) {
 
 fn void Cpu.reti(&self, mmu::Mmu *mmu) {
 	self.pc = self.pop16(mmu);
+	self.idle(mmu);
 	self.ime = true;
 
 	self.required_cycles = 4;
@@ -87,6 +96,7 @@ fn void Cpu.reti(&self, mmu::Mmu *mmu) {
 
 // RST: call one of the fixed vectors ($00, $08, $10, ... $38).
 fn void Cpu.rst_vec(&self, mmu::Mmu *mmu, char vec) {
+	self.idle(mmu);
 	self.push16(mmu, self.pc);
 	self.pc = vec;
 

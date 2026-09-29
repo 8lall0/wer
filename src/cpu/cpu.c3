@@ -87,6 +87,7 @@ struct Cpu {
 	ushort pc;
 
 	ulong clk;
+	ulong bus_cycles;
 	char required_cycles;
 
 	bool ime;
@@ -146,4 +147,23 @@ fn void Cpu.assignFlag(&self, Flag flag, bool value) {
 // Z is set if `value` is zero.
 fn void Cpu.updateZero(&self, char value) {
 	self.assignFlag(Z, value == 0);
+}
+
+// ---------------------------------------------------------------------------
+// Bus wrappers: one M-cycle each. Every CPU memory access and every internal
+// cycle goes through exactly one of these, so an instruction's cost is the
+// number of calls it makes. (Later they also advance timer/PPU/DMA.)
+// ---------------------------------------------------------------------------
+fn char Cpu.read(&self, mmu::Mmu* mmu, ushort addr) {
+	self.bus_cycles++;
+	return mmu.get(addr);
+}
+
+fn void Cpu.write(&self, mmu::Mmu* mmu, ushort addr, char value) {
+	self.bus_cycles++;
+	mmu.set(addr, value);
+}
+
+fn void Cpu.idle(&self, mmu::Mmu* mmu) {
+	self.bus_cycles++;
 }

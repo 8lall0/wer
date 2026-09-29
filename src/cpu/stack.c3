@@ -8,21 +8,22 @@ import mmu;
 // ---------------------------------------------------------------------------
 fn void Cpu.push16(&self, mmu::Mmu *mmu, ushort value) {
 	self.sp--;
-	mmu.set(self.sp, (char)(value >> 8));
+	self.write(mmu, self.sp, (char)(value >> 8));
 	self.sp--;
-	mmu.set(self.sp, (char)(value & 0xFF));
+	self.write(mmu, self.sp, (char)(value & 0xFF));
 }
 
 fn ushort Cpu.pop16(&self, mmu::Mmu *mmu) {
-	char lo = mmu.get(self.sp);
+	char lo = self.read(mmu, self.sp);
 	self.sp++;
-	char hi = mmu.get(self.sp);
+	char hi = self.read(mmu, self.sp);
 	self.sp++;
 	return (ushort)((hi << 8) | lo);
 }
 
 // ADD HL,SP : HL = HL + SP. N=0, H = carry from bit 11, C = carry from bit 15.
-fn void Cpu.add_hl_sp(&self) {
+fn void Cpu.add_hl_sp(&self, mmu::Mmu *mmu) {
+	self.idle(mmu);
 	self.unsetFlag(N);
 	self.assignFlag(H, check_bit11_overflow(self.hl.reg, self.sp));
 	self.assignFlag(C, check_bit15_overflow(self.hl.reg, self.sp));
@@ -34,7 +35,9 @@ fn void Cpu.add_hl_sp(&self) {
 
 // ADD SP,e8 : SP = SP + (signed) e8. Z=0, N=0, H and C come from the
 // unsigned low nibble/byte of e8.
-fn void Cpu.add_sp_e8(&self, ichar e8) {
+fn void Cpu.add_sp_e8(&self, mmu::Mmu *mmu, ichar e8) {
+	self.idle(mmu);
+	self.idle(mmu);
 	self.unsetFlag(Z);
 	self.unsetFlag(N);
 	self.assignFlag(H, check_bit3_signed_overflow(self.sp, e8));
@@ -47,7 +50,8 @@ fn void Cpu.add_sp_e8(&self, ichar e8) {
 
 // LD HL,SP+e8 : HL = SP + (signed) e8, SP unchanged. Flags identical to
 // ADD SP,e8 (Z=0, N=0, H/C from the unsigned low nibble/byte of e8).
-fn void Cpu.ld_hl_sp_e8(&self, ichar e8) {
+fn void Cpu.ld_hl_sp_e8(&self, mmu::Mmu *mmu, ichar e8) {
+	self.idle(mmu);
 	self.unsetFlag(Z);
 	self.unsetFlag(N);
 	self.assignFlag(H, check_bit3_signed_overflow(self.sp, e8));
@@ -58,13 +62,15 @@ fn void Cpu.ld_hl_sp_e8(&self, ichar e8) {
 	self.required_cycles = 3;
 }
 
-fn void Cpu.dec_sp(&self) {
+fn void Cpu.dec_sp(&self, mmu::Mmu *mmu) {
+	self.idle(mmu);
 	self.sp--;
 
 	self.required_cycles = 2;
 }
 
-fn void Cpu.inc_sp(&self) {
+fn void Cpu.inc_sp(&self, mmu::Mmu *mmu) {
+	self.idle(mmu);
 	self.sp++;
 
 	self.required_cycles = 2;
@@ -77,13 +83,14 @@ fn void Cpu.ld_sp_n16(&self, ushort value) {
 }
 
 fn void Cpu.ld_n16_sp(&self, mmu::Mmu *mmu, ushort address) {
-	mmu.set(address, (char)(self.sp & 0xFF));
-	mmu.set(address + 1, (char)(self.sp >> 8));
+	self.write(mmu, address, (char)(self.sp & 0xFF));
+	self.write(mmu, address + 1, (char)(self.sp >> 8));
 
 	self.required_cycles = 5;
 }
 
-fn void Cpu.ld_sp_hl(&self) {
+fn void Cpu.ld_sp_hl(&self, mmu::Mmu *mmu) {
+	self.idle(mmu);
 	self.sp = self.hl.reg;
 
 	self.required_cycles = 2;
@@ -91,37 +98,39 @@ fn void Cpu.ld_sp_hl(&self) {
 
 // POP AF : the low nibble of F is always zero on hardware.
 fn void Cpu.pop_af(&self, mmu::Mmu *mmu) {
-	self.af.lo = mmu.get(self.sp) & 0xF0;
+	self.af.lo = self.read(mmu, self.sp) & 0xF0;
 	self.sp++;
-	self.af.hi = mmu.get(self.sp);
+	self.af.hi = self.read(mmu, self.sp);
 	self.sp++;
 
 	self.required_cycles = 3;
 }
 
 fn void Cpu.pop_r16(&self, mmu::Mmu *mmu, HiLoReg *reg) {
-	reg.lo = mmu.get(self.sp);
+	reg.lo = self.read(mmu, self.sp);
 	self.sp++;
-	reg.hi = mmu.get(self.sp);
+	reg.hi = self.read(mmu, self.sp);
 	self.sp++;
 
 	self.required_cycles = 3;
 }
 
 fn void Cpu.push_af(&self, mmu::Mmu *mmu) {
+	self.idle(mmu);
 	self.sp--;
-	mmu.set(self.sp, self.af.hi);
+	self.write(mmu, self.sp, self.af.hi);
 	self.sp--;
-	mmu.set(self.sp, self.af.lo);
+	self.write(mmu, self.sp, self.af.lo);
 
 	self.required_cycles = 4;
 }
 
 fn void Cpu.push_r16(&self, mmu::Mmu *mmu, HiLoReg *reg) {
+	self.idle(mmu);
 	self.sp--;
-	mmu.set(self.sp, reg.hi);
+	self.write(mmu, self.sp, reg.hi);
 	self.sp--;
-	mmu.set(self.sp, reg.lo);
+	self.write(mmu, self.sp, reg.lo);
 
 	self.required_cycles = 4;
 }
