@@ -92,10 +92,12 @@ fn char Ppu.write_stat(&self, char value) {
 }
 
 // The LY=LYC flag follows a LYC write immediately, not at the next line.
+// With the LCD off the comparison clock is stopped: the flag keeps its last
+// value until the LCD is turned on again (Mooneye stat_lyc_onoff).
 fn char Ppu.write_lyc(&self, char value) {
 	self.lyc = value;
-	self.check_lyc();
 	if ((self.lcdc & LCDC_ENABLE) == 0) return 0;
+	self.check_lyc();
 	return self.update_stat_line();
 }
 
@@ -107,7 +109,8 @@ fn char Ppu.tick(&self, uint tcycles) {
 		self.win_line = 0;
 		self.mode = 0;
 		self.stat &= 0xFC;
-		self.stat_line = false;
+		// stat_line and the LY=LYC flag stay frozen while the LCD is off, so
+		// turning it back on only raises an IRQ if the line really goes 0 -> 1.
 		return 0;
 	}
 
@@ -304,9 +307,16 @@ fn void Ppu.render_sprites(&self, int y) {
 // The four STAT sources are OR'ed into one line; the STAT interrupt fires only
 // on its rising edge. A source turning on while the line is already high
 // raises nothing ("STAT blocking").
+// DMG quirk: when VBlank starts at line 144 the mode-2 (OAM) source is briefly
+// active too, so with STAT bit 5 set a STAT IRQ fires together with VBlank
+// (Mooneye vblank_stat_intr).
+fn bool Ppu.vblank_oam_pulse(&self) {
+	return self.line == VBLANK_LINE && self.dot < LY_EARLY_DOTS;
+}
+
 fn char Ppu.update_stat_line(&self) {
 	bool high = ((self.stat & STAT_LYC_IE)    != 0 && (self.stat & STAT_LYC_FLAG) != 0)
-	         || ((self.stat & STAT_OAM_IE)    != 0 && self.mode == 2)
+	         || ((self.stat & STAT_OAM_IE)    != 0 && (self.mode == 2 || self.vblank_oam_pulse()))
 	         || ((self.stat & STAT_VBLANK_IE) != 0 && self.mode == 1)
 	         || ((self.stat & STAT_HBLANK_IE) != 0 && self.mode == 0);
 

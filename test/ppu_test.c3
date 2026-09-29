@@ -259,3 +259,20 @@ fn void oam_dma_copies_page() @test
 	test::eq((char)0xA0, gb.mmu.get(0xFE9F));
 	test::eq((char)0xC0, gb.mmu.get(0xFF46)); // register reads back
 }
+
+// With the LCD off the LY=LYC comparison is stopped: the flag keeps its value
+// and LYC writes don't change it until the LCD is turned on again.
+fn void lyc_flag_frozen_while_lcd_off() @test
+{
+	gameboy::GameBoy gb = gameboy::new(false);
+	defer gb.destroy();
+	gb.mmu.set(0xFF45, 0x00);      // LYC = 0 = LY: flag set
+	test::@check((gb.mmu.get(0xFF41) & 0x04) != 0, "flag set with LCD on");
+
+	gb.mmu.set(0xFF40, 0x00);      // LCD off
+	gb.mmu.set(0xFF45, 0x05);      // no longer equal, but nobody compares
+	test::@check((gb.mmu.get(0xFF41) & 0x04) != 0, "flag frozen while off");
+
+	gb.mmu.set(0xFF40, 0x80);      // LCD on: LY=0 vs LYC=5
+	test::@check((gb.mmu.get(0xFF41) & 0x04) == 0, "compared again after LCD-on");
+}
