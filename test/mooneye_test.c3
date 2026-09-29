@@ -49,7 +49,7 @@ const Rom[*] ROMS = {
 	{ "acceptance/add_sp_e_timing.gb", false },
 	{ "acceptance/bits/mem_oam.gb", true  },
 	{ "acceptance/bits/reg_f.gb", true  },
-	{ "acceptance/bits/unused_hwio-GS.gb", false },
+	{ "acceptance/bits/unused_hwio-GS.gb", true  },
 	{ "acceptance/boot_div-dmgABCmgb.gb", false },
 	{ "acceptance/boot_hwio-dmgABCmgb.gb", false },
 	{ "acceptance/boot_regs-dmgABC.gb", true  },

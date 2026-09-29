@@ -32,6 +32,23 @@ fn void power_off_zeros_channel_registers() @test
 	test::@check(!a.power, "power flag cleared");
 }
 
+// READ_MASK covers $FF10-$FF26 including the unused NR20/NR40 slots; channels
+// 2 and 4 used to be looked up one entry early (their neighbour's mask).
+fn void read_masks_channels_2_and_4() @test
+{
+	apu::Apu* a = fresh();
+	defer drop(a);
+
+	char[4] nr2x_mask = { 0x3F, 0x00, 0xFF, 0xBF }; // NR21-NR24
+	char[4] nr4x_mask = { 0xFF, 0x00, 0x00, 0xBF }; // NR41-NR44
+	for (int i = 0; i < 4; i++) {
+		a.write((ushort)(0xFF16 + i), 0x00);
+		test::eq(nr2x_mask[i], a.read((ushort)(0xFF16 + i)));
+		a.write((ushort)(0xFF20 + i), 0x00);
+		test::eq(nr4x_mask[i], a.read((ushort)(0xFF20 + i)));
+	}
+}
+
 fn void read_masks_applied() @test
 {
 	apu::Apu* a = fresh();
