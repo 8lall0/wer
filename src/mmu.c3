@@ -10,6 +10,17 @@ const ushort TMA_REG  = 0xFF06;
 const ushort TAC_REG  = 0xFF07;
 const ushort DMA_REG  = 0xFF46;
 
+const int DMA_STARTUP = 2;
+const int DMA_LEN     = 0xA0;
+
+struct Dma {
+	bool   active;         // copying, CPU locked out
+	ushort source;
+	int    index;          // next byte, 0..DMA_LEN-1
+	int    pending;        // M-cycles until a written start takes over (0 = none)
+	ushort pending_source;
+}
+
 struct Mmu {
 	char[0x8000] rom;      // 0000-7FFF fallback when there is no MBC cartridge
 	char[0x2000] extram;   // A000-BFFF fallback
@@ -28,6 +39,8 @@ struct Mmu {
 	bool   serial_echo;   // when true, print each transferred byte to stderr
 
 	bool boot_active;
+
+	Dma dma;
 }
 
 fn char Mmu.get(&self, ushort addr) {
@@ -120,7 +133,7 @@ fn void Mmu.io_set(&self, ushort addr, char value) {
 		case 0xFF43:   self.ppu.scx = value;
 		case 0xFF44:   break; // LY is read-only
 		case 0xFF45:   self.ppu.lyc = value;
-		case DMA_REG:  self.io[DMA_REG - 0xFF00] = value; self.oam_dma(value);
+		case DMA_REG:  self.io[DMA_REG - 0xFF00] = value; self.dma_request(value);
 		case 0xFF47:   self.ppu.bgp = value;
 		case 0xFF48:   self.ppu.obp0 = value;
 		case 0xFF49:   self.ppu.obp1 = value;
@@ -131,14 +144,28 @@ fn void Mmu.io_set(&self, ushort addr, char value) {
 	}
 }
 
-fn void Mmu.oam_dma(&self, char page) {
+fn void Mmu.dma_request(&self, char page) {
 	ushort src = (ushort)page << 8;
-	if (src >= 0xE000) {
-		src -= 0x2000;
+	if (src >= 0xE000) src -= 0x2000; // DMA sees $E000-$FFFF as WRAM
+	self.dma.pending_source = src;
+	self.dma.pending = DMA_STARTUP;
+}
+
+fn void Mmu.dma_step(&self) {
+	if (self.dma.pending > 0 && --self.dma.pending == 0) {
+		self.dma.active = true;
+		self.dma.source = self.dma.pending_source;
+		self.dma.index = 0;
+		return;
 	}
-	for (int i = 0; i < 0xA0; i++) {
-		self.ppu.oam[i] = self.get(src + (ushort)i);
-	}
+	if (!self.dma.active) return;
+	self.ppu.oam[self.dma.index] = self.get(self.dma.source + (ushort)self.dma.index);
+	if (++self.dma.index == DMA_LEN) self.dma.active = false;
+}
+
+// True when the CPU cannot access `addr` because OAM DMA owns the bus.
+fn bool Mmu.dma_blocks(&self, ushort addr) {
+	return self.dma.active && addr < 0xFF00;
 }
 
 fn void Mmu.set_input(&self, char buttons, char dpad) {
@@ -149,6 +176,8 @@ fn void Mmu.set_input(&self, char buttons, char dpad) {
 
 fn void Mmu.tick(&self, char mcycles) {
 	uint t = (uint)mcycles * 4;
+
+	for (char i = 0; i < mcycles; i++) self.dma_step();
 
 	if (self.serial_pending) {
 		self.serial_pending = false;

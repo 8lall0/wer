@@ -117,10 +117,32 @@ fn void oam_dma_from_high_pages_reads_wram() @test
 	}
 
 	m.set(0xFF46, 0xFE); // DMA sees $FE00 as $DE00, not OAM itself
+	m.tick(200);         // let the 160-byte transfer finish
 	test::eq((char)0x00, m.ppu.oam[0]);
 	test::eq((char)0x9F, m.ppu.oam[0x9F]);
 
 	m.set(0xFF46, 0xFF); // ... and $FF00 as $DF00, not IO/HRAM
+	m.tick(200);
 	test::eq((char)0xFF, m.ppu.oam[0]);
 	test::eq((char)0x60, m.ppu.oam[0x9F]);
+}
+
+fn void oam_dma_copies_one_byte_per_mcycle() @test
+{
+	mmu::Mmu m;
+	for (int i = 0; i < 0xA0; i++) m.set((ushort)(0xC000 + i), (char)(i + 1));
+
+	m.set(0xFF46, 0xC0);
+	test::@check(!m.dma_blocks(0xC000), "CPU not locked out during startup");
+
+	m.tick((char)mmu::DMA_STARTUP + 10); // startup, then 10 bytes
+	test::@check(m.dma_blocks(0xC000), "CPU locked out while copying");
+	test::@check(!m.dma_blocks(0xFF80), "HRAM stays accessible");
+	test::@check(!m.dma_blocks(0xFF46), "IO stays accessible");
+	test::eq((char)10, m.ppu.oam[9]);  // copied
+	test::eq((char)0, m.ppu.oam[10]);  // not yet
+
+	m.tick(150);                       // the remaining 150 bytes
+	test::eq((char)0xA0, m.ppu.oam[0x9F]);
+	test::@check(!m.dma_blocks(0xC000), "CPU free again");
 }

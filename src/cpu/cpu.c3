@@ -175,6 +175,7 @@ fn void Cpu.updateZero(&self, char value) {
 // number of calls it makes. The access happens at the start of the M-cycle,
 // then timer/PPU/APU advance 4 T-cycles. That order was measured on Mooneye:
 // ticking before reads (or before writes) breaks a dozen timer tests.
+// During OAM DMA the CPU sees $FF / has its writes dropped below $FF00.
 // ---------------------------------------------------------------------------
 fn void Cpu.record(&self, BusOp op, ushort addr, char value) @inline {
 	if (!self.tracing || self.trace_len >= TRACE_MAX) return;
@@ -183,7 +184,7 @@ fn void Cpu.record(&self, BusOp op, ushort addr, char value) @inline {
 
 fn char Cpu.read(&self, mmu::Mmu* mmu, ushort addr) {
 	self.bus_cycles++;
-	char output = mmu.get(addr);
+	char output = mmu.dma_blocks(addr) ? (char)0xFF : mmu.get(addr);
 	self.record(READ, addr, output);
 	mmu.tick(1);
 	return output;
@@ -191,7 +192,7 @@ fn char Cpu.read(&self, mmu::Mmu* mmu, ushort addr) {
 
 fn void Cpu.write(&self, mmu::Mmu* mmu, ushort addr, char value) {
 	self.bus_cycles++;
-	mmu.set(addr, value);
+	if (!mmu.dma_blocks(addr)) mmu.set(addr, value);
 	self.record(WRITE, addr, value);
 	mmu.tick(1);
 }

@@ -253,6 +253,7 @@ fn void oam_dma_copies_page() @test
 		gb.mmu.set((ushort)(0xC000 + i), (char)(i + 1));
 	}
 	gb.mmu.set(0xFF46, 0xC0); // DMA from $C000
+	gb.mmu.tick(200);         // one byte per M-cycle
 
 	test::eq((char)1, gb.mmu.get(0xFE00));
 	test::eq((char)0xA0, gb.mmu.get(0xFE9F));
