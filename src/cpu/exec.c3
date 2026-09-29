@@ -3,8 +3,9 @@ module cpu;
 import mmu;
 
 // Fetch and run exactly one instruction: no interrupt check, no halt/stop
-// idling. Returns the M-cycles it cost. Used by `step` and by the
-// SingleStepTests harness (which wants pure single-instruction semantics).
+// idling. Returns the M-cycles it cost, as counted by the bus wrappers. Used
+// by `step` and by the SingleStepTests harness (which wants pure
+// single-instruction semantics).
 fn char Cpu.execute_one(&self, mmu::Mmu *mmu) {
 	self.bus_cycles = 0;
 	char op = self.fetch8(mmu);
@@ -14,12 +15,7 @@ fn char Cpu.execute_one(&self, mmu::Mmu *mmu) {
 		self.halt_bug = false;
 	}
 
-	self.required_cycles = 1;
 	self.execute(mmu, op);
-	// Transition check (M-cycle refactor): every M-cycle must be exactly one
-	// read/write/idle call, so the calls must add up to the table value.
-	assert(self.bus_cycles == self.required_cycles,
-		"opcode $%02x: %d bus cycles, table says %d", op, self.bus_cycles, self.required_cycles);
 
 	// A pending EI becomes effective one instruction after it ran.
 	if (self.ime_delay > 0) {
@@ -27,33 +23,27 @@ fn char Cpu.execute_one(&self, mmu::Mmu *mmu) {
 		if (self.ime_delay == 0) self.ime = true;
 	}
 
-	return self.required_cycles;
+	return self.bus_cycles;
 }
 
 // Run one step: service a pending interrupt, idle one cycle while halted /
 // stopped, or fetch+execute one instruction. Returns the M-cycles consumed.
 fn char Cpu.step(&self, mmu::Mmu *mmu) {
-	char ic = self.service_interrupt(mmu);
-	if (ic > 0) {
-		self.clk += ic;
-		return ic;
+	self.bus_cycles = 0;
+	if (!self.service_interrupt(mmu)) {
+		if (self.halted || self.stopped) {
+			self.idle(mmu);
+		} else {
+			self.execute_one(mmu);
+		}
 	}
-
-	if (self.halted || self.stopped) {
-		self.idle(mmu);
-		self.clk += 1;
-		return 1;
-	}
-
-	char cycles = self.execute_one(mmu);
-	self.clk += cycles;
-	return cycles;
+	self.clk += self.bus_cycles;
+	return self.bus_cycles;
 }
 
 fn void Cpu.illegal(&self, char op) {
 	// Not a valid opcode. On hardware the CPU locks up; approximate with STOP.
 	self.stopped = true;
-	self.required_cycles = 1;
 }
 
 // The 8 ALU operations selected by bits 3..5 of the 0x80-0xBF range and by
@@ -79,14 +69,12 @@ fn void Cpu.execute(&self, mmu::Mmu *mmu, char op) {
 			return;
 		}
 		self.write_r8(mmu, op >> 3, self.read_r8(mmu, op));
-		self.required_cycles = (self.r8_is_mem(op) || self.r8_is_mem(op >> 3)) ? 2 : 1;
 		return;
 	}
 
 	// --- Quadrant 2: <alu> A,r  (0x80-0xBF) ---
 	if (op >= 0x80 && op <= 0xBF) {
 		self.alu(op >> 3, self.read_r8(mmu, op));
-		self.required_cycles = self.r8_is_mem(op) ? 2 : 1;
 		return;
 	}
 
@@ -271,5 +259,4 @@ fn void Cpu.execute_cb(&self, mmu::Mmu *mmu, char op) {
 	}
 
 	self.write_r8(mmu, op, result);
-	self.required_cycles = self.r8_is_mem(op) ? 4 : 2;
 }

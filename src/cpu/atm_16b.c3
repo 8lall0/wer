@@ -11,21 +11,15 @@ fn void Cpu.add_hl_r16(&self, mmu::Mmu *mmu, HiLoReg *reg) {
 	self.assignFlag(C, check_bit15_overflow(self.hl.reg, reg.reg));
 
 	self.hl.reg += reg.reg;
-
-	self.required_cycles = 2;
 }
 
 // INC/DEC r16 do not affect any flags.
 fn void Cpu.dec_r16(&self, mmu::Mmu *mmu, HiLoReg *reg) {
 	self.idle(mmu);
 	reg.reg -= 1;
-
-	self.required_cycles = 2;
 }
 
 fn void Cpu.inc_r16(&self, mmu::Mmu *mmu, HiLoReg *reg) {
 	self.idle(mmu);
 	reg.reg += 1;
-
-	self.required_cycles = 2;
 }

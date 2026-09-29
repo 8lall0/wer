@@ -16,8 +16,6 @@ fn void Cpu.bit_u3_r8(&self, char *reg, uint u3) {
 	self.updateZero((char)(*reg & (1 << u3)));
 	self.unsetFlag(N);
 	self.setFlag(H);
-
-	self.required_cycles = 2;
 }
 
 fn void Cpu.bit_u3_hl(&self, mmu::Mmu *mmu, uint u3) {
@@ -26,36 +24,26 @@ fn void Cpu.bit_u3_hl(&self, mmu::Mmu *mmu, uint u3) {
 	self.updateZero((char)(value & (1 << u3)));
 	self.unsetFlag(N);
 	self.setFlag(H);
-
-	self.required_cycles = 3;
 }
 
 // RES: clear bit u3. No flags affected.
 fn void Cpu.res_u3_r8(&self, char *reg, uint u3) {
 	*reg &= (char)~(1 << u3);
-
-	self.required_cycles = 2;
 }
 
 fn void Cpu.res_u3_hl(&self, mmu::Mmu *mmu, uint u3) {
 	char value = self.read(mmu, self.hl.reg);
 	value &= (char)~(1 << u3);
 	self.write(mmu, self.hl.reg, value);
-
-	self.required_cycles = 4;
 }
 
 // SET: set bit u3. No flags affected.
 fn void Cpu.set_u3_r8(&self, char *reg, uint u3) {
 	*reg |= (char)(1 << u3);
-
-	self.required_cycles = 2;
 }
 
 fn void Cpu.set_u3_hl(&self, mmu::Mmu *mmu, uint u3) {
 	char value = self.read(mmu, self.hl.reg);
 	value |= (char)(1 << u3);
 	self.write(mmu, self.hl.reg, value);
-
-	self.required_cycles = 4;
 }

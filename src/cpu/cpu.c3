@@ -87,8 +87,7 @@ struct Cpu {
 	ushort pc;
 
 	ulong clk;
-	ulong bus_cycles;
-	char required_cycles;
+	char bus_cycles; // M-cycles spent by the current step (read/write/idle calls)
 
 	bool ime;
 

@@ -28,17 +28,13 @@ fn void Cpu.daa(&self) {
 
 	self.updateZero(a);
 	self.unsetFlag(H);
-
-	self.required_cycles = 1;
 }
 
 fn void Cpu.nop(&self) {
-	self.required_cycles = 1;
+	// Nothing to do: the opcode fetch is its only M-cycle.
 }
 
 // NB: stop is just a simple DIV handling, on emulation we don't need to preserve power.
 fn void Cpu.stop(&self, mmu::Mmu *mmu) {
 	mmu.timer.write_div(); // side effect of STOP, not a CPU bus access
-
-	self.required_cycles = 1;
 }

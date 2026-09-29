@@ -134,7 +134,6 @@ fn void add_a_r8_sets_all_flags() @test
 	test::@check(c.getFlag(cpu::N) == 0, "N: add clears N");
 	test::@check(c.getFlag(cpu::H) == 1, "H: 0x1 + 0xF crosses bit 3");
 	test::@check(c.getFlag(cpu::C) == 1, "C: 0x01 + 0xFF carries");
-	test::eq((char)1, c.required_cycles);
 }
 
 fn void add_a_clears_stale_flags() @test
@@ -270,7 +269,6 @@ fn void inc_r8_half_carry_and_c_preserved() @test
 	test::@check(c.getFlag(cpu::H) == 1, "H: bit 3 carry");
 	test::@check(c.getFlag(cpu::Z) == 0, "Z clear");
 	test::@check(c.getFlag(cpu::C) == 1, "C untouched by INC");
-	test::eq((char)1, c.required_cycles);
 }
 
 fn void inc_r8_wraps_to_zero() @test
@@ -326,12 +324,10 @@ fn void inc_dec_hl_memory() @test
 	c.inc_hl(&m);
 	test::eq((char)0x10, m.get(0xC000));
 	test::@check(c.getFlag(cpu::H) == 1, "H: bit 3 carry");
-	test::eq((char)3, c.required_cycles);
 
 	c.dec_hl(&m);
 	test::eq((char)0x0F, m.get(0xC000));
 	test::@check(c.getFlag(cpu::N) == 1, "N set by DEC");
-	test::eq((char)3, c.required_cycles);
 }
 
 // ---------------------------------------------------------------------------
@@ -493,7 +489,6 @@ fn void rlc_rotates_and_sets_carry() @test
 	test::@check(c.getFlag(cpu::C) == 1, "C = old bit 7");
 	test::@check(c.getFlag(cpu::Z) == 0, "Z clear");
 	test::@check(c.getFlag(cpu::N) == 0 && c.getFlag(cpu::H) == 0, "N=H=0");
-	test::eq((char)2, c.required_cycles);
 }
 
 fn void rrc_rotates_and_sets_carry() @test
@@ -600,7 +595,6 @@ fn void accumulator_rotates_always_clear_z() @test
 	c.rlca(); // result 0, but Z must stay 0
 	test::eq((char)0x00, c.af.hi);
 	test::@check(c.getFlag(cpu::Z) == 0, "RLCA clears Z even when result is 0");
-	test::eq((char)1, c.required_cycles);
 
 	c.af.hi = 0x01;
 	c.rrca(); // -> 0x80, C=1
@@ -620,7 +614,6 @@ fn void shift_on_hl_memory() @test
 	c.rlc_hl(&m);
 	test::eq((char)0x0B, m.get(0xC000));
 	test::@check(c.getFlag(cpu::C) == 1, "C = old bit 7");
-	test::eq((char)4, c.required_cycles);
 }
 
 // ---------------------------------------------------------------------------
@@ -795,7 +788,6 @@ fn void ld_hl_sp_e8_computes_without_touching_sp() @test
 	test::@check(c.getFlag(cpu::N) == 0, "N always 0");
 	test::@check(c.getFlag(cpu::H) == 1, "H: 0x8 + 0x8 crosses bit 3");
 	test::@check(c.getFlag(cpu::C) == 1, "C: 0xF8 + 0x08 crosses bit 7");
-	test::eq((char)3, c.required_cycles);
 }
 
 fn void ld_hl_sp_e8_negative_offset() @test
@@ -1131,16 +1123,17 @@ fn void jr_relative() @test
 
 fn void jr_cc_cycles_and_branch() @test
 {
-	mmu::Mmu m; // the methods count their internal cycle through it
-	cpu::Cpu c = cpu::init();
-	c.pc = 0x0200;
-	c.jr_cc_n16(&m, false, 0x10);
-	test::eq((ushort)0x0200, c.pc);
-	test::eq((char)2, c.required_cycles);
+	mmu::Mmu m;
+	cpu::Cpu c = cpu::init();                 // F = $B0: Z set
+	m.set(0xC000, 0x20); m.set(0xC001, 0x10); // JR NZ,+$10 (not taken)
+	m.set(0xC002, 0x28); m.set(0xC003, 0x10); // JR Z,+$10  (taken)
+	c.pc = 0xC000;
 
-	c.jr_cc_n16(&m, true, 0x10);
-	test::eq((ushort)0x0210, c.pc);
-	test::eq((char)3, c.required_cycles);
+	test::eq((char)2, c.execute_one(&m));
+	test::eq((ushort)0xC002, c.pc);
+
+	test::eq((char)3, c.execute_one(&m));
+	test::eq((ushort)0xC014, c.pc);
 }
 
 fn void call_then_ret() @test
@@ -1161,15 +1154,17 @@ fn void call_then_ret() @test
 
 fn void call_cc_not_taken() @test
 {
-	cpu::Cpu c = cpu::init();
+	cpu::Cpu c = cpu::init();                 // F = $B0: Z set
 	mmu::Mmu m;
 	c.sp = 0xFFFE;
-	c.pc = 0x0150;
+	m.set(0xC000, 0xC4);                      // CALL NZ,$4000 (not taken)
+	m.set(0xC001, 0x00);
+	m.set(0xC002, 0x40);
+	c.pc = 0xC000;
 
-	c.call_cc_n16(&m, false, 0x4000);
-	test::eq((ushort)0x0150, c.pc);
+	test::eq((char)3, c.execute_one(&m));
+	test::eq((ushort)0xC003, c.pc);
 	test::eq((ushort)0xFFFE, c.sp); // nothing pushed
-	test::eq((char)3, c.required_cycles);
 }
 
 fn void reti_sets_ime() @test

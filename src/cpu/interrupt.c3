@@ -13,8 +13,6 @@ fn bool Cpu.interrupt_pending(&self, mmu::Mmu *mmu) {
 fn void Cpu.di(&self) {
 	self.ime = false;
 	self.ime_delay = 0;
-
-	self.required_cycles = 1;
 }
 
 // EI : enable interrupts, but only after the instruction *following* EI.
@@ -22,18 +20,18 @@ fn void Cpu.di(&self) {
 fn void Cpu.ei(&self) {
 	// A second EI while one is pending does not restart the delay.
 	if (self.ime_delay == 0) self.ime_delay = 2;
-
-	self.required_cycles = 1;
 }
 
-fn char Cpu.service_interrupt(&self, mmu::Mmu *mmu) {
+// Returns true when an interrupt was dispatched (5 M-cycles, counted by the
+// bus wrappers). A pending interrupt also ends HALT even with IME off.
+fn bool Cpu.service_interrupt(&self, mmu::Mmu *mmu) {
 	char pending = (char)(mmu.get(IE_ADDR) & mmu.get(IF_ADDR) & INT_MASK);
-	if (pending == 0) return 0;
+	if (pending == 0) return false;
 
 	self.halted = false;
 	// TODO: STOP is only released by joypad.
 
-	if (!self.ime) return 0;
+	if (!self.ime) return false;
 
 	self.ime = false;
 	self.ime_delay = 0;  // a pending EI must not re-enable IME inside the handler
@@ -54,7 +52,7 @@ fn char Cpu.service_interrupt(&self, mmu::Mmu *mmu) {
 		// Cancelled: jump to $0000, IF untouched. IME stays off.
 		self.pc = 0x0000;
 		self.idle(mmu);
-		return 5;
+		return true;
 	}
 
 	// Bit 0 (VBlank) is the highest priority, bit 4 (Joypad) the lowest.
@@ -65,7 +63,7 @@ fn char Cpu.service_interrupt(&self, mmu::Mmu *mmu) {
 	self.pc = (ushort)(0x0040 + (int)bit * 8);
 	self.idle(mmu);
 
-	return 5;
+	return true;
 }
 
 fn void Cpu.halt(&self, mmu::Mmu *mmu) {
@@ -74,6 +72,4 @@ fn void Cpu.halt(&self, mmu::Mmu *mmu) {
 	} else {
 		self.halted = true;
 	}
-
-	self.required_cycles = 1;
 }

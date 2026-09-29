@@ -78,25 +78,21 @@ fn char Cpu.swap_value(&self, char value) {
 fn void Cpu.rlca(&self) {
 	self.af.hi = self.rlc_value(self.af.hi);
 	self.unsetFlag(Z);
-	self.required_cycles = 1;
 }
 
 fn void Cpu.rrca(&self) {
 	self.af.hi = self.rrc_value(self.af.hi);
 	self.unsetFlag(Z);
-	self.required_cycles = 1;
 }
 
 fn void Cpu.rla(&self) {
 	self.af.hi = self.rl_value(self.af.hi);
 	self.unsetFlag(Z);
-	self.required_cycles = 1;
 }
 
 fn void Cpu.rra(&self) {
 	self.af.hi = self.rr_value(self.af.hi);
 	self.unsetFlag(Z);
-	self.required_cycles = 1;
 }
 
 // ---------------------------------------------------------------------------
@@ -105,80 +101,64 @@ fn void Cpu.rra(&self) {
 
 fn void Cpu.rlc_r8(&self, char *reg) {
 	*reg = self.rlc_value(*reg);
-	self.required_cycles = 2;
 }
 
 fn void Cpu.rlc_hl(&self, mmu::Mmu *mmu) {
 	self.write(mmu, self.hl.reg, self.rlc_value(self.read(mmu, self.hl.reg)));
-	self.required_cycles = 4;
 }
 
 fn void Cpu.rrc_r8(&self, char *reg) {
 	*reg = self.rrc_value(*reg);
-	self.required_cycles = 2;
 }
 
 fn void Cpu.rrc_hl(&self, mmu::Mmu *mmu) {
 	self.write(mmu, self.hl.reg, self.rrc_value(self.read(mmu, self.hl.reg)));
-	self.required_cycles = 4;
 }
 
 fn void Cpu.rl_r8(&self, char *reg) {
 	*reg = self.rl_value(*reg);
-	self.required_cycles = 2;
 }
 
 fn void Cpu.rl_hl(&self, mmu::Mmu *mmu) {
 	self.write(mmu, self.hl.reg, self.rl_value(self.read(mmu, self.hl.reg)));
-	self.required_cycles = 4;
 }
 
 fn void Cpu.rr_r8(&self, char *reg) {
 	*reg = self.rr_value(*reg);
-	self.required_cycles = 2;
 }
 
 fn void Cpu.rr_hl(&self, mmu::Mmu *mmu) {
 	self.write(mmu, self.hl.reg, self.rr_value(self.read(mmu, self.hl.reg)));
-	self.required_cycles = 4;
 }
 
 fn void Cpu.sla_r8(&self, char *reg) {
 	*reg = self.sla_value(*reg);
-	self.required_cycles = 2;
 }
 
 fn void Cpu.sla_hl(&self, mmu::Mmu *mmu) {
 	self.write(mmu, self.hl.reg, self.sla_value(self.read(mmu, self.hl.reg)));
-	self.required_cycles = 4;
 }
 
 fn void Cpu.sra_r8(&self, char *reg) {
 	*reg = self.sra_value(*reg);
-	self.required_cycles = 2;
 }
 
 fn void Cpu.sra_hl(&self, mmu::Mmu *mmu) {
 	self.write(mmu, self.hl.reg, self.sra_value(self.read(mmu, self.hl.reg)));
-	self.required_cycles = 4;
 }
 
 fn void Cpu.srl_r8(&self, char *reg) {
 	*reg = self.srl_value(*reg);
-	self.required_cycles = 2;
 }
 
 fn void Cpu.srl_hl(&self, mmu::Mmu *mmu) {
 	self.write(mmu, self.hl.reg, self.srl_value(self.read(mmu, self.hl.reg)));
-	self.required_cycles = 4;
 }
 
 fn void Cpu.swap_r8(&self, char *reg) {
 	*reg = self.swap_value(*reg);
-	self.required_cycles = 2;
 }
 
 fn void Cpu.swap_hl(&self, mmu::Mmu *mmu) {
 	self.write(mmu, self.hl.reg, self.swap_value(self.read(mmu, self.hl.reg)));
-	self.required_cycles = 4;
 }
