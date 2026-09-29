@@ -59,7 +59,7 @@ const Rom[*] ROMS = {
 	{ "acceptance/call_timing.gb", false },
 	{ "acceptance/di_timing-GS.gb", true  },
 	{ "acceptance/div_timing.gb", true  },
-	{ "acceptance/ei_sequence.gb", false },
+	{ "acceptance/ei_sequence.gb", true  },
 	{ "acceptance/ei_timing.gb", true  },
 	{ "acceptance/halt_ime0_ei.gb", true  },
 	{ "acceptance/halt_ime0_nointr_timing.gb", true  },

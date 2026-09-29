@@ -18,7 +18,8 @@ fn void Cpu.di(&self) {
 // EI : enable interrupts, but only after the instruction *following* EI.
 // `Cpu.step` counts `ime_delay` down and sets IME when it hits 0.
 fn void Cpu.ei(&self) {
-	self.ime_delay = 2;
+	// A second EI while one is pending does not restart the delay.
+	if (self.ime_delay == 0) self.ime_delay = 2;
 
 	self.required_cycles = 1;
 }
@@ -37,6 +38,7 @@ fn char Cpu.service_interrupt(&self, mmu::Mmu *mmu) {
 	while ((pending & (char)(1 << bit)) == 0) bit++;
 
 	self.ime = false;
+	self.ime_delay = 0;  // a pending EI must not re-enable IME inside the handler
 	mmu.set(IF_ADDR, (char)(mmu.get(IF_ADDR) & ~(1 << bit)));
 	self.push16(mmu, self.pc);
 	self.pc = (ushort)(0x0040 + (int)bit * 8);
