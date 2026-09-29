@@ -1,6 +1,6 @@
 module wer;
 import std::io, std::io::file, std::time::clock, std::thread::os, std::math;
-import gameboy, ppu, display, mmu;
+import gameboy, ppu, display, mmu, config;
 
 // Real time per frame: 70224 T-cycles at the model's clock (59.73 fps on a
 // DMG, 61.17 fps on an original SGB).
@@ -123,15 +123,51 @@ fn mmu::Model cycle_model(mmu::Model m, int dir) {
 	}
 }
 
+fn mmu::Model? model_from(String name) {
+	switch (name) {
+		case "dmg":  return DMG;
+		case "sgb":  return SGB;
+		case "sgb2": return SGB2;
+		case "cgb":  return CGB;
+		default:     return NOT_FOUND~;
+	}
+}
+
+fn String model_name(mmu::Model m) {
+	switch (m) {
+		case DMG:  return "dmg";
+		case SGB:  return "sgb";
+		case SGB2: return "sgb2";
+		case CGB:  return "cgb";
+	}
+}
+
+// Store the current settings in ~/.wer/wer.conf.
+fn void save_settings(config::Config* cfg, mmu::Model model, int pal, int scale) {
+	cfg.set("mode", model_name(model));
+	cfg.set("palette", PALETTE_NAMES[pal]);
+	cfg.scale = scale;
+	if (catch cfg.save()) io::eprintfn("could not save %s", config::tpath());
+}
+
 enum MenuItem : char {
 	RESUME,
 	OPEN,
 	MODE,
 	PALETTE,
 	SCALE,
+	CONTROLS,
 	RESET,
 	QUIT,
 }
+
+// Labels of the Game Boy buttons in the Controls menu (config::Button order).
+const String[8] BUTTON_LABELS = { "A", "B", "Select", "Start", "Up", "Down", "Left", "Right" };
+
+// Controls menu lines after the 8 buttons.
+const int CONTROLS_DEFAULTS = 8;
+const int CONTROLS_BACK     = 9;
+const int CONTROLS_COUNT    = 10;
 
 fn int main(String[] args)
 {
@@ -140,8 +176,15 @@ fn int main(String[] args)
 	int frames = 600;
 	String rom;
 	String palette;
-	mmu::Model model = DMG;
-	int scale = display::DEFAULT_SCALE;
+
+	// Settings from ~/.wer/wer.conf; the command line overrides them.
+	config::Config cfg = config::load();
+	defer cfg.free();
+	mmu::Model model = model_from(cfg.mode) ?? DMG;
+	int scale = cfg.scale;
+	int pal = palette_index(cfg.palette);
+	if (pal < 0) pal = 0; // 1-A
+
 	foreach (a : args[1..]) {
 		switch {
 			case a == "--headless": headless = true;
@@ -166,7 +209,6 @@ fn int main(String[] args)
 		}
 	}
 
-	int pal = 0; // 1-A
 	if (palette.len) {
 		if (!model.is_sgb()) {
 			io::eprintn("--palette only applies to --mode=sgb/sgb2 (DMG mode is always green)");
@@ -210,6 +252,7 @@ fn int main(String[] args)
 		return 1;
 	}
 	defer screen.close();
+	screen.bindings = display::bindings_from(&cfg);
 
 	// The path of the running ROM, kept for Reset (heap copy: args and dialog
 	// results don't live that long).
@@ -220,6 +263,8 @@ fn int main(String[] args)
 	// Without a ROM there is nothing to run: start in the menu.
 	bool menu = !has_rom;
 	int selected = 0;
+	bool controls = false;  // the Controls submenu is showing
+	int  binding = -1;      // Controls: the button waiting for a new key/pad button
 
 	char[] rgb = mem::new_array(char, gameboy::MAX_FRAME_RGB);
 	defer free(rgb.ptr);
@@ -246,23 +291,79 @@ fn int main(String[] args)
 			}
 		}
 
+		// Controls: the next key or gamepad button becomes the binding (Esc
+		// cancels). Nothing else reacts to this poll.
+		if (binding >= 0 && (in.key >= 0 || in.pad_button >= 0)) {
+			if (display::is_escape(in.key)) {
+				// cancelled
+			} else if (in.key >= 0) {
+				cfg.set(string::tformat("key.%s", config::BUTTON_NAMES[binding]), display::key_name(in.key));
+			} else {
+				cfg.set(string::tformat("pad.%s", config::BUTTON_NAMES[binding]), display::pad_button_name(in.pad_button));
+			}
+			screen.bindings = display::bindings_from(&cfg);
+			save_settings(&cfg, model, pal, scale);
+			binding = -1;
+			in.pressed = 0;
+		}
+
 		if (in.pressed & display::KEY_OPEN) screen.open_rom_dialog();
-		if ((in.pressed & display::KEY_MENU) && has_rom) {
+		if ((in.pressed & display::KEY_MENU) && controls) {
+			controls = false;               // back to the main menu
+			selected = 0;
+		} else if ((in.pressed & display::KEY_MENU) && has_rom) {
 			menu = !menu;
 			selected = 0;
 			screen.clear_audio();
 		}
 
 		// The menu: which items exist depends on whether a game is loaded.
-		MenuItem[7] items;
-		String[7] lines;
+		MenuItem[8] items;
+		String[CONTROLS_COUNT] lines;
 		int count = 0;
-		if (menu) {
+		if (menu && controls) {
+			count = CONTROLS_COUNT;
+			if (binding < 0) {
+				if (in.pressed & display::KEY_UP)   selected = (selected + count - 1) % count;
+				if (in.pressed & display::KEY_DOWN) selected = (selected + 1) % count;
+				if (in.pressed & display::KEY_ENTER) {
+					switch (selected) {
+						case CONTROLS_BACK:
+							controls = false;
+							selected = 0;
+						case CONTROLS_DEFAULTS:
+							for (int i = 0; i < 8; i++) {
+								cfg.set(string::tformat("key.%s", config::BUTTON_NAMES[i]), config::DEFAULT_KEYS[i]);
+								cfg.set(string::tformat("pad.%s", config::BUTTON_NAMES[i]), config::DEFAULT_PADS[i]);
+							}
+							screen.bindings = display::bindings_from(&cfg);
+							save_settings(&cfg, model, pal, scale);
+						default:
+							binding = selected;
+					}
+				}
+			}
+			if (controls) {
+				for (int i = 0; i < 8; i++) {
+					if (i == binding) {
+						lines[i] = string::tformat("%-7spress key/button", BUTTON_LABELS[i]);
+					} else {
+						lines[i] = string::tformat("%-7s%s | %s", BUTTON_LABELS[i],
+							display::key_name(screen.bindings.keys[i]), display::pad_button_name(screen.bindings.pads[i]));
+					}
+				}
+				lines[CONTROLS_DEFAULTS] = "Reset to defaults";
+				lines[CONTROLS_BACK] = "Back";
+			} else {
+				count = 0; // left the submenu: the main menu draws from the next frame
+			}
+		} else if (menu) {
 			if (has_rom) items[count++] = RESUME;
 			items[count++] = OPEN;
 			items[count++] = MODE;
 			if (model.is_sgb()) items[count++] = PALETTE;
 			items[count++] = SCALE;
+			items[count++] = CONTROLS;
 			if (has_rom) items[count++] = RESET;
 			items[count++] = QUIT;
 			if (selected >= count) selected = count - 1;
@@ -291,22 +392,28 @@ fn int main(String[] args)
 					gb = gameboy::new(false, model);
 					apply_preset(&gb, pal);
 				}
+				save_settings(&cfg, model, pal, scale);
 			}
 			if (item == SCALE && (step != 0 || enter)) {
 				int n = display::MAX_SCALE - display::MIN_SCALE + 1;
 				scale = (scale - display::MIN_SCALE + (step < 0 ? n - 1 : 1)) % n + display::MIN_SCALE;
 				screen.set_scale(scale);
+				save_settings(&cfg, model, pal, scale);
 			}
 			if (item == PALETTE && step != 0) {
 				int n = (int)PALETTE_NAMES.len;
 				pal = (pal + step + n) % n;
 				colors = mode_colors(model, pal);
 				apply_preset(&gb, pal);
+				save_settings(&cfg, model, pal, scale);
 			}
 			if (enter) {
 				switch (item) {
 					case RESUME: menu = false;
 					case OPEN:   screen.open_rom_dialog();
+					case CONTROLS:
+						controls = true;
+						selected = 0;
 					case RESET:
 						if (try loaded = load_game(&gb, rom_path, boot, model, pal)) {
 							cart = loaded;
@@ -334,6 +441,7 @@ fn int main(String[] args)
 					case SCALE:   lines[i] = string::tformat("Scale:   < %dx >", scale);
 					case MODE:    lines[i] = string::tformat("Mode:    < %s >", model);
 					case PALETTE: lines[i] = string::tformat("Palette: < %s >", PALETTE_NAMES[pal]);
+					case CONTROLS: lines[i] = "Controls...";
 					case RESET:   lines[i] = "Reset";
 					case QUIT:    lines[i] = "Quit";
 				}
@@ -356,7 +464,7 @@ fn int main(String[] args)
 		gameboy::FrameSize size = gb.frame_rgb(rgb, colors);
 		screen.present(rgb, size.w, size.h, lines[:count], selected);
 
-		next += frame_period(model);
+		next += frame_period(gb.mmu.model);
 		Clock now = clock::now();
 		if (now - next > MAX_LAG) next = now;
 		NanoDuration remaining = next - now;

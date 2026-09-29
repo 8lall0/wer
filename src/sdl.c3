@@ -6,11 +6,13 @@ alias Window = void;
 alias Renderer = void;
 alias Texture = void;
 alias AudioStream = void;
+alias Gamepad = void;
 
 // SDL_Init flags
 const uint INIT_AUDIO  = 0x00000010;
 const uint INIT_VIDEO  = 0x00000020;
 const uint INIT_EVENTS = 0x00004000;
+const uint INIT_GAMEPAD = 0x00002000;
 
 // SDL_AudioFormat / default playback device
 const uint AUDIO_S16                     = 0x8010; // little-endian
@@ -26,6 +28,25 @@ struct AudioSpec {
 const uint EVENT_QUIT     = 0x100;
 const uint EVENT_KEY_DOWN = 0x300;
 const uint EVENT_KEY_UP   = 0x301;
+const uint EVENT_GAMEPAD_AXIS_MOTION = 0x650;
+const uint EVENT_GAMEPAD_BUTTON_DOWN = 0x651;
+const uint EVENT_GAMEPAD_BUTTON_UP   = 0x652;
+const uint EVENT_GAMEPAD_ADDED       = 0x653;
+const uint EVENT_GAMEPAD_REMOVED     = 0x654;
+
+// SDL_GamepadButton / SDL_GamepadAxis values used directly
+const int GAMEPAD_BUTTON_INVALID    = -1;
+const int GAMEPAD_BUTTON_SOUTH      = 0;
+const int GAMEPAD_BUTTON_EAST       = 1;
+const int GAMEPAD_BUTTON_BACK       = 4;
+const int GAMEPAD_BUTTON_GUIDE      = 5;
+const int GAMEPAD_BUTTON_START      = 6;
+const int GAMEPAD_BUTTON_DPAD_UP    = 11;
+const int GAMEPAD_BUTTON_DPAD_DOWN  = 12;
+const int GAMEPAD_BUTTON_DPAD_LEFT  = 13;
+const int GAMEPAD_BUTTON_DPAD_RIGHT = 14;
+const int GAMEPAD_AXIS_LEFTX = 0;
+const int GAMEPAD_AXIS_LEFTY = 1;
 
 // SDL_PixelFormat / SDL_TextureAccess / SDL_ScaleMode
 const uint PIXELFORMAT_ABGR8888   = 0x16762004; // memory order R,G,B,A
@@ -69,6 +90,37 @@ struct KeyboardEvent {
 	ushort raw;
 	bool   down;
 	bool   repeat;
+}
+
+struct GamepadButtonEvent {
+	uint  type;
+	uint  reserved;
+	ulong timestamp;
+	uint  which;   // joystick instance id
+	char  button;  // SDL_GamepadButton
+	bool  down;
+	char  padding1;
+	char  padding2;
+}
+
+struct GamepadAxisEvent {
+	uint  type;
+	uint  reserved;
+	ulong timestamp;
+	uint  which;
+	char  axis;    // SDL_GamepadAxis
+	char  padding1;
+	char  padding2;
+	char  padding3;
+	short value;
+	ushort padding4;
+}
+
+struct GamepadDeviceEvent {
+	uint  type;
+	uint  reserved;
+	ulong timestamp;
+	uint  which;
 }
 
 // SDL_BlendMode
@@ -122,6 +174,17 @@ extern fn int       update_texture(Texture* t, void* rect, void* pixels, int pit
 extern fn int       set_texture_scale_mode(Texture* t, int mode)      @cname("SDL_SetTextureScaleMode");
 
 extern fn bool      poll_event(Event* event)          @cname("SDL_PollEvent");
+extern fn int       get_scancode_from_name(ZString name) @cname("SDL_GetScancodeFromName");
+extern fn ZString   get_scancode_name(int scancode)      @cname("SDL_GetScancodeName");
+
+extern fn Gamepad*  open_gamepad(uint instance_id)               @cname("SDL_OpenGamepad");
+extern fn void      close_gamepad(Gamepad* pad)                  @cname("SDL_CloseGamepad");
+extern fn uint      get_gamepad_id(Gamepad* pad)                 @cname("SDL_GetGamepadID");
+extern fn ZString   get_gamepad_name(Gamepad* pad)               @cname("SDL_GetGamepadName");
+extern fn bool      get_gamepad_button(Gamepad* pad, int button) @cname("SDL_GetGamepadButton");
+extern fn short     get_gamepad_axis(Gamepad* pad, int axis)     @cname("SDL_GetGamepadAxis");
+extern fn int       get_gamepad_button_from_string(ZString str)  @cname("SDL_GetGamepadButtonFromString");
+extern fn ZString   get_gamepad_string_for_button(int button)    @cname("SDL_GetGamepadStringForButton");
 extern fn char*     get_keyboard_state(int* numkeys)  @cname("SDL_GetKeyboardState");
 
 extern fn AudioStream* open_audio_device_stream(uint devid, AudioSpec* spec, void* cb, void* userdata) @cname("SDL_OpenAudioDeviceStream");

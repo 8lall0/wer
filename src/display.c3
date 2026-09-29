@@ -1,6 +1,6 @@
 module display;
 
-import sdl, ppu, joypad, sgb;
+import sdl, ppu, joypad, sgb, config;
 import std::io, std::atomic;
 
 // The window shows the picture enlarged by a whole factor (sharp square
@@ -71,6 +71,23 @@ struct Display {
 	int               width;    // current picture size
 	int               height;
 	int               scale;    // window pixels per picture pixel
+
+	Bindings          bindings;
+	sdl::Gamepad*[MAX_PADS] pads; // open gamepads (any of them plays)
+	int               stick_dir; // menu navigation by stick: last KEY_* direction held
+}
+
+// Gamepads used at once; all of them control the game.
+const int MAX_PADS = 4;
+
+// Left stick deflection that counts as a d-pad press (of 32767).
+const short STICK_DEADZONE = 16000;
+
+// What each Game Boy button (config::Button order) is bound to: an SDL
+// scancode and an SDL gamepad button.
+struct Bindings {
+	int[8] keys;
+	int[8] pads;
 }
 
 // Key presses (not held keys) for the menu, as bits in Input.pressed.
@@ -87,10 +104,49 @@ struct Input {
 	char buttons;  // held Game Boy buttons
 	char dpad;
 	char pressed;  // KEY_* pressed this poll
+	// The first key / gamepad button pressed this poll (-1 = none), for
+	// binding a control in the menu.
+	int  key;
+	int  pad_button;
 }
 
+// The config's key and gamepad button names as SDL codes. An unknown name
+// keeps the default binding, with a warning.
+fn Bindings bindings_from(config::Config* c) {
+	Bindings b;
+	for (int i = 0; i < 8; i++) {
+		b.keys[i] = sdl::get_scancode_from_name(c.keys[i].zstr_tcopy());
+		if (b.keys[i] == 0) {
+			io::eprintfn("unknown key '%s' for %s, using %s", c.keys[i], config::BUTTON_NAMES[i], config::DEFAULT_KEYS[i]);
+			b.keys[i] = sdl::get_scancode_from_name(config::DEFAULT_KEYS[i].zstr_tcopy());
+		}
+		b.pads[i] = sdl::get_gamepad_button_from_string(c.pads[i].zstr_tcopy());
+		if (b.pads[i] == sdl::GAMEPAD_BUTTON_INVALID) {
+			io::eprintfn("unknown gamepad button '%s' for %s, using %s", c.pads[i], config::BUTTON_NAMES[i], config::DEFAULT_PADS[i]);
+			b.pads[i] = sdl::get_gamepad_button_from_string(config::DEFAULT_PADS[i].zstr_tcopy());
+		}
+	}
+	return b;
+}
+
+// Esc cancels binding a control instead of becoming the binding.
+fn bool is_escape(int scancode) => scancode == sdl::SC_ESCAPE;
+
+// Names to store in the config (and show in the menu).
+fn String key_name(int scancode) => sdl::get_scancode_name(scancode).str_view();
+fn String pad_button_name(int button) {
+	ZString n = sdl::get_gamepad_string_for_button(button);
+	return n ? n.str_view() : "?";
+}
+
+// joypad bits for each config::Button: buttons first, then the d-pad.
+const char[8] JOYPAD_BIT = {
+	joypad::BTN_A, joypad::BTN_B, joypad::BTN_SELECT, joypad::BTN_START,
+	joypad::PAD_UP, joypad::PAD_DOWN, joypad::PAD_LEFT, joypad::PAD_RIGHT,
+};
+
 fn Display? open(ZString title, int scale = DEFAULT_SCALE) {
-	if (sdl::init(sdl::INIT_VIDEO | sdl::INIT_EVENTS | sdl::INIT_AUDIO) == 0) {
+	if (sdl::init(sdl::INIT_VIDEO | sdl::INIT_EVENTS | sdl::INIT_AUDIO | sdl::INIT_GAMEPAD) == 0) {
 		io::eprintfn("SDL_Init failed: %s", sdl::get_error().str_view());
 		return SDL_FAILED~;
 	}
@@ -121,6 +177,7 @@ fn Display? open(ZString title, int scale = DEFAULT_SCALE) {
 }
 
 fn void Display.close(&self) {
+	foreach (p : self.pads) if (p) sdl::close_gamepad(p);
 	if (self.pixels.len) free(self.pixels.ptr);
 	if (self.audio)    sdl::destroy_audio_stream(self.audio);
 	if (self.texture)  sdl::destroy_texture(self.texture);
@@ -263,37 +320,117 @@ fn String Display.take_dialog_result(&self) {
 }
 
 fn Input Display.poll(&self) {
-	Input in;
+	Input in = { .key = -1, .pad_button = -1 };
 
 	sdl::Event e;
 	while (sdl::poll_event(&e)) {
-		if (e.type == sdl::EVENT_QUIT) in.quit = true;
-		if (e.type != sdl::EVENT_KEY_DOWN) continue;
-		sdl::KeyboardEvent* k = (sdl::KeyboardEvent*)&e;
-		switch (k.scancode) {
-			case sdl::SC_ESCAPE: if (!k.repeat) in.pressed |= KEY_MENU;
-			case sdl::SC_UP:     in.pressed |= KEY_UP;
-			case sdl::SC_DOWN:   in.pressed |= KEY_DOWN;
-			case sdl::SC_LEFT:   in.pressed |= KEY_LEFT;
-			case sdl::SC_RIGHT:  in.pressed |= KEY_RIGHT;
-			case sdl::SC_RETURN: if (!k.repeat) in.pressed |= KEY_ENTER;
-			case sdl::SC_O:      if (!k.repeat && (k.mod & sdl::KMOD_CTRL) != 0) in.pressed |= KEY_OPEN;
+		switch (e.type) {
+			case sdl::EVENT_QUIT:
+				in.quit = true;
+			case sdl::EVENT_KEY_DOWN:
+				sdl::KeyboardEvent* k = (sdl::KeyboardEvent*)&e;
+				if (!k.repeat && in.key < 0) in.key = (int)k.scancode;
+				switch (k.scancode) {
+					case sdl::SC_ESCAPE: if (!k.repeat) in.pressed |= KEY_MENU;
+					case sdl::SC_UP:     in.pressed |= KEY_UP;
+					case sdl::SC_DOWN:   in.pressed |= KEY_DOWN;
+					case sdl::SC_LEFT:   in.pressed |= KEY_LEFT;
+					case sdl::SC_RIGHT:  in.pressed |= KEY_RIGHT;
+					case sdl::SC_RETURN: if (!k.repeat) in.pressed |= KEY_ENTER;
+					case sdl::SC_O:      if (!k.repeat && (k.mod & sdl::KMOD_CTRL) != 0) in.pressed |= KEY_OPEN;
+				}
+			case sdl::EVENT_GAMEPAD_ADDED:
+				self.add_pad(((sdl::GamepadDeviceEvent*)&e).which);
+			case sdl::EVENT_GAMEPAD_REMOVED:
+				self.remove_pad(((sdl::GamepadDeviceEvent*)&e).which);
+			case sdl::EVENT_GAMEPAD_BUTTON_DOWN:
+				int button = ((sdl::GamepadButtonEvent*)&e).button;
+				if (in.pad_button < 0) in.pad_button = button;
+				in.pressed |= self.pad_menu_key(button);
 		}
 	}
 
+	// The menu also follows the left stick: one step per push.
+	int dir = self.stick_direction();
+	if (dir != 0 && dir != self.stick_dir) in.pressed |= (char)dir;
+	self.stick_dir = dir;
+
 	int n;
 	char* ks = sdl::get_keyboard_state(&n);
-
-	if (ks[sdl::SC_RIGHT]  != 0) in.dpad    |= joypad::PAD_RIGHT;
-	if (ks[sdl::SC_LEFT]   != 0) in.dpad    |= joypad::PAD_LEFT;
-	if (ks[sdl::SC_UP]     != 0) in.dpad    |= joypad::PAD_UP;
-	if (ks[sdl::SC_DOWN]   != 0) in.dpad    |= joypad::PAD_DOWN;
-	if (ks[sdl::SC_Z]      != 0) in.buttons |= joypad::BTN_A;
-	if (ks[sdl::SC_X]      != 0) in.buttons |= joypad::BTN_B;
-	if (ks[sdl::SC_RSHIFT] != 0) in.buttons |= joypad::BTN_SELECT;
-	if (ks[sdl::SC_RETURN] != 0) in.buttons |= joypad::BTN_START;
+	for (int i = 0; i < 8; i++) {
+		bool held = self.bindings.keys[i] < n && ks[self.bindings.keys[i]] != 0;
+		foreach (p : self.pads) {
+			if (p && sdl::get_gamepad_button(p, self.bindings.pads[i])) held = true;
+		}
+		if (!held) continue;
+		if (i < (int)config::Button.UP.ordinal) {
+			in.buttons |= JOYPAD_BIT[i];
+		} else {
+			in.dpad |= JOYPAD_BIT[i];
+		}
+	}
+	switch (dir) {
+		case KEY_UP:    in.dpad |= joypad::PAD_UP;
+		case KEY_DOWN:  in.dpad |= joypad::PAD_DOWN;
+		case KEY_LEFT:  in.dpad |= joypad::PAD_LEFT;
+		case KEY_RIGHT: in.dpad |= joypad::PAD_RIGHT;
+	}
 
 	return in;
+}
+
+// A newly connected gamepad (SDL also reports the ones present at start).
+fn void Display.add_pad(&self, uint id) {
+	foreach (&p : self.pads) {
+		if (*p) continue;
+		*p = sdl::open_gamepad(id);
+		if (*p) io::printfn("gamepad connected: %s", sdl::get_gamepad_name(*p).str_view());
+		return;
+	}
+}
+
+fn void Display.remove_pad(&self, uint id) {
+	foreach (&p : self.pads) {
+		if (!*p || sdl::get_gamepad_id(*p) != id) continue;
+		sdl::close_gamepad(*p);
+		*p = null;
+	}
+}
+
+// Menu keys on a gamepad: the d-pad moves, the bottom face button or Start
+// confirms, Guide (or Back + Start, for pads whose Guide the system takes)
+// opens and closes the menu.
+fn char Display.pad_menu_key(&self, int button) {
+	switch (button) {
+		case sdl::GAMEPAD_BUTTON_DPAD_UP:    return KEY_UP;
+		case sdl::GAMEPAD_BUTTON_DPAD_DOWN:  return KEY_DOWN;
+		case sdl::GAMEPAD_BUTTON_DPAD_LEFT:  return KEY_LEFT;
+		case sdl::GAMEPAD_BUTTON_DPAD_RIGHT: return KEY_RIGHT;
+		case sdl::GAMEPAD_BUTTON_SOUTH:      return KEY_ENTER;
+		case sdl::GAMEPAD_BUTTON_GUIDE:      return KEY_MENU;
+		case sdl::GAMEPAD_BUTTON_START:
+			foreach (p : self.pads) {
+				if (p && sdl::get_gamepad_button(p, sdl::GAMEPAD_BUTTON_BACK)) return KEY_MENU;
+			}
+			return KEY_ENTER;
+		default:
+			return 0;
+	}
+}
+
+// Where the left stick of any gamepad points, as KEY_UP/DOWN/LEFT/RIGHT, or 0.
+fn int Display.stick_direction(&self) {
+	foreach (p : self.pads) {
+		if (!p) continue;
+		short x = sdl::get_gamepad_axis(p, sdl::GAMEPAD_AXIS_LEFTX);
+		short y = sdl::get_gamepad_axis(p, sdl::GAMEPAD_AXIS_LEFTY);
+		int ax = x < 0 ? -(int)x : x;
+		int ay = y < 0 ? -(int)y : y;
+		if (ax < STICK_DEADZONE && ay < STICK_DEADZONE) continue;
+		if (ax > ay) return x < 0 ? KEY_LEFT : KEY_RIGHT;
+		return y < 0 ? KEY_UP : KEY_DOWN;
+	}
+	return 0;
 }
 
 fn int Display.audio_queued(&self) {
