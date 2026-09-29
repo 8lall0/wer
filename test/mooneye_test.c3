@@ -100,7 +100,7 @@ const Rom[*] ROMS = {
 	{ "acceptance/rst_timing.gb", true  },
 	{ "acceptance/serial/boot_sclk_align-dmgABCmgb.gb", false },
 	{ "acceptance/timer/div_write.gb", true  },
-	{ "acceptance/timer/rapid_toggle.gb", false },
+	{ "acceptance/timer/rapid_toggle.gb", true  },
 	{ "acceptance/timer/tim00_div_trigger.gb", true  },
 	{ "acceptance/timer/tim00.gb", true  },
 	{ "acceptance/timer/tim01_div_trigger.gb", true  },

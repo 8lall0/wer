@@ -164,3 +164,23 @@ fn void writing_tma_in_reload_cycle_also_loads_tima() @test
 	t.write_tma(0x10);   // later TMA writes leave TIMA alone
 	test::eq((char)0x77, t.tima);
 }
+
+// Enabling the timer in the M-cycle right after the selected DIV bit fell still
+// counts that fall (Mooneye timer/rapid_toggle).
+fn void enabling_right_after_a_falling_edge_counts_it() @test
+{
+	timer::Timer t;
+	t.tima = 0x10;
+	t.write_tac(0x00);   // off, 4096 Hz selected (DIV bit 9)
+	t.tick(1020);        // DIV = 1020: bit 9 still set
+	t.tick(4);           // DIV = 1024: bit 9 fell while the timer was off
+	t.write_tac(0x04);   // switched on in the very next M-cycle
+	t.tick(4);
+	test::eq((char)0x11, t.tima);
+
+	t.write_tac(0x00);   // one M-cycle later is too late: no increment
+	t.tick(4);
+	t.write_tac(0x04);
+	t.tick(4);
+	test::eq((char)0x11, t.tima);
+}

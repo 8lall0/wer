@@ -17,6 +17,7 @@ struct Timer {
 	uint pending_apu;
 
 	bool reloaded;
+	ushort last_div; // DIV at the start of the previous tick (see write_tac)
 }
 
 struct TickResult {
@@ -36,12 +37,21 @@ fn void Timer.write_div(&self) {
 	if (self.tima_input()) self.pending_tima++;
 	if (((self.div >> APU_BIT) & 1) != 0) self.pending_apu++;
 	self.div = 0;
+	self.last_div = 0;
 }
 
 fn void Timer.write_tac(&self, char value) {
 	bool before = self.tima_input();
+	bool was_on = (self.tac & 0x04) != 0;
 	self.tac = value & 0x07;
 	if (before && !self.tima_input()) self.pending_tima++;
+
+	// Enabling the timer in the M-cycle right after the selected DIV bit fell
+	// still counts that fall: the TAC write takes effect earlier in the M-cycle
+	// than our access-then-tick order applies it (Mooneye timer/rapid_toggle).
+	uint bit = TIMA_BIT[self.tac & 3];
+	bool fell = ((self.last_div >> bit) & 1) != 0 && ((self.div >> bit) & 1) == 0;
+	if (!was_on && (self.tac & 0x04) != 0 && fell) self.pending_tima++;
 }
 
 fn void Timer.write_tima(&self, char value) {
@@ -85,6 +95,7 @@ fn TickResult Timer.tick(&self, uint tcycles) {
 	self.pending_apu = 0;
 
 	uint before = self.div;
+	self.last_div = self.div;
 	uint after = before + tcycles;
 	self.div = (ushort)after;
 
