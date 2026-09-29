@@ -136,7 +136,10 @@ fn void oam_dma_copies_one_byte_per_mcycle() @test
 	test::@check(!m.dma_blocks(0xC000), "CPU not locked out during startup");
 
 	m.tick((char)mmu::DMA_STARTUP + 10); // startup, then 10 bytes
-	test::@check(m.dma_blocks(0xC000), "CPU locked out while copying");
+	test::@check(m.dma_blocks(0xC000), "source bus (external) locked while copying");
+	test::@check(m.dma_blocks(0x0150), "ROM shares the external bus");
+	test::@check(m.dma_blocks(0xFE00), "OAM always locked");
+	test::@check(!m.dma_blocks(0x8000), "VRAM is on the other bus");
 	test::@check(!m.dma_blocks(0xFF80), "HRAM stays accessible");
 	test::@check(!m.dma_blocks(0xFF46), "IO stays accessible");
 	test::eq((char)10, m.ppu.oam[9]);  // copied
@@ -145,4 +148,20 @@ fn void oam_dma_copies_one_byte_per_mcycle() @test
 	m.tick(150);                       // the remaining 150 bytes
 	test::eq((char)0xA0, m.ppu.oam[0x9F]);
 	test::@check(!m.dma_blocks(0xC000), "CPU free again");
+}
+
+fn void oam_dma_from_vram_leaves_external_bus_free() @test
+{
+	mmu::Mmu m;
+	m.set(0x8000, 0x42);
+	m.set(0xC000, 0x99);
+
+	m.set(0xFF46, 0x80);               // DMA from VRAM (video bus)
+	m.tick((char)mmu::DMA_STARTUP);    // taken over, byte 0 not copied yet
+	test::@check(m.dma_blocks(0x9000), "video bus locked");
+	test::@check(m.dma_blocks(0xFE00), "OAM locked");
+	test::@check(!m.dma_blocks(0xC000), "WRAM usable: code can run there");
+	test::@check(!m.dma_blocks(0x0150), "ROM usable");
+	test::eq((char)0x42, m.dma_conflict_read(0x9000)); // sees the byte the DMA reads now
+	test::eq((char)0xFF, m.dma_conflict_read(0xFE00));
 }

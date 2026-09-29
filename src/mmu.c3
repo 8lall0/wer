@@ -13,6 +13,22 @@ const ushort DMA_REG  = 0xFF46;
 const int DMA_STARTUP = 2;
 const int DMA_LEN     = 0xA0;
 
+// The DMG has two memory buses. OAM DMA occupies the one its source is on.
+enum Bus : char {
+	NONE,     // IO, HRAM, IE: internal, never blocked
+	EXTERNAL, // cartridge ROM/RAM, WRAM and its echo
+	VIDEO,    // VRAM
+	OAM,      // $FE00-$FEFF: always the DMA's target
+}
+
+fn Bus bus_of(ushort addr) {
+	if (addr < 0x8000) return EXTERNAL;
+	if (addr < 0xA000) return VIDEO;
+	if (addr < 0xFE00) return EXTERNAL;
+	if (addr < 0xFF00) return OAM;
+	return NONE;
+}
+
 struct Dma {
 	bool   active;         // copying, CPU locked out
 	ushort source;
@@ -163,9 +179,19 @@ fn void Mmu.dma_step(&self) {
 	if (++self.dma.index == DMA_LEN) self.dma.active = false;
 }
 
-// True when the CPU cannot access `addr` because OAM DMA owns the bus.
+// True when the CPU cannot access `addr` normally: OAM, or the bus the DMA
+// is reading from. The other bus, IO, HRAM and IE stay usable.
 fn bool Mmu.dma_blocks(&self, ushort addr) {
-	return self.dma.active && addr < 0xFF00;
+	if (!self.dma.active) return false;
+	Bus bus = bus_of(addr);
+	return bus == OAM || bus == bus_of(self.dma.source);
+}
+
+// What a blocked CPU read sees: $FF for OAM, otherwise the byte the DMA is
+// reading on that bus right now (DMG bus conflict).
+fn char Mmu.dma_conflict_read(&self, ushort addr) {
+	if (bus_of(addr) == OAM) return 0xFF;
+	return self.get(self.dma.source + (ushort)self.dma.index);
 }
 
 fn void Mmu.set_input(&self, char buttons, char dpad) {
