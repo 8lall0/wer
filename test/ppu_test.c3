@@ -68,6 +68,7 @@ fn void vblank_interrupt_fires_once_per_frame() @test
 	gameboy::GameBoy gb = gameboy::new(false);
 	defer gb.destroy();
 	gb.mmu.set(0xFF40, ppu::LCDC_ENABLE);
+	gb.mmu.set(0xFF0F, 0x00); // clear the VBlank flag left pending after boot
 
 	advance(&gb, 114 * 143); // just before line 144
 	test::@check((gb.mmu.get(0xFF0F) & 0x01) == 0, "no VBlank yet");

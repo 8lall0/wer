@@ -55,6 +55,17 @@ fn GameBoy new(bool boot = true) {
 		gb.mmu.set(0xFF48, 0xFF); // OBP0
 		gb.mmu.set(0xFF49, 0xFF); // OBP1
 		gb.mmu.set(0xFF40, 0x91); // LCDC: on, BG on, tile data $8000
+		gb.mmu.timer.div = 0xABD4;  // DMG post-boot; $ABCC per docs, +8 T calibrated on Mooneye boot_div
+		gb.mmu.set(0xFF0F, 0x01);   // IF: VBlank left pending by the boot ROM
+
+		// APU as the boot chime leaves it: powered, channel 1 still on but
+		// its envelope already at volume 0, so it is silent.
+		gb.mmu.set(0xFF26, 0x80);   // NR52: power on (must precede other APU writes)
+		gb.mmu.set(0xFF11, 0x80);   // NR11: duty 50%
+		gb.mmu.set(0xFF12, 0xF3);   // NR12: envelope
+		gb.mmu.set(0xFF24, 0x77);   // NR50: master volume
+		gb.mmu.set(0xFF25, 0xF3);   // NR51: panning
+		gb.mmu.apu.ch1.enabled = true;
 	}
 	return gb;
 }

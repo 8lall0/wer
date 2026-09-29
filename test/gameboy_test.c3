@@ -20,6 +20,7 @@ fn void step_runs_cpu_and_ticks_peripherals() @test
 	char[64] nops;
 	gb.load_rom(nops[..]);
 	gb.cpu.pc = 0x0000;
+	gb.mmu.set(0xFF04, 0); // DIV starts at its post-boot value; reset it
 
 	for (int i = 0; i < 64; i++) gb.step();
 
