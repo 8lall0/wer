@@ -148,6 +148,22 @@ fn char[] GameBoy.framebuffer(&self) {
 	return self.mmu.ppu.fb;
 }
 
+// The finished picture as RGB, 3 bytes per pixel: coloured by the SGB in SGB
+// mode, otherwise the PPU's shades 0-3 through `colors` (4 RGB triples).
+fn void GameBoy.frame_rgb(&self, char[] rgb, char[12] colors) {
+	char[] fb = self.framebuffer();
+	if (self.mmu.sgb) {
+		self.mmu.sgb.render(fb, rgb);
+		return;
+	}
+	for (usz i = 0; i < fb.len; i++) {
+		usz p = (usz)(fb[i] & 3) * 3;
+		rgb[i * 3]     = colors[p];
+		rgb[i * 3 + 1] = colors[p + 1];
+		rgb[i * 3 + 2] = colors[p + 2];
+	}
+}
+
 fn void GameBoy.run_frame(&self) {
 	if ((self.mmu.ppu.lcdc & ppu::LCDC_ENABLE) == 0) {
 		ulong target = self.cpu.clk + 17556;

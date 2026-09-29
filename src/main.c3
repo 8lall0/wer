@@ -25,17 +25,14 @@ fn void setup_demo_scene(gameboy::GameBoy* gb) {
 }
 
 fn void? write_ppm(gameboy::GameBoy* gb, String path, char[12] colors) {
-	char[] fb = gb.framebuffer();
+	char[] rgb = mem::new_array(char, ppu::WIDTH * ppu::HEIGHT * 3);
+	defer free(rgb.ptr);
+	gb.frame_rgb(rgb, colors);
 	DString out;
 	out.init(mem);
 	defer out.free();
 	out.appendf("P6\n%d %d\n255\n", ppu::WIDTH, ppu::HEIGHT);
-	for (int i = 0; i < ppu::WIDTH * ppu::HEIGHT; i++) {
-		int p = (fb[i] & 3) * 3;
-		out.append_char(colors[p]);
-		out.append_char(colors[p + 1]);
-		out.append_char(colors[p + 2]);
-	}
+	foreach (b : rgb) out.append_char(b);
 	file::save(path, out.str_view())!;
 }
 
@@ -47,7 +44,7 @@ bool sgb_log;
 // Replace the running game with the ROM at `path`. The file is read first, so
 // a failed load leaves the current game untouched; destroy() writes the old
 // game's battery save before it goes away.
-fn gameboy::Cartridge? load_game(gameboy::GameBoy* gb, String path, bool boot, mmu::Model model) {
+fn gameboy::Cartridge? load_game(gameboy::GameBoy* gb, String path, bool boot, mmu::Model model, int pal) {
 	char[]? data = file::load_temp(path);
 	if (catch data) {
 		io::eprintfn("could not load ROM: %s", path);
@@ -55,6 +52,7 @@ fn gameboy::Cartridge? load_game(gameboy::GameBoy* gb, String path, bool boot, m
 	}
 	gb.destroy();
 	*gb = gameboy::new(boot, model);
+	apply_preset(gb, pal);
 	gb.mmu.serial_echo = true; // Blargg-style test ROMs report over serial
 	if (gb.mmu.sgb) gb.mmu.sgb.log = sgb_log;
 	gameboy::Cartridge cart = gb.load_rom_named(data, path);
@@ -87,6 +85,12 @@ fn int palette_index(String name) {
 
 // The colours shades 0-3 are shown in: the fixed DMG green, or in SGB mode
 // the chosen SGB palette.
+// In SGB mode the chosen preset colours everything until the game sends its
+// own palettes (and again whenever the player picks one in the menu).
+fn void apply_preset(gameboy::GameBoy* gb, int pal) {
+	if (gb.mmu.sgb) gb.mmu.sgb.set_preset(display::SGB_PALETTES[pal]);
+}
+
 fn char[12] mode_colors(mmu::Model model, int pal) {
 	char[12] colors;
 	display::palette_rgb(model == SGB ? PALETTE_NAMES[pal] : "dmg", &colors);
@@ -142,11 +146,12 @@ fn int main(String[] args)
 
 	gameboy::GameBoy gb = gameboy::new(false, model);
 	defer gb.destroy();
+	apply_preset(&gb, pal);
 
 	gameboy::Cartridge cart;
 	bool has_rom = false;
 	if (rom.len) {
-		gameboy::Cartridge? loaded = load_game(&gb, rom, boot, model);
+		gameboy::Cartridge? loaded = load_game(&gb, rom, boot, model, pal);
 		if (catch loaded) return 1;
 		cart = loaded;
 		has_rom = true;
@@ -163,7 +168,7 @@ fn int main(String[] args)
 		return 0;
 	}
 
-	display::Display? screen = display::open("wer", colors);
+	display::Display? screen = display::open("wer");
 	if (catch screen) {
 		io::eprintn("no display available; re-run with --headless");
 		return 1;
@@ -180,6 +185,8 @@ fn int main(String[] args)
 	bool menu = !has_rom;
 	int selected = 0;
 
+	char[] rgb = mem::new_array(char, ppu::WIDTH * ppu::HEIGHT * 3);
+	defer free(rgb.ptr);
 	short[4096] audio;
 	Clock next = clock::now();
 	float avg = AUDIO_TARGET_BYTES;
@@ -191,7 +198,7 @@ fn int main(String[] args)
 		// A ROM chosen in the file dialog (menu or Ctrl+O) replaces the game.
 		String chosen = screen.take_dialog_result();
 		if (chosen.len) {
-			if (try loaded = load_game(&gb, chosen, boot, model)) {
+			if (try loaded = load_game(&gb, chosen, boot, model, pal)) {
 				cart = loaded;
 				has_rom = true;
 				menu = false;
@@ -236,29 +243,30 @@ fn int main(String[] args)
 			if (item == MODE && (step != 0 || enter)) {
 				model = model == DMG ? mmu::Model.SGB : mmu::Model.DMG;
 				colors = mode_colors(model, pal);
-				screen.set_palette(colors);
+				apply_preset(&gb, pal);
 				if (has_rom) {
-					if (try loaded = load_game(&gb, rom_path, boot, model)) {
+					if (try loaded = load_game(&gb, rom_path, boot, model, pal)) {
 						cart = loaded;
 						screen.set_title(window_title(&cart, model));
 					}
 				} else {
 					gb.destroy();
 					gb = gameboy::new(false, model);
+					apply_preset(&gb, pal);
 				}
 			}
 			if (item == PALETTE && step != 0) {
 				int n = (int)PALETTE_NAMES.len;
 				pal = (pal + step + n) % n;
 				colors = mode_colors(model, pal);
-				screen.set_palette(colors);
+				apply_preset(&gb, pal);
 			}
 			if (enter) {
 				switch (item) {
 					case RESUME: menu = false;
 					case OPEN:   screen.open_rom_dialog();
 					case RESET:
-						if (try loaded = load_game(&gb, rom_path, boot, model)) {
+						if (try loaded = load_game(&gb, rom_path, boot, model, pal)) {
 							cart = loaded;
 							menu = false;
 							next = clock::now();
@@ -295,7 +303,8 @@ fn int main(String[] args)
 			integ = math::clamp(integ, -MAX_INTEG, +MAX_INTEG);
 			gb.set_audio_rate((uint)(display::AUDIO_RATE * (1 - MAX_RATE_ADJ * e - integ)));
 		}
-		screen.present(gb.framebuffer(), lines[:count], selected);
+		gb.frame_rgb(rgb, colors);
+		screen.present(rgb, lines[:count], selected);
 
 		next += PERIOD;
 		Clock now = clock::now();

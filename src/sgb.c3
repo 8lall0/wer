@@ -1,6 +1,7 @@
 module sgb;
 
 import std::io;
+import ppu;
 
 // Super Game Boy: the SNES side of the adapter.
 //
@@ -12,6 +13,15 @@ import std::io;
 // Multiplayer (MLT_REQ) is the one feedback path back to the Game Boy, and
 // what games use to detect an SGB: with both P1 lines high, the low nibble
 // reads $F - current player, and the player advances when P15 goes 0 -> 1.
+//
+// Colours: the SNES sees the finished Game Boy picture as shades 0-3 (after
+// BGP/OBP) and colours it by position: the screen is 20x18 cells of 8x8
+// pixels, each cell uses one of 4 palettes (`attr`), and a shade picks the
+// palette's colour. Colour 0 is shared by all four palettes.
+//
+// *_TRN commands move 4 KiB through the picture itself: the game shows tiles
+// $00-$FF on the BG and the SNES reads them out during the next frame
+// (capture_transfer).
 
 const char CMD_PAL01    = 0x00;
 const char CMD_PAL23    = 0x01;
@@ -47,6 +57,18 @@ const String[24] COMMAND_NAMES = {
 const int PACKET_BITS = 128;
 const int MAX_PACKETS = 7;
 
+const int COLS = 20;              // 8x8 cells across the Game Boy screen
+const int ROWS = 18;
+const int ATF_COUNT = 45;         // attribute files in ATTR_TRN data
+const int ATF_LEN = 90;           // 18 rows x 5 bytes (4 cells per byte)
+const usz TRN_LEN = 4096;
+
+// MASK_EN modes
+const char MASK_NONE   = 0;
+const char MASK_FREEZE = 1;
+const char MASK_BLACK  = 2;
+const char MASK_COLOR0 = 3;
+
 struct Sgb {
 	// packet receiver
 	char   p1;          // last P1 select bits written (bits 4-5)
@@ -65,12 +87,24 @@ struct Sgb {
 
 	uint[32] seen;      // commands executed, by code (tests / debugging)
 	bool   log;         // print each command to stderr
+
+	// colours
+	ushort[4][4]  pal;              // visible palettes 0-3, BGR555; [p][0] is shared
+	char[COLS * ROWS] attr;         // palette per 8x8 cell
+	ushort[4][512] sys_pal;         // system palettes (PAL_TRN)
+	char[ATF_COUNT * ATF_LEN] atf;  // attribute files (ATTR_TRN)
+	char   mask;                    // MASK_EN mode
+	char[ppu::WIDTH * ppu::HEIGHT] frozen; // shades shown while MASK_FREEZE
+
+	// a *_TRN command waiting for the next frame (0xFF = none)
+	char   pending_trn;
 }
 
 fn Sgb* new() {
 	Sgb* s = mem::new(Sgb);
 	s.p1 = 0x30;
 	s.players = 1;
+	s.pending_trn = 0xFF;
 	return s;
 }
 
@@ -131,6 +165,22 @@ fn void Sgb.execute(&self, char cmd, char[] data) {
 	}
 
 	switch (cmd) {
+		case CMD_PAL01: self.set_pals(0, 1, data);
+		case CMD_PAL23: self.set_pals(2, 3, data);
+		case CMD_PAL03: self.set_pals(0, 3, data);
+		case CMD_PAL12: self.set_pals(1, 2, data);
+		case CMD_PAL_SET: self.pal_set(data);
+		case CMD_ATTR_BLK: self.attr_blk(data);
+		case CMD_ATTR_LIN: self.attr_lin(data);
+		case CMD_ATTR_DIV: self.attr_div(data);
+		case CMD_ATTR_CHR: self.attr_chr(data);
+		case CMD_ATTR_SET:
+			self.apply_atf(data[1] & 0x3F);
+			if (data[1] & 0x40) self.mask = MASK_NONE;
+		case CMD_MASK_EN: self.mask = data[1] & 3;
+		case CMD_PAL_TRN:
+		case CMD_ATTR_TRN:
+			self.pending_trn = cmd;
 		case CMD_MLT_REQ:
 			switch (data[1] & 3) {
 				case 1:  self.players = 2;
@@ -139,7 +189,7 @@ fn void Sgb.execute(&self, char cmd, char[] data) {
 			}
 			self.player &= self.players - 1;
 		default:
-			break; // colours (step 3) and borders (step 4) follow
+			break; // sound, SNES code/data and the border (next step)
 	}
 }
 
@@ -147,4 +197,207 @@ fn void Sgb.execute(&self, char cmd, char[] data) {
 // in multiplayer mode $F - player.
 fn char Sgb.joypad_id(&self) {
 	return self.players > 1 ? (char)(0xF - self.player) : 0xF;
+}
+
+// ---------------------------------------------------------------------------
+// Colours
+// ---------------------------------------------------------------------------
+
+fn ushort le16(char[] data, usz at) => (ushort)(data[at] | (data[at + 1] << 8));
+
+// Show a 4-colour palette everywhere, as before a game sends its own (and when
+// the player picks an SGB preset).
+fn void Sgb.set_preset(&self, ushort[4] colors) {
+	for (int p = 0; p < 4; p++) self.pal[p] = colors;
+	self.attr = {};
+}
+
+// Colour 0 is the backdrop, shared by all four palettes.
+fn void Sgb.set_color0(&self, ushort c) {
+	for (int p = 0; p < 4; p++) self.pal[p][0] = c;
+}
+
+// PAL01/23/03/12: colour 0, then colours 1-3 of palette `a`, then of palette `b`.
+fn void Sgb.set_pals(&self, int a, int b, char[] data) {
+	self.set_color0(le16(data, 1));
+	for (usz i = 0; i < 3; i++) {
+		self.pal[a][i + 1] = le16(data, 3 + i * 2);
+		self.pal[b][i + 1] = le16(data, 9 + i * 2);
+	}
+}
+
+// PAL_SET: palettes 0-3 from the system palettes, optionally an attribute
+// file, optionally cancelling MASK_EN.
+fn void Sgb.pal_set(&self, char[] data) {
+	for (usz p = 0; p < 4; p++) {
+		self.pal[p] = self.sys_pal[le16(data, 1 + p * 2) & 0x1FF];
+	}
+	self.set_color0(self.pal[0][0]);
+	char flags = data[9];
+	if (flags & 0x80) self.apply_atf(flags & 0x3F);
+	if (flags & 0x40) self.mask = MASK_NONE;
+}
+
+fn void Sgb.apply_atf(&self, char n) {
+	if (n >= ATF_COUNT) return;
+	usz base = (usz)n * ATF_LEN;
+	for (int i = 0; i < COLS * ROWS; i++) {
+		char b = self.atf[base + (usz)i / 4];
+		self.attr[i] = (b >> (6 - (i % 4) * 2)) & 3;
+	}
+}
+
+// ATTR_BLK: rectangles; each data set changes the inside, the border line
+// and/or the outside of one rectangle (in cells).
+fn void Sgb.attr_blk(&self, char[] data) {
+	int sets = data[1];
+	for (int s = 0; s < sets; s++) {
+		usz at = 2 + (usz)s * 6;
+		if (at + 6 > data.len) return;
+		char ctrl = data[at] & 7;
+		char pals = data[at + 1];
+		int x1 = data[at + 2];
+		int y1 = data[at + 3];
+		int x2 = data[at + 4];
+		int y2 = data[at + 5];
+		char p_in = pals & 3;
+		char p_line = (pals >> 2) & 3;
+		char p_out = (pals >> 4) & 3;
+		// Changing only the inside or only the outside also colours the line.
+		if (ctrl == 1) { ctrl |= 2; p_line = p_in; }
+		if (ctrl == 4) { ctrl |= 2; p_line = p_out; }
+
+		for (int y = 0; y < ROWS; y++) {
+			for (int x = 0; x < COLS; x++) {
+				bool in_rect = x >= x1 && x <= x2 && y >= y1 && y <= y2;
+				bool edge = in_rect && (x == x1 || x == x2 || y == y1 || y == y2);
+				int i = y * COLS + x;
+				if (edge) {
+					if (ctrl & 2) self.attr[i] = p_line;
+				} else if (in_rect) {
+					if (ctrl & 1) self.attr[i] = p_in;
+				} else {
+					if (ctrl & 4) self.attr[i] = p_out;
+				}
+			}
+		}
+	}
+}
+
+// ATTR_LIN: whole rows (bit 7 set) or columns, one byte each.
+fn void Sgb.attr_lin(&self, char[] data) {
+	int sets = data[1];
+	for (int s = 0; s < sets && (usz)(2 + s) < data.len; s++) {
+		char b = data[2 + s];
+		int line = b & 0x1F;
+		char p = (b >> 5) & 3;
+		if (b & 0x80) {
+			if (line < ROWS) for (int x = 0; x < COLS; x++) self.attr[line * COLS + x] = p;
+		} else {
+			if (line < COLS) for (int y = 0; y < ROWS; y++) self.attr[y * COLS + line] = p;
+		}
+	}
+}
+
+// ATTR_DIV: split at a row or column: before / on / after the line.
+fn void Sgb.attr_div(&self, char[] data) {
+	char b = data[1];
+	char p_after = b & 3;
+	char p_before = (b >> 2) & 3;
+	char p_line = (b >> 4) & 3;
+	bool rows = (b & 0x40) != 0;
+	int at = data[2];
+	for (int y = 0; y < ROWS; y++) {
+		for (int x = 0; x < COLS; x++) {
+			int c = rows ? y : x;
+			self.attr[y * COLS + x] = c < at ? p_before : c == at ? p_line : p_after;
+		}
+	}
+}
+
+// ATTR_CHR: cell by cell from (x, y), 2 bits each (MSB first), left to right
+// or top to bottom, wrapping at the screen edge.
+fn void Sgb.attr_chr(&self, char[] data) {
+	int x = data[1];
+	int y = data[2];
+	int n = data[3] | (data[4] << 8);
+	bool down = data[5] != 0;
+	for (int k = 0; k < n && k < COLS * ROWS; k++) {
+		usz byte = 6 + (usz)k / 4;
+		if (byte >= data.len || x >= COLS || y >= ROWS) return;
+		self.attr[y * COLS + x] = (data[byte] >> (6 - (k % 4) * 2)) & 3;
+		if (down) {
+			if (++y == ROWS) { y = 0; x++; }
+		} else {
+			if (++x == COLS) { x = 0; y++; }
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// VRAM transfers
+// ---------------------------------------------------------------------------
+
+// The 4 KiB a *_TRN command transfers: the 256 tiles the BG shows in map order
+// (20 per row), read from the tile data area LCDC selects.
+fn void read_transfer(ppu::Ppu* p, char[TRN_LEN]* out) {
+	usz map = (p.lcdc & ppu::LCDC_BG_MAP) ? 0x1C00 : 0x1800;
+	bool signed_tiles = (p.lcdc & ppu::LCDC_TILE_DATA) == 0;
+	for (usz t = 0; t < 256; t++) {
+		char idx = p.vram[map + (t / 20) * 32 + t % 20];
+		usz tile = signed_tiles ? (usz)(0x1000 + (int)(ichar)idx * 16) : (usz)idx * 16;
+		for (usz b = 0; b < 16; b++) (*out)[t * 16 + b] = p.vram[tile + b];
+	}
+}
+
+// Called at the start of VBlank: complete a pending *_TRN from this frame.
+fn void Sgb.capture_transfer(&self, ppu::Ppu* p) {
+	if (self.pending_trn == 0xFF) return;
+	char cmd = self.pending_trn;
+	self.pending_trn = 0xFF;
+	char[TRN_LEN] buf;
+	read_transfer(p, &buf);
+	switch (cmd) {
+		case CMD_PAL_TRN:
+			for (usz i = 0; i < 512 * 4; i++) self.sys_pal[i / 4][i % 4] = le16(&buf, i * 2);
+		case CMD_ATTR_TRN:
+			for (usz i = 0; i < self.atf.len; i++) self.atf[i] = buf[i];
+		default:
+			break;
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Output
+// ---------------------------------------------------------------------------
+
+// SGB/CGB 15-bit BGR -> 8-bit R, G, B (each channel << 3, which is what the
+// commonly quoted values like 1-A = F8E8C8 assume).
+fn void bgr555_to_rgb(ushort c, char[] out) {
+	out[0] = (char)((c & 0x1F) << 3);
+	out[1] = (char)(((c >> 5) & 0x1F) << 3);
+	out[2] = (char)(((c >> 10) & 0x1F) << 3);
+}
+
+// The coloured Game Boy picture as RGB (3 bytes per pixel), from the PPU's
+// shades. Freezing keeps showing the picture from when MASK_EN froze it.
+fn void Sgb.render(&self, char[] shades, char[] rgb) {
+	if (self.mask == MASK_FREEZE) {
+		shades = &self.frozen;
+	} else {
+		for (usz i = 0; i < self.frozen.len; i++) self.frozen[i] = shades[i];
+	}
+	for (int y = 0; y < ppu::HEIGHT; y++) {
+		for (int x = 0; x < ppu::WIDTH; x++) {
+			int i = y * ppu::WIDTH + x;
+			char[] px = rgb[(usz)i * 3 : 3];
+			switch (self.mask) {
+				case MASK_BLACK:  px[0] = 0; px[1] = 0; px[2] = 0;
+				case MASK_COLOR0: bgr555_to_rgb(self.pal[0][0], px);
+				default:
+					char p = self.attr[(y / 8) * COLS + x / 8];
+					bgr555_to_rgb(self.pal[p][shades[i] & 3], px);
+			}
+		}
+	}
 }

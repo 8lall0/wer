@@ -1,6 +1,6 @@
 module display;
 
-import sdl, ppu, joypad;
+import sdl, ppu, joypad, sgb;
 import std::io, std::atomic;
 
 const int SCALE = 4;
@@ -60,7 +60,6 @@ struct Display {
 	sdl::Texture*     texture;
 	sdl::AudioStream* audio;
 	char[]            pixels;
-	char[12]          colors; // RGB for shades 0-3 (see palette_rgb)
 }
 
 // Key presses (not held keys) for the menu, as bits in Input.pressed.
@@ -79,14 +78,13 @@ struct Input {
 	char pressed;  // KEY_* pressed this poll
 }
 
-fn Display? open(ZString title, char[12] colors) {
+fn Display? open(ZString title) {
 	if (sdl::init(sdl::INIT_VIDEO | sdl::INIT_EVENTS | sdl::INIT_AUDIO) == 0) {
 		io::eprintfn("SDL_Init failed: %s", sdl::get_error().str_view());
 		return SDL_FAILED~;
 	}
 
 	Display d;
-	d.colors = colors;
 	d.window = sdl::create_window(title, ppu::WIDTH * SCALE, ppu::HEIGHT * SCALE, 0);
 	d.renderer = d.window ? sdl::create_renderer(d.window, null) : null;
 	if (!d.renderer) {
@@ -127,10 +125,6 @@ fn void Display.queue_audio(&self, short[] samples, uint n) {
 	sdl::put_audio_stream_data(self.audio, samples.ptr, (int)(n * 2));
 }
 
-fn void Display.set_palette(&self, char[12] colors) {
-	self.colors = colors;
-}
-
 fn void Display.set_title(&self, String title) {
 	sdl::set_window_title(self.window, title.zstr_tcopy());
 }
@@ -140,16 +134,16 @@ fn void Display.clear_audio(&self) {
 	if (self.audio) sdl::clear_audio_stream(self.audio);
 }
 
-// The frame, plus a menu drawn over it when `menu` has lines: a dimmed screen,
-// the lines in SDL's 8x8 debug font at 2x, `selected` highlighted.
-fn void Display.present(&self, char[] fb, String[] menu = {}, int selected = -1) {
+// The frame (RGB, 3 bytes per pixel, from GameBoy.frame_rgb), plus a menu drawn
+// over it when `menu` has lines: a dimmed screen, the lines in SDL's 8x8 debug
+// font at 2x, `selected` highlighted.
+fn void Display.present(&self, char[] rgb, String[] menu = {}, int selected = -1) {
 	int pixels = ppu::WIDTH * ppu::HEIGHT;
 
 	for (int i = 0; i < pixels; i++) {
-		int p = (fb[i] & 3) * 3;
-		self.pixels[i * 4]     = self.colors[p];
-		self.pixels[i * 4 + 1] = self.colors[p + 1];
-		self.pixels[i * 4 + 2] = self.colors[p + 2];
+		self.pixels[i * 4]     = rgb[i * 3];
+		self.pixels[i * 4 + 1] = rgb[i * 3 + 1];
+		self.pixels[i * 4 + 2] = rgb[i * 3 + 2];
 		self.pixels[i * 4 + 3] = 0xFF;
 	}
 	sdl::update_texture(self.texture, null, self.pixels.ptr, ppu::WIDTH * 4);
@@ -277,14 +271,6 @@ fn int Display.audio_queued(&self) {
 	return sdl::get_audio_stream_queued(self.audio);
 }
 
-// SGB/CGB 15-bit BGR -> 8-bit R, G, B (each channel << 3, which is what the
-// commonly quoted values like 1-A = F8E8C8 assume).
-fn void bgr555_to_rgb(ushort c, char[] out) {
-	out[0] = (char)((c & 0x1F) << 3);
-	out[1] = (char)(((c >> 5) & 0x1F) << 3);
-	out[2] = (char)(((c >> 10) & 0x1F) << 3);
-}
-
 // RGB for shades 0-3 of a named palette: "dmg" (the default green), or an SGB
 // palette "1-A" .. "4-H" (case-insensitive). False for an unknown name.
 fn bool palette_rgb(String name, char[12]* out) {
@@ -299,7 +285,7 @@ fn bool palette_rgb(String name, char[12]* out) {
 
 	int index = (group - '1') * 8 + (letter - 'a');
 	for (int shade = 0; shade < 4; shade++) {
-		bgr555_to_rgb(SGB_PALETTES[index][shade], (*out)[shade * 3 : 3]);
+		sgb::bgr555_to_rgb(SGB_PALETTES[index][shade], (*out)[shade * 3 : 3]);
 	}
 	return true;
 }

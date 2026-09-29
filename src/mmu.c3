@@ -264,7 +264,10 @@ fn void Mmu.tick(&self, char mcycles) {
 	for (uint i = 0; i < tr.serial_edges; i++) self.serial_shift();
 	if (tr.timer_irq) self.io[IF_REG - 0xFF00] |= 0x04; // Timer interrupt
 
-	self.request_irq(self.ppu.tick(t));
+	char pirq = self.ppu.tick(t);
+	// An SGB reads *_TRN data out of the frame that has just been shown.
+	if (self.sgb && (pirq & ppu::INT_VBLANK)) self.sgb.capture_transfer(&self.ppu);
+	self.request_irq(pirq);
 
 	self.apu.tick(t, tr.apu_steps);
 
