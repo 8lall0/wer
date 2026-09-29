@@ -144,11 +144,11 @@ fn void Mmu.io_set(&self, ushort addr, char value) {
 		case TMA_REG:  self.timer.write_tma(value);
 		case TAC_REG:  self.timer.write_tac(value);
 		case 0xFF40:   self.ppu.write_lcdc(value);
-		case 0xFF41:   self.ppu.stat = (self.ppu.stat & 0x87) | (value & 0x78);
+		case 0xFF41:   self.request_irq(self.ppu.write_stat(value));
 		case 0xFF42:   self.ppu.scy = value;
 		case 0xFF43:   self.ppu.scx = value;
 		case 0xFF44:   break; // LY is read-only
-		case 0xFF45:   self.ppu.lyc = value;
+		case 0xFF45:   self.request_irq(self.ppu.write_lyc(value));
 		case DMA_REG:  self.io[DMA_REG - 0xFF00] = value; self.dma_request(value);
 		case 0xFF47:   self.ppu.bgp = value;
 		case 0xFF48:   self.ppu.obp0 = value;
@@ -216,9 +216,13 @@ fn void Mmu.tick(&self, char mcycles) {
 	timer::TickResult tr = self.timer.tick(t);
 	if (tr.timer_irq) self.io[IF_REG - 0xFF00] |= 0x04; // Timer interrupt
 
-	char pirq = self.ppu.tick(t);
-	if (pirq & ppu::INT_VBLANK) self.io[IF_REG - 0xFF00] |= 0x01;
-	if (pirq & ppu::INT_STAT)   self.io[IF_REG - 0xFF00] |= 0x02;
+	self.request_irq(self.ppu.tick(t));
 
 	self.apu.tick(t, tr.apu_steps);
+}
+
+// PPU interrupt bits (ppu::INT_VBLANK / INT_STAT) -> IF.
+fn void Mmu.request_irq(&self, char pirq) {
+	if (pirq & ppu::INT_VBLANK) self.io[IF_REG - 0xFF00] |= 0x01;
+	if (pirq & ppu::INT_STAT)   self.io[IF_REG - 0xFF00] |= 0x02;
 }

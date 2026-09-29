@@ -88,7 +88,7 @@ const Rom[*] ROMS = {
 	{ "acceptance/ppu/intr_2_oam_ok_timing.gb", false },
 	{ "acceptance/ppu/lcdon_timing-GS.gb", false },
 	{ "acceptance/ppu/lcdon_write_timing-GS.gb", false },
-	{ "acceptance/ppu/stat_irq_blocking.gb", false },
+	{ "acceptance/ppu/stat_irq_blocking.gb", true  },
 	{ "acceptance/ppu/stat_lyc_onoff.gb", false },
 	{ "acceptance/ppu/vblank_stat_intr-GS.gb", false },
 	{ "acceptance/push_timing.gb", true  },

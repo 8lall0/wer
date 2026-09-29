@@ -51,6 +51,7 @@ struct Ppu {
 	char mode;         // 0 HBlank, 1 VBlank, 2 OAM, 3 drawing
 	int  win_line;     // internal window line counter
 	bool frame_ready;  // set when VBlank begins; cleared by the consumer
+	bool stat_line;    // OR of the enabled STAT sources (see update_stat_line)
 
 	char[WIDTH] bg_color; // BG colour index per pixel of the current line (sprite priority)
 }
@@ -72,6 +73,22 @@ fn void Ppu.write_lcdc(&self, char value) {
 	}
 }
 
+// Writable STAT bits are the four interrupt enables (3-6). Turning one on
+// while its condition already holds is a rising edge of the STAT line.
+fn char Ppu.write_stat(&self, char value) {
+	self.stat = (self.stat & 0x87) | (value & 0x78);
+	if ((self.lcdc & LCDC_ENABLE) == 0) return 0;
+	return self.update_stat_line();
+}
+
+// The LY=LYC flag follows a LYC write immediately, not at the next line.
+fn char Ppu.write_lyc(&self, char value) {
+	self.lyc = value;
+	self.check_lyc();
+	if ((self.lcdc & LCDC_ENABLE) == 0) return 0;
+	return self.update_stat_line();
+}
+
 fn char Ppu.tick(&self, uint tcycles) {
 	if ((self.lcdc & LCDC_ENABLE) == 0) {
 		self.dot = 0;
@@ -79,6 +96,7 @@ fn char Ppu.tick(&self, uint tcycles) {
 		self.win_line = 0;
 		self.mode = 0;
 		self.stat &= 0xFC;
+		self.stat_line = false;
 		return 0;
 	}
 
@@ -92,21 +110,21 @@ fn char Ppu.tick(&self, uint tcycles) {
 				self.ly = 0;
 				self.win_line = 0;
 			}
-			irq |= self.check_lyc();
+			self.check_lyc();
 		}
 		irq |= self.update_mode();
+		irq |= self.update_stat_line();
 	}
 	return irq;
 }
 
-fn char Ppu.check_lyc(&self) {
+// Keep the LY=LYC flag (STAT bit 2) in sync. Interrupts come from update_stat_line.
+fn void Ppu.check_lyc(&self) {
 	if (self.ly == self.lyc) {
 		self.stat |= STAT_LYC_FLAG;
-		if (self.stat & STAT_LYC_IE) return INT_STAT;
 	} else {
 		self.stat &= (char)~STAT_LYC_FLAG;
 	}
-	return 0;
 }
 
 fn char Ppu.update_mode(&self) {
@@ -129,13 +147,9 @@ fn char Ppu.update_mode(&self) {
 	switch (want) {
 		case 0:
 			self.render_line();
-			if (self.stat & STAT_HBLANK_IE) irq |= INT_STAT;
 		case 1:
 			self.frame_ready = true;
 			irq |= INT_VBLANK;
-			if (self.stat & STAT_VBLANK_IE) irq |= INT_STAT;
-		case 2:
-			if (self.stat & STAT_OAM_IE) irq |= INT_STAT;
 	}
 	return irq;
 }
@@ -243,4 +257,18 @@ fn void Ppu.render_sprites(&self, int y) {
 			self.fb[row + sx] = shade(pal, cidx);
 		}
 	}
+}
+
+// The four STAT sources are OR'ed into one line; the STAT interrupt fires only
+// on its rising edge. A source turning on while the line is already high
+// raises nothing ("STAT blocking").
+fn char Ppu.update_stat_line(&self) {
+	bool line = ((self.stat & STAT_LYC_IE)    != 0 && self.ly == self.lyc)
+	         || ((self.stat & STAT_OAM_IE)    != 0 && self.mode == 2)
+	         || ((self.stat & STAT_VBLANK_IE) != 0 && self.mode == 1)
+	         || ((self.stat & STAT_HBLANK_IE) != 0 && self.mode == 0);
+
+	bool rising = line && !self.stat_line;   // was low, is high now
+	self.stat_line = line;                   // remember for the next call
+	return rising ? INT_STAT : 0;
 }
