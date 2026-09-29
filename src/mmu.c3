@@ -245,6 +245,8 @@ fn void Mmu.tick(&self, char mcycles) {
 	self.request_irq(self.ppu.tick(t));
 
 	self.apu.tick(t, tr.apu_steps);
+
+	if (self.cart && self.cart.has_rtc) self.cart.rtc.tick(t);
 }
 
 // PPU interrupt bits (ppu::INT_VBLANK / INT_STAT) -> IF.

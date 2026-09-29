@@ -188,3 +188,87 @@ fn void mbc1_1mb_without_second_logo_is_plain() @test
 	c.write(0x4000, 0x01);
 	test::eq((char)0x20, c.read(0x0000)); // ordinary wiring: BANK2 << 5
 }
+
+// --- MBC3 real-time clock ---------------------------------------------------
+
+const uint SECOND = 4194304; // T-cycles
+
+fn char rtc_read(cart::Cartridge* c, char reg) {
+	c.write(0x4000, reg);
+	return c.read(0xA000);
+}
+
+fn void rtc_write(cart::Cartridge* c, char reg, char value) {
+	c.write(0x4000, reg);
+	c.write(0xA000, value);
+}
+
+fn void rtc_latch(cart::Cartridge* c) {
+	c.write(0x6000, 0x00);
+	c.write(0x6000, 0x01);
+}
+
+fn void mbc3_rtc_reads_the_latched_copy() @test
+{
+	cart::Cartridge* c = build(4, 0x10, 0x03); // MBC3+TIMER+RAM+BATTERY
+	defer c.free();
+	test::@check(c.has_rtc, "type $10 has a clock");
+	c.write(0x0000, 0x0A);
+
+	rtc_write(c, 0x08, 30);
+	rtc_latch(c);
+	test::eq((char)30, rtc_read(c, 0x08));
+
+	c.rtc.tick(SECOND);                  // clock runs on ...
+	test::eq((char)30, rtc_read(c, 0x08)); // ... but reads stay latched
+	rtc_latch(c);
+	test::eq((char)31, rtc_read(c, 0x08));
+}
+
+fn void mbc3_rtc_rolls_over_and_sets_day_carry() @test
+{
+	cart::Cartridge* c = build(4, 0x10, 0x03);
+	defer c.free();
+	c.write(0x0000, 0x0A);
+	rtc_write(c, 0x08, 59);
+	rtc_write(c, 0x09, 59);
+	rtc_write(c, 0x0A, 23);
+	rtc_write(c, 0x0B, 0xFF);
+	rtc_write(c, 0x0C, 0x01);            // day 511
+
+	c.rtc.tick(SECOND);
+	rtc_latch(c);
+	test::eq((char)0, rtc_read(c, 0x08));
+	test::eq((char)0, rtc_read(c, 0x09));
+	test::eq((char)0, rtc_read(c, 0x0A));
+	test::eq((char)0, rtc_read(c, 0x0B));
+	test::eq((char)0x80, rtc_read(c, 0x0C)); // day 0, carry set
+}
+
+fn void mbc3_rtc_halt_stops_the_clock() @test
+{
+	cart::Cartridge* c = build(4, 0x10, 0x03);
+	defer c.free();
+	c.write(0x0000, 0x0A);
+	rtc_write(c, 0x08, 10);
+	rtc_write(c, 0x0C, 0x40);            // halt
+
+	c.rtc.tick(5 * SECOND);
+	rtc_latch(c);
+	test::eq((char)10, rtc_read(c, 0x08));
+}
+
+fn void mbc3_rtc_save_catches_up_with_wall_clock() @test
+{
+	cart::Rtc a;
+	a.h = 5;
+	a.m = 20;
+	char[cart::RTC_SAVE_LEN] block;
+	a.serialize(&block, 1_000_000);
+
+	cart::Rtc b;
+	b.deserialize(&block, 1_000_000 + 3600 + 30); // closed for 1 h 30 s
+	test::eq((char)6, b.h);
+	test::eq((char)20, b.m);
+	test::eq((char)30, b.s);
+}

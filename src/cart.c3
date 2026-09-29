@@ -1,6 +1,6 @@
 module cart;
 
-import std::io, std::io::file;
+import std::io, std::io::file, std::time;
 
 const char[48] NINTENDO_LOGO = {
 	0xCE, 0xED, 0x66, 0x66, 0xCC, 0x0D, 0x00, 0x0B, 0x03, 0x73, 0x00, 0x83, 0x00, 0x0C, 0x00, 0x0D,
@@ -20,7 +20,7 @@ enum Mbc : char {
 	NONE,
 	MBC1,
 	MBC2,
-	MBC3, // TODO: RTC not modelled — the clock registers read $FF and ignore writes
+	MBC3, // types $0F/$10 also carry the real-time clock (see rtc.c3)
 	MBC5,
 }
 
@@ -29,6 +29,8 @@ struct Cartridge {
 	char[] rom;   // full image, heap
 	char[] ram;   // battery-backed / work RAM, heap (empty if none)
 	bool   has_battery;
+	bool   has_rtc;     // MBC3 with timer ($0F, $10)
+	Rtc    rtc;
 	String save_path;
 
 	// banking state
@@ -76,6 +78,7 @@ fn Cartridge* new(char[] image, String path) {
 	char type = image.len > 0x147 ? image[0x147] : 0;
 	c.mbc = mbc_of(type);
 	c.has_battery = has_battery(type);
+	c.has_rtc = type == 0x0F || type == 0x10;
 
 	// MBC1M multicart: a 1 MB MBC1 whose bank $10 (the second game) has its own
 	// Nintendo logo. Nothing in the header says so.
@@ -93,11 +96,14 @@ fn Cartridge* new(char[] image, String path) {
 	c.rom_bank = 1;
 	c.bank1 = 1;
 
-	if (c.has_battery && c.ram.len > 0) {
+	if (c.has_battery && (c.ram.len > 0 || c.has_rtc)) {
 		c.save_path = string::format(mem, "%s.sav", path);
 		if (try saved = file::load_temp(c.save_path)) {
 			usz n = saved.len < c.ram.len ? saved.len : c.ram.len;
 			for (usz i = 0; i < n; i++) c.ram[i] = saved[i];
+			if (c.has_rtc && saved.len >= c.ram.len + RTC_SAVE_LEN) {
+				c.rtc.deserialize(saved[c.ram.len : RTC_SAVE_LEN], unix_now());
+			}
 		}
 	}
 	return c;
@@ -110,9 +116,18 @@ fn void Cartridge.free(&self) {
 	mem::free(self);
 }
 
+fn long unix_now() => (long)time::now() / (long)time::SEC;
+
+// RAM, followed by the 48-byte RTC block for clock cartridges.
 fn void Cartridge.save(&self) {
-	if (!self.has_battery || self.ram.len == 0 || self.save_path.len == 0) return;
-	if (catch file::save(self.save_path, self.ram)) {
+	if (!self.has_battery || self.save_path.len == 0) return;
+	if (self.ram.len == 0 && !self.has_rtc) return;
+	sz rtc_len = self.has_rtc ? (sz)RTC_SAVE_LEN : 0;
+	char[] out = mem::new_array(char, self.ram.len + rtc_len);
+	defer free(out.ptr);
+	foreach (i, b : self.ram) out[i] = b;
+	if (self.has_rtc) self.rtc.serialize(out[self.ram.len : RTC_SAVE_LEN], unix_now());
+	if (catch file::save(self.save_path, out)) {
 		io::eprintfn("could not write %s", self.save_path);
 	}
 }
@@ -147,13 +162,20 @@ fn usz Cartridge.rom_offset(&self, ushort addr) {
 	return (usz)bank * 0x4000 + (usz)(addr - 0x4000);
 }
 
+// $A000-$BFFF currently maps an RTC register instead of RAM.
+fn bool Cartridge.rtc_selected(&self) {
+	return self.has_rtc && self.ram_bank >= 0x08 && self.ram_bank <= 0x0C;
+}
+
 fn char Cartridge.read(&self, ushort addr) {
 	if (addr < 0x8000) {
 		usz off = self.rom_offset(addr);
 		return off < self.rom.len ? self.rom[off] : 0xFF;
 	}
 	// $A000-$BFFF
-	if (!self.ram_enabled || self.ram.len == 0) return 0xFF;
+	if (!self.ram_enabled) return 0xFF;
+	if (self.rtc_selected()) return self.rtc.read(self.ram_bank);
+	if (self.ram.len == 0) return 0xFF;
 	usz off = self.ram_offset(addr);
 	char v = off < self.ram.len ? self.ram[off] : 0xFF;
 	return self.mbc == MBC2 ? (char)(v | 0xF0) : v;
@@ -176,7 +198,12 @@ fn void Cartridge.write(&self, ushort addr, char value) {
 		return;
 	}
 	// $A000-$BFFF
-	if (!self.ram_enabled || self.ram.len == 0) return;
+	if (!self.ram_enabled) return;
+	if (self.rtc_selected()) {
+		self.rtc.write(self.ram_bank, value);
+		return;
+	}
+	if (self.ram.len == 0) return;
 	usz off = self.ram_offset(addr);
 	if (off < self.ram.len) {
 		self.ram[off] = self.mbc == MBC2 ? (char)(value & 0x0F) : value;
@@ -218,8 +245,8 @@ fn void Cartridge.write_control(&self, ushort addr, char value) {
 				case addr < 0x4000:
 					uint b = value & 0x7F;
 					self.rom_bank = b == 0 ? 1 : b;
-				case addr < 0x6000: self.ram_bank = value; // 0-3 = RAM, 8-C = RTC (unmodelled)
-				default: break; // RTC latch — ignored
+				case addr < 0x6000: self.ram_bank = value; // 0-3 = RAM, 8-C = RTC
+				default: if (self.has_rtc) self.rtc.write_latch(value);
 			}
 		case MBC5:
 			switch {
