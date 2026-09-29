@@ -187,6 +187,13 @@ fn bool Mmu.dma_blocks(&self, ushort addr) {
 	return bus == OAM || bus == bus_of(self.dma.source);
 }
 
+fn bool Mmu.ppu_blocks(&self, ushort addr) {
+	if ((self.ppu.lcdc & ppu::LCDC_ENABLE) == 0) return false;
+	if (addr >= 0xFE00 && addr < 0xFEA0) return self.ppu.mode >= 2;
+	if (addr >= 0x8000 && addr < 0xA000) return self.ppu.mode == 3;
+	return false;
+}
+
 // What a blocked CPU read sees: $FF for OAM, otherwise the byte the DMA is
 // reading on that bus right now (DMG bus conflict).
 fn char Mmu.dma_conflict_read(&self, ushort addr) {

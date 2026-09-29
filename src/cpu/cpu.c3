@@ -184,7 +184,14 @@ fn void Cpu.record(&self, BusOp op, ushort addr, char value) @inline {
 
 fn char Cpu.read(&self, mmu::Mmu* mmu, ushort addr) {
 	self.bus_cycles++;
-	char output = mmu.dma_blocks(addr) ? mmu.dma_conflict_read(addr) : mmu.get(addr);
+	char output;
+	if (mmu.dma_blocks(addr)) {
+		output = mmu.dma_conflict_read(addr);
+	} else if (mmu.ppu_blocks(addr)) {
+		output = 0xFF;
+	} else {
+		output = mmu.get(addr);
+	}
 	self.record(READ, addr, output);
 	mmu.tick(1);
 	return output;
@@ -192,7 +199,7 @@ fn char Cpu.read(&self, mmu::Mmu* mmu, ushort addr) {
 
 fn void Cpu.write(&self, mmu::Mmu* mmu, ushort addr, char value) {
 	self.bus_cycles++;
-	if (!mmu.dma_blocks(addr)) mmu.set(addr, value);
+	if (!mmu.dma_blocks(addr) && !mmu.ppu_blocks(addr)) mmu.set(addr, value);
 	self.record(WRITE, addr, value);
 	mmu.tick(1);
 }

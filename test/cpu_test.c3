@@ -1193,3 +1193,35 @@ fn void rst_pushes_and_jumps() @test
 	ushort ret = c.pop16(&m);
 	test::eq((ushort)0x0150, ret);
 }
+
+fn void cpu_locked_out_of_vram_in_mode_3() @test
+{
+	cpu::Cpu c;
+	mmu::Mmu m;
+	m.set(0x8000, 0x42);          // LCD off: not the CPU path, never blocked
+	m.set(0xFF40, 0x80);          // LCD on, line 0 starts in mode 2
+	m.tick(21);                   // past the 80 dots of mode 2
+
+	test::eq((char)3, m.ppu.mode);
+	test::eq((char)0xFF, c.read(&m, 0x8000));
+	c.write(&m, 0x8000, 0x99);    // dropped
+	test::eq((char)0x42, m.get(0x8000));
+
+	while (m.ppu.mode != 0) m.tick(1);
+	test::eq((char)0x42, c.read(&m, 0x8000));
+}
+
+fn void cpu_locked_out_of_oam_in_mode_2() @test
+{
+	cpu::Cpu c;
+	mmu::Mmu m;
+	m.set(0xFE00, 0x42);
+	m.set(0xFF40, 0x80);          // mode 2 right away
+
+	test::eq((char)2, m.ppu.mode);
+	test::eq((char)0xFF, c.read(&m, 0xFE00));
+	test::eq((char)0x00, c.read(&m, 0x8000)); // VRAM is still free in mode 2
+
+	while (m.ppu.mode != 0) m.tick(1);
+	test::eq((char)0x42, c.read(&m, 0xFE00));
+}
