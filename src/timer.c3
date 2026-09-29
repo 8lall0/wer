@@ -6,6 +6,10 @@ const uint[4] TIMA_BIT = { 9, 3, 5, 7 };
 // Bit 12 of `div` clocks the 512 Hz APU frame sequencer.
 const uint APU_BIT = 12;
 
+// Falling edges of this bit clock the serial port (internal clock): one bit
+// per 512 T-cycles = 8192 Hz, aligned to the counter, not to the SC write.
+const uint SERIAL_BIT = 8;
+
 struct Timer {
 	ushort div;
 	char   tima;
@@ -15,6 +19,7 @@ struct Timer {
 	int  reload_delay;
 	uint pending_tima;
 	uint pending_apu;
+	uint pending_serial;
 
 	bool reloaded;
 	ushort last_div; // DIV at the start of the previous tick (see write_tac)
@@ -23,6 +28,7 @@ struct Timer {
 struct TickResult {
 	bool timer_irq;
 	uint apu_steps;
+	uint serial_edges;
 }
 
 fn char Timer.div_reg(&self) {
@@ -36,6 +42,7 @@ fn bool Timer.tima_input(&self) {
 fn void Timer.write_div(&self) {
 	if (self.tima_input()) self.pending_tima++;
 	if (((self.div >> APU_BIT) & 1) != 0) self.pending_apu++;
+	if (((self.div >> SERIAL_BIT) & 1) != 0) self.pending_serial++;
 	self.div = 0;
 	self.last_div = 0;
 }
@@ -91,8 +98,10 @@ fn TickResult Timer.tick(&self, uint tcycles) {
 		if (self.step_tima()) overflowed = true;
 	}
 	res.apu_steps += self.pending_apu;
+	res.serial_edges += self.pending_serial;
 	self.pending_tima = 0;
 	self.pending_apu = 0;
+	self.pending_serial = 0;
 
 	uint before = self.div;
 	self.last_div = self.div;
@@ -101,6 +110,7 @@ fn TickResult Timer.tick(&self, uint tcycles) {
 
 	uint apu_shift = APU_BIT + 1;
 	res.apu_steps += (after >> apu_shift) - (before >> apu_shift);
+	res.serial_edges += (after >> (SERIAL_BIT + 1)) - (before >> (SERIAL_BIT + 1));
 
 	if ((self.tac & 0x04) != 0) {
 		uint shift = TIMA_BIT[self.tac & 3] + 1;

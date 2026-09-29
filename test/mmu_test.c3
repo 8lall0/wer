@@ -165,3 +165,21 @@ fn void oam_dma_from_vram_leaves_external_bus_free() @test
 	test::eq((char)0x42, m.dma_conflict_read(0x9000)); // sees the byte the DMA reads now
 	test::eq((char)0xFF, m.dma_conflict_read(0xFE00));
 }
+
+// Internal-clock serial transfer: 8 bits, one per falling edge of counter
+// bit 8 (every 512 T-cycles), aligned to DIV rather than to the SC write.
+fn void serial_transfer_takes_eight_clock_edges() @test
+{
+	mmu::Mmu m;                        // DIV counter starts at 0
+	m.set(0xFF01, 0x42);
+	m.set(0xFF02, 0x81);               // start, internal clock
+
+	for (int i = 0; i < 1020; i++) m.tick(1);   // 4080 T: only 7 edges so far
+	test::eq((char)0, m.get(0xFF0F) & 0x08);
+	test::eq((char)0x81, m.get(0xFF02) & 0x81);  // still running
+
+	for (int i = 0; i < 4; i++) m.tick(1);      // 4096 T: 8th edge
+	test::eq((char)0x08, m.get(0xFF0F) & 0x08);  // serial IRQ
+	test::eq((char)0x01, m.get(0xFF02) & 0x81);  // start bit cleared
+	test::eq((char)0xFF, m.get(0xFF01));         // shifted in all 1s (no cable)
+}

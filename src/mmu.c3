@@ -51,7 +51,8 @@ struct Mmu {
 	apu::Apu       apu;    // owns the sound registers + wave RAM (FF10-FF3F)
 	char*          flat;   // non-null => linear (test) mode
 
-	bool   serial_pending;
+	bool   serial_active; // internal-clock transfer in progress
+	int    serial_bits;   // bits shifted so far (0..8)
 	bool   serial_echo;   // when true, print each transferred byte to stderr
 
 	bool boot_active;
@@ -138,7 +139,7 @@ fn void Mmu.io_set(&self, ushort addr, char value) {
 		case 0xFF01:   self.io[0x01] = value; // SB
 		case 0xFF02:   // SC: bit 7 = start, bit 0 = internal clock
 			self.io[0x02] = value;
-			if ((value & 0x81) == 0x81) self.serial_pending = true;
+			if ((value & 0x81) == 0x81) self.serial_start();
 		case DIV_REG:  self.timer.write_div();
 		case TIMA_REG: self.timer.write_tima(value);
 		case TMA_REG:  self.timer.write_tma(value);
@@ -207,6 +208,25 @@ fn char Mmu.dma_conflict_read(&self, ushort addr) {
 	return self.get(self.dma.source + (ushort)self.dma.index);
 }
 
+// SC written with start + internal clock. Nothing moves yet: bits shift on
+// the serial clock edges (Timer SERIAL_BIT), 8 of them per transfer.
+fn void Mmu.serial_start(&self) {
+	if (self.serial_echo) io::eprintf("%c", self.io[0x01]); // the byte being sent
+	self.serial_active = true;
+	self.serial_bits = 0;
+}
+
+// One serial clock edge: SB shifts left, taking in 1 (no cable connected).
+// After 8 bits the transfer ends: SC bit 7 clears, serial IRQ.
+fn void Mmu.serial_shift(&self) {
+	if (!self.serial_active) return;
+	self.io[0x01] = (char)((self.io[0x01] << 1) | 1);
+	if (++self.serial_bits < 8) return;
+	self.serial_active = false;
+	self.io[0x02] &= 0x7F;
+	self.io[IF_REG - 0xFF00] |= 0x08;
+}
+
 fn void Mmu.set_input(&self, char buttons, char dpad) {
 	if (self.joypad.set_state(buttons, dpad)) {
 		self.io[IF_REG - 0xFF00] |= 0x10;
@@ -218,15 +238,8 @@ fn void Mmu.tick(&self, char mcycles) {
 
 	for (char i = 0; i < mcycles; i++) self.dma_step();
 
-	if (self.serial_pending) {
-		self.serial_pending = false;
-		if (self.serial_echo) io::eprintf("%c", self.io[0x01]);
-		self.io[0x01] = 0xFF;                 // received byte (no cable)
-		self.io[0x02] &= 0x7F;                // clear transfer-start
-		self.io[IF_REG - 0xFF00] |= 0x08;     // Serial interrupt
-	}
-
 	timer::TickResult tr = self.timer.tick(t);
+	for (uint i = 0; i < tr.serial_edges; i++) self.serial_shift();
 	if (tr.timer_irq) self.io[IF_REG - 0xFF00] |= 0x04; // Timer interrupt
 
 	self.request_irq(self.ppu.tick(t));
