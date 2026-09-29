@@ -116,7 +116,7 @@ const Rom[*] ROMS = {
 	{ "emulator-only/mbc1/bits_bank2.gb", true  },
 	{ "emulator-only/mbc1/bits_mode.gb", true  },
 	{ "emulator-only/mbc1/bits_ramg.gb", true  },
-	{ "emulator-only/mbc1/multicart_rom_8Mb.gb", false },
+	{ "emulator-only/mbc1/multicart_rom_8Mb.gb", true  },
 	{ "emulator-only/mbc1/ram_256kb.gb", true  },
 	{ "emulator-only/mbc1/ram_64kb.gb", true  },
 	{ "emulator-only/mbc1/rom_16Mb.gb", true  },

@@ -145,3 +145,46 @@ fn void mbc3_rtc_select_does_not_touch_ram() @test
 	c.write(0x4000, 0x00);            // save RAM is intact
 	test::eq((char)0x11, c.read(0xA000));
 }
+
+// A 1 MB MBC1 ROM; with `second_logo` bank $10 carries its own Nintendo logo,
+// which is how an MBC1M multicart is recognised.
+fn cart::Cartridge* build_1mb_mbc1(bool second_logo) {
+	char[] rom = mem::new_array(char, 64 * 0x4000);
+	defer free(rom.ptr);
+	for (int b = 0; b < 64; b++) rom[(usz)b * 0x4000] = (char)b;
+	rom[0x147] = 0x01;
+	rom[0x148] = 0x05;
+	for (int i = 0; i < 48; i++) {
+		rom[0x104 + i] = cart::NINTENDO_LOGO[i];
+		if (second_logo) rom[0x40104 + i] = cart::NINTENDO_LOGO[i];
+	}
+	return cart::new(rom, "x");
+}
+
+fn void mbc1m_multicart_banking() @test
+{
+	cart::Cartridge* c = build_1mb_mbc1(true);
+	defer c.free();
+	test::@check(c.multicart, "second logo at $40104 -> multicart");
+
+	c.write(0x6000, 0x01);            // mode 1
+	c.write(0x4000, 0x01);            // BANK2 = 1 -> second game
+	test::eq((char)0x10, c.read(0x0000)); // its bank 0 is $10 (plain MBC1: $20)
+
+	c.write(0x2000, 0x02);
+	test::eq((char)0x12, c.read(0x4000)); // BANK2 << 4 | BANK1
+
+	c.write(0x2000, 0x10);            // not 0, so no +1, but bit 4 isn't wired
+	test::eq((char)0x10, c.read(0x4000)); // -> bank $10 | 0
+}
+
+fn void mbc1_1mb_without_second_logo_is_plain() @test
+{
+	cart::Cartridge* c = build_1mb_mbc1(false);
+	defer c.free();
+	test::@check(!c.multicart, "no second logo -> ordinary MBC1");
+
+	c.write(0x6000, 0x01);
+	c.write(0x4000, 0x01);
+	test::eq((char)0x20, c.read(0x0000)); // ordinary wiring: BANK2 << 5
+}

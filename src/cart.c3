@@ -2,6 +2,20 @@ module cart;
 
 import std::io, std::io::file;
 
+const char[48] NINTENDO_LOGO = {
+	0xCE, 0xED, 0x66, 0x66, 0xCC, 0x0D, 0x00, 0x0B, 0x03, 0x73, 0x00, 0x83, 0x00, 0x0C, 0x00, 0x0D,
+	0x00, 0x08, 0x11, 0x1F, 0x88, 0x89, 0x00, 0x0E, 0xDC, 0xCC, 0x6E, 0xE6, 0xDD, 0xDD, 0xD9, 0x99,
+	0xBB, 0xBB, 0x67, 0x63, 0x6E, 0x0E, 0xEC, 0xCC, 0xDD, 0xDC, 0x99, 0x9F, 0xBB, 0xB9, 0x33, 0x3E,
+};
+
+fn bool logo_matches(char[] rom) {
+	if (rom.len < 0x134) return false;
+	for (int i = 0; i < 48; i++) {
+		if (rom[0x104 + i] != NINTENDO_LOGO[i]) return false;
+	}
+	return true;
+}
+
 enum Mbc : char {
 	NONE,
 	MBC1,
@@ -18,10 +32,13 @@ struct Cartridge {
 	String save_path;
 
 	// banking state
-	uint rom_bank;   // selected $4000-$7FFF bank (never 0 for the low register)
+	uint rom_bank;   // MBC2/3/5: selected $4000-$7FFF bank
 	uint ram_bank;
 	bool ram_enabled;
+	uint bank1;      // MBC1 $2000 register: 5 bits, 0 reads as 1
+	uint bank2;      // MBC1 $4000 register: 2 bits
 	bool mode1;      // MBC1 advanced banking mode
+	bool multicart;  // MBC1M wiring: bank1 has 4 bits, bank2 sits at bit 4
 }
 
 fn Mbc mbc_of(char type) {
@@ -60,6 +77,10 @@ fn Cartridge* new(char[] image, String path) {
 	c.mbc = mbc_of(type);
 	c.has_battery = has_battery(type);
 
+	// MBC1M multicart: a 1 MB MBC1 whose bank $10 (the second game) has its own
+	// Nintendo logo. Nothing in the header says so.
+	c.multicart = c.mbc == MBC1 && c.rom.len == 0x100000 && logo_matches(c.rom[0x40000..]);
+
 	uint ram_len;
 	if (c.mbc == MBC2) {
 		ram_len = 0x200; // built-in 512 x 4 bits
@@ -70,6 +91,7 @@ fn Cartridge* new(char[] image, String path) {
 	if (ram_len > 0) c.ram = mem::new_array(char, ram_len);
 
 	c.rom_bank = 1;
+	c.bank1 = 1;
 
 	if (c.has_battery && c.ram.len > 0) {
 		c.save_path = string::format(mem, "%s.sav", path);
@@ -102,23 +124,25 @@ fn uint wrap_bank(uint bank, usz size, usz bank_size) {
 	return banks > 1 ? bank % (uint)banks : 0;
 }
 
-fn usz Cartridge.rom_offset(&self, ushort addr) {
+// MBC1: bank = bank2 << shift | bank1 & mask. The low area shows bank2 << shift
+// in mode 1 ($00/$20/$40/$60, or $00/$10/$20/$30 on a multicart), else bank 0.
+fn usz Cartridge.mbc1_rom_offset(&self, ushort addr) {
+	uint shift = self.multicart ? 4 : 5;
+	uint mask  = self.multicart ? 0x0F : 0x1F;
 	if (addr < 0x4000) {
-		// MBC1 mode 1 maps banks 0x20/0x40/0x60 into the low area (wrapped on
-		// ROMs too small to have them).
-		if (self.mbc == MBC1 && self.mode1) {
-			uint hi = (self.rom_bank >> 5) & 3;
-			return (usz)wrap_bank(hi * 0x20, self.rom.len, 0x4000) * 0x4000 + addr;
-		}
-		return addr;
+		if (!self.mode1) return addr;
+		return (usz)wrap_bank(self.bank2 << shift, self.rom.len, 0x4000) * 0x4000 + addr;
 	}
+	uint bank = (self.bank2 << shift) | (self.bank1 & mask);
+	return (usz)wrap_bank(bank, self.rom.len, 0x4000) * 0x4000 + (usz)(addr - 0x4000);
+}
+
+fn usz Cartridge.rom_offset(&self, ushort addr) {
+	if (self.mbc == MBC1) return self.mbc1_rom_offset(addr);
+
+	if (addr < 0x4000) return addr;
 	uint bank = self.rom_bank;
-	if (self.mbc == MBC1 && !self.mode1) {
-		bank = (bank & 0x1F) | (self.rom_bank & 0x60);
-	}
-	// 0 -> 1 applies to the register value, BEFORE wrapping: on a 4-bank MBC1
-	// ROM, BANK1 = 4 really does map bank 0 at $4000.
-	if (bank == 0 && (self.mbc == MBC1 || self.mbc == MBC2 || self.mbc == MBC3)) bank = 1;
+	if (bank == 0 && (self.mbc == MBC2 || self.mbc == MBC3)) bank = 1;
 	bank = wrap_bank(bank, self.rom.len, 0x4000);
 	return (usz)bank * 0x4000 + (usz)(addr - 0x4000);
 }
@@ -167,11 +191,13 @@ fn void Cartridge.write_control(&self, ushort addr, char value) {
 			switch {
 				case addr < 0x2000: self.ram_enabled = (value & 0x0F) == 0x0A;
 				case addr < 0x4000:
-					uint lo = value & 0x1F;
-					if (lo == 0) lo = 1;
-					self.rom_bank = (self.rom_bank & 0x60) | lo;
+					// 0 -> 1 looks at the register value, before wrapping and even on
+					// a multicart where only 4 bits reach the ROM: BANK1 = 4 on a 4-bank
+					// ROM, or $10 on a multicart, really does map bank 0 at $4000.
+					self.bank1 = value & 0x1F;
+					if (self.bank1 == 0) self.bank1 = 1;
 				case addr < 0x6000:
-					self.rom_bank = (self.rom_bank & 0x1F) | ((value & 3) << 5);
+					self.bank2 = value & 3;
 					self.ram_bank = value & 3;
 				default:
 					self.mode1 = (value & 1) != 0;
