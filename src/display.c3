@@ -12,6 +12,44 @@ const char[12] PALETTE = {
 	0x08, 0x18, 0x20,
 };
 
+// The 32 built-in Super Game Boy palettes, 1-A .. 4-H, in the SGB's own 15-bit
+// BGR format. Colour 0 is the lightest, so a DMG shade (0-3) indexes it
+// directly: SGB_PALETTES[palette][shade]. Values from mGBA (src/gb/overrides.c).
+const ushort[4][32] SGB_PALETTES = {
+	{ 0x67BF, 0x265B, 0x10B5, 0x2866 }, // 1-A  F8E8C8 D89048 A82820 301850
+	{ 0x637B, 0x3AD9, 0x0956, 0x0000 }, // 1-B  D8D8C0 C8B070 B05010 000000
+	{ 0x7F1F, 0x2A7D, 0x30F3, 0x4CE7 }, // 1-C  F8C0F8 E89850 983860 383898
+	{ 0x57FF, 0x2618, 0x001F, 0x006A }, // 1-D  F8F8A8 C08048 F80000 501800
+	{ 0x5B7F, 0x3F0F, 0x222D, 0x10EB }, // 1-E  F8D8B0 78C078 688840 583820
+	{ 0x7FBB, 0x2A3C, 0x0015, 0x0900 }, // 1-F  D8E8F8 E08850 A80000 004010
+	{ 0x2800, 0x7680, 0x01EF, 0x2FFF }, // 1-G  000050 00A0E8 787800 F8F858
+	{ 0x73BF, 0x46FF, 0x0110, 0x0066 }, // 1-H  F8E8E0 F8B888 804000 301800
+	{ 0x533E, 0x2638, 0x01E5, 0x0000 }, // 2-A  F0C8A0 C08848 287800 000000
+	{ 0x7FFF, 0x2BBF, 0x00DF, 0x2C0A }, // 2-B  F8F8F8 F8E850 F83000 500058
+	{ 0x7F1F, 0x463D, 0x74CF, 0x4CA5 }, // 2-C  F8C0F8 E88888 7830E8 282898
+	{ 0x53FF, 0x03E0, 0x00DF, 0x2800 }, // 2-D  F8F8A0 00F800 F83000 000050
+	{ 0x433F, 0x72D2, 0x3045, 0x0822 }, // 2-E  F8C880 90B0E0 281060 100810
+	{ 0x7FFA, 0x2A5F, 0x0014, 0x0003 }, // 2-F  D0F8F8 F89050 A00000 180000
+	{ 0x1EED, 0x215C, 0x42FC, 0x0060 }, // 2-G  68B838 E05040 E0B880 001800
+	{ 0x7FFF, 0x5EF7, 0x39CE, 0x0000 }, // 2-H  F8F8F8 B8B8B8 707070 000000
+	{ 0x4F5F, 0x630E, 0x159F, 0x3126 }, // 3-A  F8D098 70C0C0 F86028 304860
+	{ 0x637B, 0x121C, 0x0140, 0x0840 }, // 3-B  D8D8C0 E08020 005000 001010
+	{ 0x66BC, 0x3FFF, 0x7EE0, 0x2C84 }, // 3-C  E0A8C8 F8F878 00B8F8 202058
+	{ 0x5FFE, 0x3EBC, 0x0321, 0x0000 }, // 3-D  F0F8B8 E0A878 08C800 000000
+	{ 0x63FF, 0x36DC, 0x11F6, 0x392A }, // 3-E  F8F8C0 E0B068 B07820 504870
+	{ 0x65EF, 0x7DBF, 0x035F, 0x2108 }, // 3-F  7878C8 F868F8 F8D000 404040
+	{ 0x2B6C, 0x7FFF, 0x1CD9, 0x0007 }, // 3-G  60D850 F8F8F8 C83038 380000
+	{ 0x53FC, 0x1F2F, 0x0E29, 0x0061 }, // 3-H  E0F8A0 78C838 488818 081800
+	{ 0x36BE, 0x7EAF, 0x681A, 0x3C00 }, // 4-A  F0A868 78A8F8 D000D0 000078
+	{ 0x7BBE, 0x329D, 0x1DE8, 0x0423 }, // 4-B  F0E8F0 E8A060 407838 180808
+	{ 0x739F, 0x6A9B, 0x7293, 0x0001 }, // 4-C  F8E0E0 D8A0D0 98A0E0 080000
+	{ 0x5FFF, 0x6732, 0x3DA9, 0x2481 }, // 4-D  F8F8B8 90C8C8 486878 082048
+	{ 0x577F, 0x3EBC, 0x456F, 0x1880 }, // 4-E  F8D8A8 E0A878 785888 002030
+	{ 0x6B57, 0x6E1B, 0x5010, 0x0007 }, // 4-F  B8D0D0 D880D8 8000A0 380000
+	{ 0x0F96, 0x2C97, 0x0045, 0x3200 }, // 4-G  B0E018 B82058 281000 008060
+	{ 0x67FF, 0x2F17, 0x2230, 0x1548 }, // 4-H  F8F8C8 B8C058 808840 405028
+};
+
 faultdef SDL_FAILED;
 
 const int AUDIO_RATE = 48000;
@@ -22,6 +60,7 @@ struct Display {
 	sdl::Texture*     texture;
 	sdl::AudioStream* audio;
 	char[]            pixels;
+	char[12]          colors; // RGB for shades 0-3 (see palette_rgb)
 }
 
 struct Input {
@@ -30,13 +69,14 @@ struct Input {
 	char dpad;
 }
 
-fn Display? open(ZString title) {
+fn Display? open(ZString title, char[12] colors) {
 	if (sdl::init(sdl::INIT_VIDEO | sdl::INIT_EVENTS | sdl::INIT_AUDIO) == 0) {
 		io::eprintfn("SDL_Init failed: %s", sdl::get_error().str_view());
 		return SDL_FAILED~;
 	}
 
 	Display d;
+	d.colors = colors;
 	d.window = sdl::create_window(title, ppu::WIDTH * SCALE, ppu::HEIGHT * SCALE, 0);
 	d.renderer = d.window ? sdl::create_renderer(d.window, null) : null;
 	if (!d.renderer) {
@@ -79,11 +119,12 @@ fn void Display.queue_audio(&self, short[] samples, uint n) {
 
 fn void Display.present(&self, char[] fb) {
 	int pixels = ppu::WIDTH * ppu::HEIGHT;
+
 	for (int i = 0; i < pixels; i++) {
 		int p = (fb[i] & 3) * 3;
-		self.pixels[i * 4]     = PALETTE[p];
-		self.pixels[i * 4 + 1] = PALETTE[p + 1];
-		self.pixels[i * 4 + 2] = PALETTE[p + 2];
+		self.pixels[i * 4]     = self.colors[p];
+		self.pixels[i * 4 + 1] = self.colors[p + 1];
+		self.pixels[i * 4 + 2] = self.colors[p + 2];
 		self.pixels[i * 4 + 3] = 0xFF;
 	}
 	sdl::update_texture(self.texture, null, self.pixels.ptr, ppu::WIDTH * 4);
@@ -121,4 +162,31 @@ fn int Display.audio_queued(&self) {
 		return 0;
 	}
 	return sdl::get_audio_stream_queued(self.audio);
+}
+
+// SGB/CGB 15-bit BGR -> 8-bit R, G, B (each channel << 3, which is what the
+// commonly quoted values like 1-A = F8E8C8 assume).
+fn void bgr555_to_rgb(ushort c, char[] out) {
+	out[0] = (char)((c & 0x1F) << 3);
+	out[1] = (char)(((c >> 5) & 0x1F) << 3);
+	out[2] = (char)(((c >> 10) & 0x1F) << 3);
+}
+
+// RGB for shades 0-3 of a named palette: "dmg" (the default green), or an SGB
+// palette "1-A" .. "4-H" (case-insensitive). False for an unknown name.
+fn bool palette_rgb(String name, char[12]* out) {
+	if (name == "dmg") {
+		*out = PALETTE;
+		return true;
+	}
+	if (name.len != 3 || name[1] != '-') return false;
+	char group = name[0];
+	char letter = name[2] | 0x20; // ASCII lower case
+	if (group < '1' || group > '4' || letter < 'a' || letter > 'h') return false;
+
+	int index = (group - '1') * 8 + (letter - 'a');
+	for (int shade = 0; shade < 4; shade++) {
+		bgr555_to_rgb(SGB_PALETTES[index][shade], (*out)[shade * 3 : 3]);
+	}
+	return true;
 }

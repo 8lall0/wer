@@ -11,10 +11,6 @@ const float MAX_RATE_ADJ = 0.005; // ±0.5%
 const float MAX_INTEG = 0.002;  // ±0.2%
 const float INTEG_GAIN = 0.000004; // per frame; slow enough not to chase startup spikes.
 
-const char[12] PPM_PALETTE = {
-	0xE0, 0xF8, 0xD0,  0x88, 0xC0, 0x70,  0x34, 0x68, 0x56,  0x08, 0x18, 0x20,
-};
-
 fn void setup_demo_scene(gameboy::GameBoy* gb) {
 	for (int r = 0; r < 8; r++) {
 		char bits = (char)(0x80 >> r);
@@ -28,7 +24,7 @@ fn void setup_demo_scene(gameboy::GameBoy* gb) {
 	gb.mmu.set(0xFF40, ppu::LCDC_ENABLE | ppu::LCDC_BG_ENABLE | ppu::LCDC_TILE_DATA);
 }
 
-fn void? write_ppm(gameboy::GameBoy* gb, String path) {
+fn void? write_ppm(gameboy::GameBoy* gb, String path, char[12] colors) {
 	char[] fb = gb.framebuffer();
 	DString out;
 	out.init(mem);
@@ -36,9 +32,9 @@ fn void? write_ppm(gameboy::GameBoy* gb, String path) {
 	out.appendf("P6\n%d %d\n255\n", ppu::WIDTH, ppu::HEIGHT);
 	for (int i = 0; i < ppu::WIDTH * ppu::HEIGHT; i++) {
 		int p = (fb[i] & 3) * 3;
-		out.append_char(PPM_PALETTE[p]);
-		out.append_char(PPM_PALETTE[p + 1]);
-		out.append_char(PPM_PALETTE[p + 2]);
+		out.append_char(colors[p]);
+		out.append_char(colors[p + 1]);
+		out.append_char(colors[p + 2]);
 	}
 	file::save(path, out.str_view())!;
 }
@@ -49,13 +45,21 @@ fn int main(String[] args)
 	bool boot = true;
 	int frames = 600;
 	String rom;
+	String palette = "dmg";
 	foreach (a : args[1..]) {
 		switch {
 			case a == "--headless": headless = true;
 			case a == "--no-boot": boot = false;
 			case a.starts_with("--frames="): frames = a[9..].to_int() ?? 600;
+			case a.starts_with("--palette="): palette = a[10..];
 			default: rom = a;
 		}
+	}
+
+	char[12] colors;
+	if (!display::palette_rgb(palette, &colors)) {
+		io::eprintfn("unknown palette '%s': use dmg or an SGB palette 1-A .. 4-H", palette);
+		return 1;
 	}
 
 	// The boot ROM draws its logo from the cartridge header, so skip it with no ROM.
@@ -76,7 +80,7 @@ fn int main(String[] args)
 
 	if (headless) {
 		for (int f = 0; f < frames; f++) gb.run_frame();
-		if (catch write_ppm(&gb, "wer-frame.ppm")) {
+		if (catch write_ppm(&gb, "wer-frame.ppm", colors)) {
 			io::eprintn("could not write wer-frame.ppm");
 			return 1;
 		}
@@ -84,7 +88,7 @@ fn int main(String[] args)
 		return 0;
 	}
 
-	display::Display? screen = display::open("wer");
+	display::Display? screen = display::open("wer", colors);
 	if (catch screen) {
 		io::eprintn("no display available; re-run with --headless");
 		return 1;
