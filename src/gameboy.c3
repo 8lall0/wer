@@ -29,16 +29,19 @@ fn bool header_checksum_ok(char[] rom) {
 fn GameBoy new(bool boot = true, mmu::Model model = DMG) {
 	GameBoy gb;
 	gb.mmu.model = model;
-	if (model == SGB) gb.mmu.sgb = sgb::new();
+	if (model.is_sgb()) gb.mmu.sgb = sgb::new();
 	gb.mmu.ppu.fb = mem::new_array(char, ppu::WIDTH * ppu::HEIGHT);
 	gb.mmu.apu.init();
+	gb.mmu.apu.clock_hz = model.clock_hz();
 	gb.mmu.apu.set_ring(mem::new_array(short, 16384));
 
 	if (boot) {
 		gb.cpu = cpu::init_cold();
 		gb.mmu.boot_active = true;
 	} else {
-		gb.cpu = model == SGB ? cpu::init_sgb() : cpu::init();
+		gb.cpu = model.is_sgb() ? cpu::init_sgb() : cpu::init();
+		// The only register the SGB2 boot ROM leaves differently.
+		if (model == SGB2) gb.cpu.af.hi = 0xFF;
 		gb.mmu.set(0xFF47, 0xFC); // BGP
 		gb.mmu.set(0xFF48, 0xFF); // OBP0
 		gb.mmu.set(0xFF49, 0xFF); // OBP1
@@ -50,12 +53,17 @@ fn GameBoy new(bool boot = true, mmu::Model model = DMG) {
 		gb.mmu.ppu.line = 0;
 		gb.mmu.ppu.mode = 2;
 		gb.mmu.ppu.stat = (gb.mmu.ppu.stat & 0xFC) | 2;
-		// DMG post-boot DIV counter (Pan Docs); the SGB boot ROM runs longer
-		// (value found with Mooneye boot_div-S).
-		gb.mmu.timer.div = model == SGB ? 0xD860 : 0xABCC;
+		// DMG post-boot DIV counter (Pan Docs); the SGB boot ROMs run longer,
+		// the SGB2's 4 M-cycles less (values found with Mooneye boot_div-S /
+		// boot_div2-S).
+		switch (model) {
+			case DMG:  gb.mmu.timer.div = 0xABCC;
+			case SGB:  gb.mmu.timer.div = 0xD860;
+			case SGB2: gb.mmu.timer.div = 0xD850;
+		}
 		// The SGB boot ROM talks to the SNES through P1 and leaves both select
 		// lines high, so P1 reads $FF.
-		if (model == SGB) gb.mmu.set(0xFF00, 0x30);
+		if (model.is_sgb()) gb.mmu.set(0xFF00, 0x30);
 		gb.mmu.set(0xFF0F, 0x01);   // IF: VBlank left pending by the boot ROM
 
 		// APU as the boot chime leaves it: powered, channel 1 still on but
@@ -112,6 +120,9 @@ fn Cartridge GameBoy.load_rom_named(&self, char[] data, String save_path) {
 		self.mmu.load(0, data);
 	} else {
 		self.mmu.cart = cart::new(data, save_path);
+		// The cartridge clock has its own crystal: it keeps real time even
+		// when the Game Boy runs fast (SGB).
+		self.mmu.cart.rtc.cpu_hz = self.mmu.model.clock_hz();
 		c.ram_kib = (int)(self.mmu.cart.ram.len / 1024);
 		c.battery = self.mmu.cart.has_battery;
 	}

@@ -15,10 +15,24 @@ const int DMA_LEN     = 0xA0;
 
 // Which Game Boy is emulated. SGB = a DMG inside a Super Game Boy: same
 // hardware, plus the SNES side that colours the picture and draws a border.
+// SGB2 is the later model: same SNES side, but its Game Boy runs off its own
+// crystal at the DMG's speed, and its boot ROM leaves A = $FF.
 enum Model : char {
 	DMG,
 	SGB,
+	SGB2,
 }
+
+// The DMG's clock, 4 194 304 Hz.
+const uint DMG_HZ = 4194304;
+// The original SGB derives its Game Boy clock from the SNES master clock
+// (21 477 272 Hz / 5), so games run about 2.4% fast on it.
+const uint SGB_HZ = 4295454;
+
+fn bool Model.is_sgb(self) => self != DMG;
+
+// T-cycles per second of real time.
+fn uint Model.clock_hz(self) => self == SGB ? SGB_HZ : DMG_HZ;
 
 // The DMG has two memory buses. OAM DMA occupies the one its source is on.
 enum Bus : char {

@@ -38,6 +38,7 @@ struct Apu {
 	usz     count;
 
 	uint out_rate;
+	uint clock_hz; // T-cycles per real second (the model's clock); 0 = CPU_HZ
 }
 
 fn void Apu.init(&self) {
@@ -45,6 +46,8 @@ fn void Apu.init(&self) {
 	self.cap = (usz)self.ring.len;
 	self.out_rate = SAMPLE_RATE;
 }
+
+fn ulong Apu.hz(&self) => self.clock_hz ? self.clock_hz : CPU_HZ;
 
 fn void Apu.set_ring(&self, short[] buf) {
 	self.ring = buf;
@@ -90,16 +93,16 @@ fn void Apu.tick(&self, uint t, uint frame_steps) {
 	for (uint i = 0; i < frame_steps; i++) self.frame_step();
 
 	self.sample_acc += (ulong)t * self.out_rate;
-	while (self.sample_acc >= CPU_HZ) {
-		self.sample_acc -= CPU_HZ;
+	while (self.sample_acc >= self.hz()) {
+		self.sample_acc -= self.hz();
 		self.emit_sample();
 	}
 }
 
 fn void Apu.push_silence(&self, uint t) {
 	self.sample_acc += (ulong)t * self.out_rate;
-	while (self.sample_acc >= CPU_HZ) {
-		self.sample_acc -= CPU_HZ;
+	while (self.sample_acc >= self.hz()) {
+		self.sample_acc -= self.hz();
 		self.write_sample(0, 0);
 	}
 }

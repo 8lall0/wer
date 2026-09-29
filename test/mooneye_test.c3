@@ -142,11 +142,17 @@ const Rom[*] ROMS = {
 	{ "emulator-only/mbc5/rom_8Mb.gb", true  },
 };
 
-// Run on a Super Game Boy (the -sgb / -S variants of the boot tests). The
-// SGB2 variants (boot_regs-sgb2, boot_div2-S) need an SGB2 model and are not run.
+// Run on a Super Game Boy (the -sgb / -S variants of the boot tests).
 const Rom[*] SGB_ROMS = {
 	{ "acceptance/boot_regs-sgb.gb", true  },
 	{ "acceptance/boot_div-S.gb", true  },
+	{ "acceptance/boot_hwio-S.gb", true  },
+};
+
+// Run on a Super Game Boy 2.
+const Rom[*] SGB2_ROMS = {
+	{ "acceptance/boot_regs-sgb2.gb", true  },
+	{ "acceptance/boot_div2-S.gb", true  },
 	{ "acceptance/boot_hwio-S.gb", true  },
 };
 
@@ -183,7 +189,7 @@ fn void run_one(Tally* t, Rom rom, mmu::Model model) {
 	Outcome o = run_rom(string::tformat("%s%s", DIR, rom.path), model);
 	if (o == MISSING) return;
 	t.present++;
-	String tag = model == SGB ? " [SGB]" : "";
+	String tag = model == DMG ? "" : string::tformat(" [%s]", model);
 
 	if (o == PASS) {
 		t.passed++;
@@ -206,6 +212,7 @@ fn void run_all() @test
 	Tally t;
 	foreach (rom : ROMS) run_one(&t, rom, DMG);
 	foreach (rom : SGB_ROMS) run_one(&t, rom, SGB);
+	foreach (rom : SGB2_ROMS) run_one(&t, rom, SGB2);
 
 	if (t.present == 0) {
 		io::eprintn("  mooneye: no ROMs in test/mooneye — run scripts/fetch-mooneye.sh");

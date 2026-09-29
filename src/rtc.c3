@@ -8,7 +8,7 @@ module cart;
 // is written to $6000-$7FFF; writes go to the running clock.
 //
 // While the emulator runs, the clock advances with emulated time (one second
-// per CPU_HZ T-cycles). Across sessions it catches up with the wall clock via
+// per `cpu_hz` T-cycles, the running model's clock). Across sessions it catches up with the wall clock via
 // the timestamp stored in the save file (see serialize / deserialize).
 
 const uint RTC_CPU_HZ = 4194304;
@@ -29,6 +29,7 @@ struct Rtc {
 	char[5] latched;   // S, M, H, DL, DH as of the last latch
 	char    latch_last; // last value written to $6000-$7FFF
 	uint    subsec;    // T-cycles into the current second
+	uint    cpu_hz;    // T-cycles per second; 0 = RTC_CPU_HZ
 }
 
 // Live register value for RAM bank $08 + idx.
@@ -92,9 +93,10 @@ fn void Rtc.advance_second(&self) {
 
 fn void Rtc.tick(&self, uint tcycles) {
 	if (self.halt) return;
+	uint hz = self.cpu_hz ? self.cpu_hz : RTC_CPU_HZ;
 	self.subsec += tcycles;
-	while (self.subsec >= RTC_CPU_HZ) {
-		self.subsec -= RTC_CPU_HZ;
+	while (self.subsec >= hz) {
+		self.subsec -= hz;
 		self.advance_second();
 	}
 }

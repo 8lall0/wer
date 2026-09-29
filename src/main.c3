@@ -2,8 +2,11 @@ module wer;
 import std::io, std::io::file, std::time::clock, std::thread::os, std::math;
 import gameboy, ppu, display, mmu;
 
-// 70224 T-cycles per frame / 4 194 304 Hz ≈ 59.73 fps.
-const NanoDuration PERIOD = (NanoDuration)16_742_706;
+// Real time per frame: 70224 T-cycles at the model's clock (59.73 fps on a
+// DMG, 61.17 fps on an original SGB).
+fn NanoDuration frame_period(mmu::Model model) {
+	return (NanoDuration)(70224UL * 1_000_000_000UL / model.clock_hz());
+}
 const NanoDuration MAX_LAG = (NanoDuration)100_000_000;
 
 const float AUDIO_TARGET_BYTES = 9600;  // 50 ms of s16 stereo @ 48 kHz
@@ -61,7 +64,13 @@ fn gameboy::Cartridge? load_game(gameboy::GameBoy* gb, String path, bool boot, m
 }
 
 fn String window_title(gameboy::Cartridge* cart, mmu::Model model) {
-	return string::tformat("wer - %s%s", (ZString)&cart.title[0], model == SGB ? " [SGB]" : "");
+	String tag;
+	switch (model) {
+		case DMG:  tag = "";
+		case SGB:  tag = " [SGB]";
+		case SGB2: tag = " [SGB2]";
+	}
+	return string::tformat("wer - %s%s", (ZString)&cart.title[0], tag);
 }
 
 // The SGB's built-in palettes, offered in SGB mode (DMG mode is always the
@@ -93,8 +102,17 @@ fn void apply_preset(gameboy::GameBoy* gb, int pal) {
 
 fn char[12] mode_colors(mmu::Model model, int pal) {
 	char[12] colors;
-	display::palette_rgb(model == SGB ? PALETTE_NAMES[pal] : "dmg", &colors);
+	display::palette_rgb(model.is_sgb() ? PALETTE_NAMES[pal] : "dmg", &colors);
 	return colors;
+}
+
+// The model after `m` in the menu's DMG -> SGB -> SGB2 order (dir = +1 / -1).
+fn mmu::Model cycle_model(mmu::Model m, int dir) {
+	switch (m) {
+		case DMG:  return dir > 0 ? mmu::Model.SGB : mmu::Model.SGB2;
+		case SGB:  return dir > 0 ? mmu::Model.SGB2 : mmu::Model.DMG;
+		case SGB2: return dir > 0 ? mmu::Model.DMG : mmu::Model.SGB;
+	}
 }
 
 enum MenuItem : char {
@@ -131,8 +149,9 @@ fn int main(String[] args)
 				}
 			case a == "--mode=dmg": model = DMG;
 			case a == "--mode=sgb": model = SGB;
+			case a == "--mode=sgb2": model = SGB2;
 			case a.starts_with("--mode="):
-				io::eprintfn("unknown mode '%s': use dmg or sgb", a[7..]);
+				io::eprintfn("unknown mode '%s': use dmg, sgb or sgb2", a[7..]);
 				return 1;
 			default: rom = a;
 		}
@@ -140,8 +159,8 @@ fn int main(String[] args)
 
 	int pal = 0; // 1-A
 	if (palette.len) {
-		if (model != SGB) {
-			io::eprintn("--palette only applies to --mode=sgb (DMG mode is always green)");
+		if (!model.is_sgb()) {
+			io::eprintn("--palette only applies to --mode=sgb/sgb2 (DMG mode is always green)");
 			return 1;
 		}
 		pal = palette_index(palette);
@@ -233,7 +252,7 @@ fn int main(String[] args)
 			if (has_rom) items[count++] = RESUME;
 			items[count++] = OPEN;
 			items[count++] = MODE;
-			if (model == SGB) items[count++] = PALETTE;
+			if (model.is_sgb()) items[count++] = PALETTE;
 			items[count++] = SCALE;
 			if (has_rom) items[count++] = RESET;
 			items[count++] = QUIT;
@@ -250,7 +269,7 @@ fn int main(String[] args)
 
 			// Switching the model restarts the running game on the other hardware.
 			if (item == MODE && (step != 0 || enter)) {
-				model = model == DMG ? mmu::Model.SGB : mmu::Model.DMG;
+				model = cycle_model(model, step < 0 ? -1 : 1);
 				colors = mode_colors(model, pal);
 				apply_preset(&gb, pal);
 				if (has_rom) {
@@ -304,7 +323,7 @@ fn int main(String[] args)
 							lines[i] = screen.dialog_open() ? "Open ROM...  (dialog open)" : "Open ROM...  (Ctrl+O)";
 						}
 					case SCALE:   lines[i] = string::tformat("Scale:   < %dx >", scale);
-					case MODE:    lines[i] = string::tformat("Mode:    < %s >", model == SGB ? "SGB" : "DMG");
+					case MODE:    lines[i] = string::tformat("Mode:    < %s >", model);
 					case PALETTE: lines[i] = string::tformat("Palette: < %s >", PALETTE_NAMES[pal]);
 					case RESET:   lines[i] = "Reset";
 					case QUIT:    lines[i] = "Quit";
@@ -328,7 +347,7 @@ fn int main(String[] args)
 		gameboy::FrameSize size = gb.frame_rgb(rgb, colors);
 		screen.present(rgb, size.w, size.h, lines[:count], selected);
 
-		next += PERIOD;
+		next += frame_period(model);
 		Clock now = clock::now();
 		if (now - next > MAX_LAG) next = now;
 		NanoDuration remaining = next - now;
