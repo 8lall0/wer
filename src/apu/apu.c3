@@ -39,6 +39,7 @@ struct Apu {
 
 	uint out_rate;
 	uint clock_hz; // T-cycles per real second (the model's clock); 0 = CPU_HZ
+	bool cgb;      // CGB hardware (either mode): no DMG wave/length quirks
 }
 
 fn void Apu.init(&self) {
@@ -180,8 +181,9 @@ const char[23] READ_MASK = {
 fn char Apu.read(&self, ushort addr) {
 	if (addr >= 0xFF30 && addr <= 0xFF3F) {
 		if (!self.ch3.enabled) return self.ch3.ram[addr - 0xFF30];
-		// While playing, only the byte the channel is fetching right now.
-		int i = self.ch3.cpu_access_index();
+		// While playing: the byte being played (CGB), or on a DMG only the
+		// byte the channel is fetching right now.
+		int i = self.cgb ? self.ch3.pos >> 1 : self.ch3.cpu_access_index();
 		return i < 0 ? (char)0xFF : self.ch3.ram[i];
 	}
 
@@ -226,7 +228,7 @@ fn void Apu.write(&self, ushort addr, char value) {
 			self.ch3.ram[addr - 0xFF30] = value;
 			return;
 		}
-		int i = self.ch3.cpu_access_index();
+		int i = self.cgb ? self.ch3.pos >> 1 : self.ch3.cpu_access_index();
 		if (i >= 0) self.ch3.ram[i] = value;
 		return;
 	}
@@ -234,6 +236,7 @@ fn void Apu.write(&self, ushort addr, char value) {
 	// While powered off only NR52 is writable (wave RAM handled above) — except
 	// that on the DMG the length counters keep working: NRx1 writes still load
 	// them (the duty bits are not stored). Blargg dmg_sound 08.
+	if (!self.power && self.cgb && addr != 0xFF26) return;
 	if (!self.power) {
 		switch (addr) {
 			case 0xFF11: self.ch1.length = 64 - (value & 0x3F);
@@ -292,7 +295,7 @@ fn void Apu.write(&self, ushort addr, char value) {
 		case 0xFF1E:
 			bool off = nrx4_length(&self.ch3.length, 256, self.ch3.nr4, value, self.length_first_half());
 			self.ch3.nr4 = value;
-			if ((value & 0x80) != 0) self.ch3.trigger();
+			if ((value & 0x80) != 0) self.ch3.trigger(!self.cgb);
 			if (off) self.ch3.enabled = false;
 		case 0xFF20:
 			self.ch4.nr1 = value;
@@ -317,6 +320,11 @@ fn void Apu.write(&self, ushort addr, char value) {
 			break;
 	}
 }
+
+// CGB PCM12/PCM34 ($FF76/$FF77): the current digital output (0-15) of
+// channels 1+2 and 3+4, the second channel of each pair in the high nibble.
+fn char Apu.pcm12(&self) => (char)(self.ch1.output() | self.ch2.output() << 4);
+fn char Apu.pcm34(&self) => (char)(self.ch3.output() | self.ch4.output() << 4);
 
 // True while the frame sequencer's next step will not clock the length
 // counters (they are clocked on steps 0, 2, 4, 6; fs_step is the next step).
@@ -344,7 +352,7 @@ fn bool nrx4_length(int* length, int max, char old, char value, bool first_half)
 }
 
 // Powering off clears every register, but on the DMG not the length counters
-// (Blargg dmg_sound 08, 11) and not wave RAM.
+// (Blargg dmg_sound 08, 11; a CGB clears them too) and never wave RAM.
 fn void Apu.power_off(&self) {
 	int[4] length = { self.ch1.length, self.ch2.length, self.ch3.length, self.ch4.length };
 	Square s1;
@@ -355,6 +363,7 @@ fn void Apu.power_off(&self) {
 	self.ch3 = {};
 	self.ch3.ram = wave;
 	self.ch4 = {};
+	if (self.cgb) length = {};
 	self.ch1.length = length[0];
 	self.ch2.length = length[1];
 	self.ch3.length = length[2];

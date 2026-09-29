@@ -155,7 +155,7 @@ const Rom[*] CGB_ROMS = {
 	{ "misc/boot_div-cgbABCDE.gb", true  },
 	{ "misc/boot_hwio-C.gb", true  },
 	{ "misc/bits/unused_hwio-C.gb", true  },
-	{ "misc/ppu/vblank_stat_intr-C.gb", false },
+	{ "misc/ppu/vblank_stat_intr-C.gb", true  },
 };
 
 // Run on a Super Game Boy 2.

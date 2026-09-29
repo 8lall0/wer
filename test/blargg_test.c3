@@ -1,16 +1,16 @@
 module blargg_test;
 
-import gameboy;
+import gameboy, mmu;
 import std::io;
 import std::io::file;
 import std::core::test;
 
-// Blargg's dmg_sound test ROMs (sound hardware as the CPU can observe it).
+// Blargg's dmg_sound and cgb_sound test ROMs (sound hardware as the CPU can
+// observe it), run on a DMG and a CGB respectively.
 //
 // The ROMs are not vendored. Fetch them with
 //   scripts/fetch-blargg.sh
-// into test/blargg/dmg_sound/ . With none present the test prints one line
-// and passes.
+// into test/blargg/ . With none present the test prints one line and passes.
 //
 // Each ROM reports through cartridge RAM: $A001-$A003 = $DE $B0 $61 once the
 // output is valid, $A000 = $80 while running, then the result (0 = pass), and
@@ -20,7 +20,8 @@ import std::core::test;
 // To see the report:
 //   c3c test && ./build/testrun --test-nocapture --test-filter blargg
 
-const String DIR = "test/blargg/dmg_sound/";
+const String DMG_DIR = "test/blargg/dmg_sound/";
+const String CGB_DIR = "test/blargg/cgb_sound/";
 
 // Emulated time before a ROM counts as hung; the tests take a few seconds.
 const int TIMEOUT_FRAMES = 60 * 40;
@@ -30,7 +31,7 @@ struct Rom {
 	bool   must_pass;
 }
 
-const Rom[*] ROMS = {
+const Rom[*] DMG_ROMS = {
 	{ "01-registers", true  },
 	{ "02-len ctr", true  },
 	{ "03-trigger", true  },
@@ -45,6 +46,21 @@ const Rom[*] ROMS = {
 	{ "12-wave write while on", true  },
 };
 
+const Rom[*] CGB_ROMS = {
+	{ "01-registers", true  },
+	{ "02-len ctr", true  },
+	{ "03-trigger", true  },
+	{ "04-sweep", true  },
+	{ "05-sweep details", true  },
+	{ "06-overflow on trigger", true  },
+	{ "07-len sweep period sync", true  },
+	{ "08-len ctr during power", true  },
+	{ "09-wave read while on", true  },
+	{ "10-wave trigger while on", true  },
+	{ "11-regs after power", true  },
+	{ "12-wave", true  },
+};
+
 enum Outcome : char {
 	MISSING,
 	PASS,
@@ -53,11 +69,11 @@ enum Outcome : char {
 }
 
 // Runs one ROM; on failure `text` gets the ROM's own explanation.
-fn Outcome run_rom(String path, char* code, String* text) {
+fn Outcome run_rom(String path, mmu::Model model, char* code, String* text) {
 	char[]? data = file::load_temp(path);
 	if (catch data) return MISSING;
 
-	gameboy::GameBoy gb = gameboy::new(false);
+	gameboy::GameBoy gb = gameboy::new(false, model);
 	defer gb.destroy();
 	gb.load_rom_named(data, path);
 	if (!gb.mmu.cart || gb.mmu.cart.ram.len < 0x100) return FAIL;
@@ -78,31 +94,34 @@ fn Outcome run_rom(String path, char* code, String* text) {
 	return TIMEOUT;
 }
 
-fn void run_all() @test
-{
+struct Tally {
 	uint present;
 	uint passed;
 	uint regressed;
 	uint new_pass;
+}
 
-	foreach (rom : ROMS) {
+fn void run_suite(String name, String dir, Rom[] roms, mmu::Model model)
+{
+	Tally t;
+	foreach (rom : roms) {
 		char code;
 		String text;
-		Outcome o = run_rom(string::tformat("%s%s.gb", DIR, rom.name), &code, &text);
+		Outcome o = run_rom(string::tformat("%s%s.gb", dir, rom.name), model, &code, &text);
 		if (o == MISSING) continue;
-		present++;
+		t.present++;
 
 		if (o == PASS) {
-			passed++;
+			t.passed++;
 			if (!rom.must_pass) {
-				new_pass++;
-				io::eprintfn("  NEW PASS  %s  (mark it `true`)", rom.name);
+				t.new_pass++;
+				io::eprintfn("  NEW PASS  %s %s  (mark it `true`)", name, rom.name);
 			}
 			continue;
 		}
-		if (rom.must_pass) regressed++;
+		if (rom.must_pass) t.regressed++;
 		String what = o == TIMEOUT ? "timeout" : string::tformat("fail #%d", code);
-		io::eprintfn("  %s%-9s %s", rom.must_pass ? "REGRESSED " : "", what, rom.name);
+		io::eprintfn("  %s%-9s %s %s", rom.must_pass ? "REGRESSED " : "", what, name, rom.name);
 		// The ROM's own explanation, without its long hex dumps.
 		int shown = 0;
 		foreach (line : text.tsplit("\n")) {
@@ -112,11 +131,17 @@ fn void run_all() @test
 		}
 	}
 
-	if (present == 0) {
-		io::eprintn("  dmg_sound: no ROMs in test/blargg/dmg_sound — run scripts/fetch-blargg.sh");
+	if (t.present == 0) {
+		io::eprintfn("  %s: no ROMs in %s — run scripts/fetch-blargg.sh", name, dir);
 		return;
 	}
-	io::eprintfn("  dmg_sound: %d/%d pass, %d newly passing, %d regressed",
-		passed, present, new_pass, regressed);
-	test::@check(regressed == 0, "a must-pass dmg_sound ROM regressed (see lines above)");
+	io::eprintfn("  %s: %d/%d pass, %d newly passing, %d regressed",
+		name, t.passed, t.present, t.new_pass, t.regressed);
+	test::@check(t.regressed == 0, "a must-pass Blargg ROM regressed (see lines above)");
+}
+
+fn void run_all() @test
+{
+	run_suite("dmg_sound", DMG_DIR, &DMG_ROMS, DMG);
+	run_suite("cgb_sound", CGB_DIR, &CGB_ROMS, CGB);
 }

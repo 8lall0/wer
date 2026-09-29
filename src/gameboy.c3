@@ -20,6 +20,9 @@ struct Cartridge {
 	bool header_ok;   // $014D header checksum is valid
 }
 
+// Header $0143 = $C0: the game runs only on a Game Boy Color.
+fn bool requires_cgb(char[] rom) => rom.len > 0x143 && rom[0x143] == 0xC0;
+
 fn bool header_checksum_ok(char[] rom) {
 	if (rom.len < 0x14E) return false;
 	char x = 0;
@@ -34,6 +37,8 @@ fn GameBoy new(bool boot = true, mmu::Model model = DMG) {
 	gb.mmu.ppu.fb = mem::new_array(char, ppu::WIDTH * ppu::HEIGHT);
 	gb.mmu.apu.init();
 	gb.mmu.apu.clock_hz = model.clock_hz();
+	gb.mmu.apu.cgb = model == CGB;
+	gb.mmu.ppu.cgb_hw = model == CGB;
 	gb.mmu.apu.set_ring(mem::new_array(short, 16384));
 	if (model == CGB) {
 		gb.mmu.wram_ext = mem::new_array(char, mmu::WRAM_EXT_SIZE).ptr;

@@ -47,11 +47,17 @@ bool sgb_log;
 // Replace the running game with the ROM at `path`. The file is read first, so
 // a failed load leaves the current game untouched; destroy() writes the old
 // game's battery save before it goes away.
+// `model` is the player's choice; CGB-only games run on a CGB regardless
+// (gb.mmu.model is the model actually running).
 fn gameboy::Cartridge? load_game(gameboy::GameBoy* gb, String path, bool boot, mmu::Model model, int pal) {
 	char[]? data = file::load_temp(path);
 	if (catch data) {
 		io::eprintfn("could not load ROM: %s", path);
 		return ROM_UNREADABLE~;
+	}
+	if (model != CGB && gameboy::requires_cgb(data)) {
+		io::printfn("CGB-only game: running on a CGB instead of %s", model);
+		model = CGB;
 	}
 	gb.destroy();
 	*gb = gameboy::new(boot, model);
@@ -209,7 +215,7 @@ fn int main(String[] args)
 	// results don't live that long).
 	String rom_path = has_rom ? rom.copy(mem) : "";
 	defer if (rom_path.len) free(rom_path.ptr);
-	if (has_rom) screen.set_title(window_title(&cart, model));
+	if (has_rom) screen.set_title(window_title(&cart, gb.mmu.model));
 
 	// Without a ROM there is nothing to run: start in the menu.
 	bool menu = !has_rom;
@@ -234,7 +240,7 @@ fn int main(String[] args)
 				menu = false;
 				if (rom_path.len) free(rom_path.ptr);
 				rom_path = chosen.copy(mem);
-				screen.set_title(window_title(&cart, model));
+				screen.set_title(window_title(&cart, gb.mmu.model));
 				screen.clear_audio();
 				next = clock::now();
 			}
@@ -278,7 +284,7 @@ fn int main(String[] args)
 				if (has_rom) {
 					if (try loaded = load_game(&gb, rom_path, boot, model, pal)) {
 						cart = loaded;
-						screen.set_title(window_title(&cart, model));
+						screen.set_title(window_title(&cart, gb.mmu.model));
 					}
 				} else {
 					gb.destroy();

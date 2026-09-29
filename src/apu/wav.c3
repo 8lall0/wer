@@ -54,10 +54,10 @@ fn void Wave.clock_length(&self) {
 	}
 }
 
-fn void Wave.trigger(&self) {
+fn void Wave.trigger(&self, bool dmg = true) {
 	// DMG bug: retriggering in the unit the channel is about to fetch
 	// corrupts the start of wave RAM with the bytes it was about to read.
-	if (self.enabled && self.countdown == 0) {
+	if (dmg && self.enabled && self.countdown == 0) {
 		int offset = ((self.pos + 1) >> 1) & 0xF;
 		if (offset < 4) {
 			self.ram[0] = self.ram[offset];

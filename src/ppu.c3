@@ -49,6 +49,7 @@ struct Ppu {
 	ushort[] cfb;
 	bool     cgb;
 	bool     compat;  // CGB running a DMG game: DMG renderer, colours from palette RAM
+	bool     cgb_hw;  // CGB hardware, in either mode (timing differences)
 
 	char lcdc;
 	char stat;
@@ -476,8 +477,10 @@ fn void Ppu.render_sprites(&self, int y) {
 // raises nothing ("STAT blocking").
 // DMG quirk: when VBlank starts at line 144 the mode-2 (OAM) source is briefly
 // active too, so with STAT bit 5 set a STAT IRQ fires together with VBlank
-// (Mooneye vblank_stat_intr).
+// (Mooneye vblank_stat_intr). On a CGB the pulse comes one M-cycle earlier,
+// as soon as LY reads 144 (vblank_stat_intr-C).
 fn bool Ppu.vblank_oam_pulse(&self) {
+	if (self.cgb_hw) return self.line == VBLANK_LINE - 1 && self.dot >= DOTS_PER_LINE - LY_EARLY_DOTS;
 	return self.line == VBLANK_LINE && self.dot < LY_EARLY_DOTS;
 }
 

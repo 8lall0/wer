@@ -97,6 +97,7 @@ struct Mmu {
 	char  key1;         // $FF4D: bit 0 = speed switch armed
 	bool  double_speed; // CGB double speed: CPU, timer, serial, OAM DMA at 8 MHz
 	char[4] undoc;      // $FF72-$FF75: undocumented CGB registers
+	char  rp;           // $FF56: infrared port
 
 	// CGB VRAM DMA ($FF51-$FF55): copies 16-byte blocks into VRAM, either
 	// all at once (general purpose) or one block per HBlank (HBlank DMA).
@@ -246,8 +247,11 @@ fn char Mmu.io_get(&self, ushort addr) {
 			case 0xFF73: return self.undoc[addr - 0xFF72];
 			case 0xFF74: return c ? self.undoc[2] : 0xFF;
 			case 0xFF75: return (char)(self.undoc[3] | 0x8F);
-			case 0xFF76:
-			case 0xFF77: return 0x00; // PCM12/PCM34: channel outputs (not modelled)
+			case 0xFF76: return self.apu.pcm12();
+			case 0xFF77: return self.apu.pcm34();
+			// Infrared: bit 0 = LED on, bits 6-7 = receiver enable, bit 1 = 0
+			// while light is received (never: no other device).
+			case 0xFF56: return c ? (char)((self.rp & 0xC1) | 0x3E) : 0xFF;
 		}
 	}
 	switch (addr) {
@@ -313,6 +317,7 @@ fn void Mmu.io_set(&self, ushort addr, char value) {
 			case 0xFF73: self.undoc[addr - 0xFF72] = value; return;
 			case 0xFF74: if (c) self.undoc[2] = value; return;
 			case 0xFF75: self.undoc[3] = value & 0x70; return;
+			case 0xFF56: if (c) self.rp = value & 0xC1; return;
 		}
 	}
 	switch (addr) {

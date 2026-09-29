@@ -230,3 +230,51 @@ fn void compat_without_boot_rom_is_grey() @test
 	gb.frame_rgb(rgb, {});
 	test::eq((char)0x00, rgb[0]);                 // black
 }
+
+fn void infrared_port_sees_no_light() @test
+{
+	char[] rom = cgb_rom({ 0x18, 0xFE });
+	defer free(rom.ptr);
+	gameboy::GameBoy gb = gameboy::new(false, CGB);
+	defer gb.destroy();
+	gb.load_rom(rom);
+	test::eq((char)0x3E, gb.mmu.get(0xFF56));
+	gb.mmu.set(0xFF56, 0xFF);                    // LED on, receiver enabled
+	test::eq((char)0xFF, gb.mmu.get(0xFF56));    // bit 1 stays 1: nothing received
+	gb.mmu.set(0xFF56, 0x00);
+	test::eq((char)0x3E, gb.mmu.get(0xFF56));
+}
+
+fn void pcm_registers_show_channel_output() @test
+{
+	char[] rom = cgb_rom({ 0x18, 0xFE });
+	defer free(rom.ptr);
+	gameboy::GameBoy gb = gameboy::new(false, CGB);
+	defer gb.destroy();
+	gb.load_rom(rom);
+	gb.mmu.set(0xFF26, 0x80);                    // sound on
+	gb.mmu.set(0xFF17, 0xA0);                    // ch2: volume 10, DAC on
+	gb.mmu.set(0xFF16, 0xC0);                    // duty 75%: output high first
+	gb.mmu.set(0xFF19, 0x80);                    // trigger
+	char pcm = gb.mmu.get(0xFF76);
+	test::@check((pcm >> 4) == 10 || (pcm >> 4) == 0, "ch2 in the high nibble");
+	// Over a few duty steps the high nibble shows volume 10.
+	bool seen;
+	for (int i = 0; i < 2000 && !seen; i++) {
+		gb.step();
+		seen = (gb.mmu.get(0xFF76) >> 4) == 10;
+	}
+	test::@check(seen, "PCM12 reads channel 2's level");
+	test::eq((char)0x00, (char)(gb.mmu.get(0xFF76) & 0x0F)); // ch1 silent
+}
+
+fn void cgb_only_header_detection() @test
+{
+	char[] rom = mem::new_array(char, 0x8000);
+	defer free(rom.ptr);
+	test::@check(!gameboy::requires_cgb(rom), "$00: DMG game");
+	rom[0x143] = 0x80;
+	test::@check(!gameboy::requires_cgb(rom), "$80: runs on both");
+	rom[0x143] = 0xC0;
+	test::@check(gameboy::requires_cgb(rom), "$C0: CGB only");
+}
