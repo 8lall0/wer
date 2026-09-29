@@ -39,6 +39,51 @@ fn void? write_ppm(gameboy::GameBoy* gb, String path, char[12] colors) {
 	file::save(path, out.str_view())!;
 }
 
+faultdef ROM_UNREADABLE;
+
+// Replace the running game with the ROM at `path`. The file is read first, so
+// a failed load leaves the current game untouched; destroy() writes the old
+// game's battery save before it goes away.
+fn gameboy::Cartridge? load_game(gameboy::GameBoy* gb, String path, bool boot) {
+	char[]? data = file::load_temp(path);
+	if (catch data) {
+		io::eprintfn("could not load ROM: %s", path);
+		return ROM_UNREADABLE~;
+	}
+	gb.destroy();
+	*gb = gameboy::new(boot);
+	gb.mmu.serial_echo = true; // Blargg-style test ROMs report over serial
+	gameboy::Cartridge cart = gb.load_rom_named(data, path);
+	cart.print();
+	return cart;
+}
+
+// Palettes offered by the menu, in the order Left/Right cycles through them.
+const String[33] PALETTE_NAMES = {
+	"dmg",
+	"1-A", "1-B", "1-C", "1-D", "1-E", "1-F", "1-G", "1-H",
+	"2-A", "2-B", "2-C", "2-D", "2-E", "2-F", "2-G", "2-H",
+	"3-A", "3-B", "3-C", "3-D", "3-E", "3-F", "3-G", "3-H",
+	"4-A", "4-B", "4-C", "4-D", "4-E", "4-F", "4-G", "4-H",
+};
+
+// Index into PALETTE_NAMES; the SGB letter may be lower case ("4-h").
+fn int palette_index(String name) {
+	foreach (i, n : PALETTE_NAMES) {
+		if (name == n) return (int)i;
+		if (name.len == 3 && name[0] == n[0] && name[1] == n[1] && (name[2] | 0x20) == (n[2] | 0x20)) return (int)i;
+	}
+	return 0;
+}
+
+enum MenuItem : char {
+	RESUME,
+	OPEN,
+	PALETTE,
+	RESET,
+	QUIT,
+}
+
 fn int main(String[] args)
 {
 	bool headless = false;
@@ -62,23 +107,20 @@ fn int main(String[] args)
 		return 1;
 	}
 
-	// The boot ROM draws its logo from the cartridge header, so skip it with no ROM.
-	gameboy::GameBoy gb = gameboy::new(boot && rom.len > 0);
+	gameboy::GameBoy gb = gameboy::new(false);
 	defer gb.destroy();
 
+	gameboy::Cartridge cart;
+	bool has_rom = false;
 	if (rom.len) {
-		gb.mmu.serial_echo = true; // Blargg-style test ROMs report over serial
-		gameboy::Cartridge? cart = gb.load_rom_file(rom);
-		if (catch cart) {
-			io::printfn("could not load ROM: %s", rom);
-			return 1;
-		}
-		cart.print();
-	} else {
-		setup_demo_scene(&gb);
+		gameboy::Cartridge? loaded = load_game(&gb, rom, boot);
+		if (catch loaded) return 1;
+		cart = loaded;
+		has_rom = true;
 	}
 
 	if (headless) {
+		if (!has_rom) setup_demo_scene(&gb);
 		for (int f = 0; f < frames; f++) gb.run_frame();
 		if (catch write_ppm(&gb, "wer-frame.ppm", colors)) {
 			io::eprintn("could not write wer-frame.ppm");
@@ -95,6 +137,17 @@ fn int main(String[] args)
 	}
 	defer screen.close();
 
+	// The path of the running ROM, kept for Reset (heap copy: args and dialog
+	// results don't live that long).
+	String rom_path = has_rom ? rom.copy(mem) : "";
+	defer if (rom_path.len) free(rom_path.ptr);
+	if (has_rom) screen.set_title(string::tformat("wer - %s", (ZString)&cart.title[0]));
+
+	// Without a ROM there is nothing to run: start in the menu.
+	bool menu = !has_rom;
+	int selected = 0;
+	int pal = palette_index(palette);
+
 	short[4096] audio;
 	Clock next = clock::now();
 	float avg = AUDIO_TARGET_BYTES;
@@ -102,18 +155,98 @@ fn int main(String[] args)
 	while (true) {
 		display::Input in = screen.poll();
 		if (in.quit) break;
-		gb.mmu.set_input(in.buttons, in.dpad);
 
-		gb.run_frame();
-		screen.present(gb.framebuffer());
-		screen.queue_audio(&audio, gb.audio(&audio));
-		int queued = screen.audio_queued();
-		avg += (queued - avg) / 32;
-		float e = (avg - AUDIO_TARGET_BYTES) / AUDIO_TARGET_BYTES;
-		e = math::clamp(e, -1, 1);
-		integ += e * INTEG_GAIN;
-		integ = math::clamp(integ, -MAX_INTEG, +MAX_INTEG);
-		gb.set_audio_rate((uint)(display::AUDIO_RATE * (1 - MAX_RATE_ADJ * e - integ)));
+		// A ROM chosen in the file dialog (menu or Ctrl+O) replaces the game.
+		String chosen = screen.take_dialog_result();
+		if (chosen.len) {
+			if (try loaded = load_game(&gb, chosen, boot)) {
+				cart = loaded;
+				has_rom = true;
+				menu = false;
+				if (rom_path.len) free(rom_path.ptr);
+				rom_path = chosen.copy(mem);
+				screen.set_title(string::tformat("wer - %s", (ZString)&cart.title[0]));
+				screen.clear_audio();
+				next = clock::now();
+			}
+		}
+
+		if (in.pressed & display::KEY_OPEN) screen.open_rom_dialog();
+		if ((in.pressed & display::KEY_MENU) && has_rom) {
+			menu = !menu;
+			selected = 0;
+			screen.clear_audio();
+		}
+
+		// The menu: which items exist depends on whether a game is loaded.
+		MenuItem[5] items;
+		String[5] lines;
+		int count = 0;
+		if (menu) {
+			if (has_rom) items[count++] = RESUME;
+			items[count++] = OPEN;
+			items[count++] = PALETTE;
+			if (has_rom) items[count++] = RESET;
+			items[count++] = QUIT;
+			if (selected >= count) selected = count - 1;
+
+			if (in.pressed & display::KEY_UP)   selected = (selected + count - 1) % count;
+			if (in.pressed & display::KEY_DOWN) selected = (selected + 1) % count;
+
+			MenuItem item = items[selected];
+			bool enter = (in.pressed & display::KEY_ENTER) != 0;
+			int step = 0;
+			if (in.pressed & display::KEY_LEFT) step = -1;
+			if ((in.pressed & display::KEY_RIGHT) || (enter && item == PALETTE)) step = 1;
+
+			if (item == PALETTE && step != 0) {
+				int n = (int)PALETTE_NAMES.len;
+				pal = (pal + step + n) % n;
+				display::palette_rgb(PALETTE_NAMES[pal], &colors);
+				screen.set_palette(colors);
+			}
+			if (enter) {
+				switch (item) {
+					case RESUME: menu = false;
+					case OPEN:   screen.open_rom_dialog();
+					case RESET:
+						if (try loaded = load_game(&gb, rom_path, boot)) {
+							cart = loaded;
+							menu = false;
+							next = clock::now();
+						}
+					case QUIT:   break;
+					case PALETTE: break;
+				}
+				if (item == QUIT) break;
+			}
+
+			for (int i = 0; i < count; i++) {
+				switch (items[i]) {
+					case RESUME:  lines[i] = "Resume";
+					case OPEN:    lines[i] = screen.dialog_open() ? "Open ROM...  (dialog open)" : "Open ROM...  (Ctrl+O)";
+					case PALETTE: lines[i] = string::tformat("Palette: < %s >", PALETTE_NAMES[pal]);
+					case RESET:   lines[i] = "Reset";
+					case QUIT:    lines[i] = "Quit";
+				}
+			}
+		}
+
+		// The game only runs while neither the menu nor the file dialog is up.
+		if (!menu && !screen.dialog_open()) {
+			gb.mmu.set_input(in.buttons, in.dpad);
+			gb.run_frame();
+			screen.queue_audio(&audio, gb.audio(&audio));
+			int queued = screen.audio_queued();
+			avg += (queued - avg) / 32;
+			float e = (avg - AUDIO_TARGET_BYTES) / AUDIO_TARGET_BYTES;
+			e = math::clamp(e, -1, 1);
+			integ += e * INTEG_GAIN;
+			integ = math::clamp(integ, -MAX_INTEG, +MAX_INTEG);
+			gb.set_audio_rate((uint)(display::AUDIO_RATE * (1 - MAX_RATE_ADJ * e - integ)));
+		}
+		screen.present(gb.framebuffer(), lines[:count], selected);
+
 		next += PERIOD;
 		Clock now = clock::now();
 		if (now - next > MAX_LAG) next = now;

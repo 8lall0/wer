@@ -45,11 +45,50 @@ const int SC_DOWN   = 81;
 const int SC_UP     = 82;
 const int SC_RSHIFT = 229;
 
-// We only ever read event.type; the SDL_Event union is 128 bytes.
+const int SC_O      = 18;
+
+// SDL_Keymod: either Ctrl key
+const ushort KMOD_CTRL = 0x00C0;
+
+// The SDL_Event union is 128 bytes; we read `type`, and for key events view
+// the same memory as a KeyboardEvent.
 struct Event {
 	uint type;
 	char[124] pad;
 }
+
+struct KeyboardEvent {
+	uint   type;
+	uint   reserved;
+	ulong  timestamp;
+	uint   window_id;
+	uint   which;
+	uint   scancode;
+	uint   key;
+	ushort mod;
+	ushort raw;
+	bool   down;
+	bool   repeat;
+}
+
+// SDL_BlendMode
+const uint BLENDMODE_BLEND = 0x00000001;
+
+struct FRect {
+	float x;
+	float y;
+	float w;
+	float h;
+}
+
+// Native file dialog (SDL_dialog.h). The callback gets a NULL-terminated list
+// of paths (empty if cancelled, NULL on error) and may run on another thread.
+struct DialogFileFilter {
+	ZString name;
+	ZString pattern; // e.g. "gb;gbc"
+}
+
+alias DialogFileCallback = fn void(void* userdata, ZString* filelist, int filter);
 
 extern fn int      init(uint flags)          @cname("SDL_Init");
 extern fn void     quit()                    @cname("SDL_Quit");
@@ -58,6 +97,11 @@ extern fn void     delay(uint ms)            @cname("SDL_Delay");
 
 extern fn Window*   create_window(ZString title, int w, int h, ulong flags) @cname("SDL_CreateWindow");
 extern fn void      destroy_window(Window* window)                          @cname("SDL_DestroyWindow");
+extern fn bool      set_window_title(Window* window, ZString title)         @cname("SDL_SetWindowTitle");
+
+extern fn void      show_open_file_dialog(DialogFileCallback callback, void* userdata, Window* window,
+                        DialogFileFilter* filters, int nfilters, ZString default_location,
+                        bool allow_many) @cname("SDL_ShowOpenFileDialog");
 
 extern fn Renderer* create_renderer(Window* window, ZString name)   @cname("SDL_CreateRenderer");
 extern fn void      destroy_renderer(Renderer* renderer)            @cname("SDL_DestroyRenderer");
@@ -65,6 +109,11 @@ extern fn int       render_clear(Renderer* renderer)                @cname("SDL_
 extern fn int       render_present(Renderer* renderer)              @cname("SDL_RenderPresent");
 extern fn int       render_texture(Renderer* r, Texture* t, void* src, void* dst) @cname("SDL_RenderTexture");
 extern fn int       set_render_vsync(Renderer* renderer, int vsync) @cname("SDL_SetRenderVSync");
+extern fn bool      set_render_scale(Renderer* r, float sx, float sy) @cname("SDL_SetRenderScale");
+extern fn bool      set_render_draw_color(Renderer* r, char red, char green, char blue, char alpha) @cname("SDL_SetRenderDrawColor");
+extern fn bool      set_render_draw_blend_mode(Renderer* r, uint mode) @cname("SDL_SetRenderDrawBlendMode");
+extern fn bool      render_fill_rect(Renderer* r, FRect* rect)      @cname("SDL_RenderFillRect");
+extern fn bool      render_debug_text(Renderer* r, float x, float y, ZString text) @cname("SDL_RenderDebugText");
 
 extern fn Texture*  create_texture(Renderer* r, uint format, int access, int w, int h) @cname("SDL_CreateTexture");
 extern fn void      destroy_texture(Texture* t)                       @cname("SDL_DestroyTexture");
@@ -78,4 +127,5 @@ extern fn AudioStream* open_audio_device_stream(uint devid, AudioSpec* spec, voi
 extern fn bool         resume_audio_stream_device(AudioStream* s)          @cname("SDL_ResumeAudioStreamDevice");
 extern fn bool         put_audio_stream_data(AudioStream* s, void* buf, int len) @cname("SDL_PutAudioStreamData");
 extern fn int          get_audio_stream_queued(AudioStream* s)             @cname("SDL_GetAudioStreamQueued");
+extern fn bool         clear_audio_stream(AudioStream* s)                  @cname("SDL_ClearAudioStream");
 extern fn void         destroy_audio_stream(AudioStream* s)                @cname("SDL_DestroyAudioStream");

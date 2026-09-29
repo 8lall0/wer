@@ -1,7 +1,7 @@
 module display;
 
 import sdl, ppu, joypad;
-import std::io;
+import std::io, std::atomic;
 
 const int SCALE = 4;
 
@@ -63,10 +63,20 @@ struct Display {
 	char[12]          colors; // RGB for shades 0-3 (see palette_rgb)
 }
 
+// Key presses (not held keys) for the menu, as bits in Input.pressed.
+const char KEY_MENU  = 0x01; // Esc
+const char KEY_UP    = 0x02;
+const char KEY_DOWN  = 0x04;
+const char KEY_LEFT  = 0x08;
+const char KEY_RIGHT = 0x10;
+const char KEY_ENTER = 0x20;
+const char KEY_OPEN  = 0x40; // Ctrl+O
+
 struct Input {
-	bool quit;
-	char buttons;
+	bool quit;     // window closed
+	char buttons;  // held Game Boy buttons
 	char dpad;
+	char pressed;  // KEY_* pressed this poll
 }
 
 fn Display? open(ZString title, char[12] colors) {
@@ -117,7 +127,22 @@ fn void Display.queue_audio(&self, short[] samples, uint n) {
 	sdl::put_audio_stream_data(self.audio, samples.ptr, (int)(n * 2));
 }
 
-fn void Display.present(&self, char[] fb) {
+fn void Display.set_palette(&self, char[12] colors) {
+	self.colors = colors;
+}
+
+fn void Display.set_title(&self, String title) {
+	sdl::set_window_title(self.window, title.zstr_tcopy());
+}
+
+// Drop queued audio, e.g. when pausing or switching ROMs.
+fn void Display.clear_audio(&self) {
+	if (self.audio) sdl::clear_audio_stream(self.audio);
+}
+
+// The frame, plus a menu drawn over it when `menu` has lines: a dimmed screen,
+// the lines in SDL's 8x8 debug font at 2x, `selected` highlighted.
+fn void Display.present(&self, char[] fb, String[] menu = {}, int selected = -1) {
 	int pixels = ppu::WIDTH * ppu::HEIGHT;
 
 	for (int i = 0; i < pixels; i++) {
@@ -130,7 +155,85 @@ fn void Display.present(&self, char[] fb) {
 	sdl::update_texture(self.texture, null, self.pixels.ptr, ppu::WIDTH * 4);
 	sdl::render_clear(self.renderer);
 	sdl::render_texture(self.renderer, self.texture, null, null);
+	if (menu.len) self.draw_menu(menu, selected);
 	sdl::render_present(self.renderer);
+}
+
+const float MENU_SCALE  = 2;   // debug font 8x8 -> 16x16 pixels
+const float MENU_LEFT   = 24;  // in scaled units (8 px each at scale 1)
+const float MENU_TOP    = 24;
+const float MENU_LINE   = 14;
+
+fn void Display.draw_menu(&self, String[] lines, int selected) {
+	sdl::set_render_draw_blend_mode(self.renderer, sdl::BLENDMODE_BLEND);
+	sdl::set_render_draw_color(self.renderer, 0x08, 0x18, 0x20, 0xD0);
+	sdl::FRect all = { 0, 0, ppu::WIDTH * SCALE, ppu::HEIGHT * SCALE };
+	sdl::render_fill_rect(self.renderer, &all);
+
+	sdl::set_render_scale(self.renderer, MENU_SCALE, MENU_SCALE);
+	foreach (i, line : lines) {
+		bool sel = (int)i == selected;
+		if (sel) {
+			sdl::set_render_draw_color(self.renderer, 0xE0, 0xF8, 0xD0, 0xFF);
+		} else {
+			sdl::set_render_draw_color(self.renderer, 0x88, 0xC0, 0x70, 0xFF);
+		}
+		String text = string::tformat("%s%s", sel ? "> " : "  ", line);
+		sdl::render_debug_text(self.renderer, MENU_LEFT, MENU_TOP + (float)i * MENU_LINE, text.zstr_tcopy());
+	}
+	sdl::set_render_scale(self.renderer, 1, 1);
+	sdl::set_render_draw_color(self.renderer, 0, 0, 0, 0xFF);
+}
+
+// ---------------------------------------------------------------------------
+// ROM file dialog. SDL shows the desktop's native dialog and calls back later,
+// possibly on another thread: the callback only copies the path and flips an
+// atomic state, and the main loop collects it with take_dialog_result().
+// ---------------------------------------------------------------------------
+
+const int DIALOG_IDLE      = 0;
+const int DIALOG_OPEN      = 1;
+const int DIALOG_CHOSEN    = 2;
+const int DIALOG_CANCELLED = 3;
+
+Atomic{int} dialog_state;
+char[4096] dialog_path;
+
+// Must stay valid until the callback runs, so it isn't a local.
+sdl::DialogFileFilter[1] rom_filters = {
+	{ "Game Boy ROMs", "gb;gbc" },
+};
+
+fn void on_dialog(void* userdata, ZString* files, int filter) {
+	if (files == null || files[0] == null) {
+		dialog_state.store(DIALOG_CANCELLED);
+		return;
+	}
+	String path = files[0].str_view();
+	usz n = path.len < dialog_path.len - 1 ? path.len : dialog_path.len - 1;
+	for (usz i = 0; i < n; i++) dialog_path[i] = path[i];
+	dialog_path[n] = 0;
+	dialog_state.store(DIALOG_CHOSEN);
+}
+
+fn bool Display.dialog_open(&self) {
+	return dialog_state.load() == DIALOG_OPEN;
+}
+
+fn void Display.open_rom_dialog(&self) {
+	if (dialog_state.load() == DIALOG_OPEN) return;
+	dialog_state.store(DIALOG_OPEN);
+	sdl::show_open_file_dialog(&on_dialog, null, self.window, &rom_filters, 1, null, false);
+}
+
+// The chosen path once the dialog has closed with a file; empty otherwise.
+// Returned as a temp copy.
+fn String Display.take_dialog_result(&self) {
+	int state = dialog_state.load();
+	if (state == DIALOG_CANCELLED) dialog_state.store(DIALOG_IDLE);
+	if (state != DIALOG_CHOSEN) return "";
+	dialog_state.store(DIALOG_IDLE);
+	return ((ZString)&dialog_path).str_view().tcopy();
 }
 
 fn Input Display.poll(&self) {
@@ -139,11 +242,21 @@ fn Input Display.poll(&self) {
 	sdl::Event e;
 	while (sdl::poll_event(&e)) {
 		if (e.type == sdl::EVENT_QUIT) in.quit = true;
+		if (e.type != sdl::EVENT_KEY_DOWN) continue;
+		sdl::KeyboardEvent* k = (sdl::KeyboardEvent*)&e;
+		switch (k.scancode) {
+			case sdl::SC_ESCAPE: if (!k.repeat) in.pressed |= KEY_MENU;
+			case sdl::SC_UP:     in.pressed |= KEY_UP;
+			case sdl::SC_DOWN:   in.pressed |= KEY_DOWN;
+			case sdl::SC_LEFT:   in.pressed |= KEY_LEFT;
+			case sdl::SC_RIGHT:  in.pressed |= KEY_RIGHT;
+			case sdl::SC_RETURN: if (!k.repeat) in.pressed |= KEY_ENTER;
+			case sdl::SC_O:      if (!k.repeat && (k.mod & sdl::KMOD_CTRL) != 0) in.pressed |= KEY_OPEN;
+		}
 	}
 
 	int n;
 	char* ks = sdl::get_keyboard_state(&n);
-	if (ks[sdl::SC_ESCAPE] != 0) in.quit = true;
 
 	if (ks[sdl::SC_RIGHT]  != 0) in.dpad    |= joypad::PAD_RIGHT;
 	if (ks[sdl::SC_LEFT]   != 0) in.dpad    |= joypad::PAD_LEFT;
