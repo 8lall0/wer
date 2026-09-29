@@ -103,3 +103,45 @@ fn void mbc2_builtin_ram() @test
 	c.write(0x0100, 0x03);            // bit 8 set -> ROM bank select
 	test::eq((char)0x03, c.read(0x4000));
 }
+
+fn void mbc1_bank_numbers_wrap_to_rom_size() @test
+{
+	cart::Cartridge* c = build(4, 0x01, 0); // 64 KiB: only 2 bank address lines
+	defer c.free();
+
+	c.write(0x6000, 0x01);            // mode 1: BANK2 also drives $0000-$3FFF
+	c.write(0x4000, 0x01);            // BANK2 = 1 -> bank $20 -> wraps to 0
+	test::eq((char)0, c.read(0x0000));
+
+	c.write(0x2000, 0x04);            // BANK1 = 4: not 0, so no +1 -> wraps to bank 0
+	test::eq((char)0, c.read(0x4000));
+}
+
+fn void mbc1_ram_bank_wraps_to_ram_size() @test
+{
+	cart::Cartridge* c = build(4, 0x03, 0x02); // 8 KiB RAM: one bank
+	defer c.free();
+
+	c.write(0x0000, 0x0A);            // enable RAM
+	c.write(0x6000, 0x01);            // mode 1: BANK2 selects the RAM bank
+	c.write(0x4000, 0x01);            // RAM bank 1 does not exist -> bank 0
+	c.write(0xA000, 0x55);
+
+	c.write(0x6000, 0x00);            // mode 0: RAM bank 0
+	test::eq((char)0x55, c.read(0xA000));
+}
+
+fn void mbc3_rtc_select_does_not_touch_ram() @test
+{
+	cart::Cartridge* c = build(4, 0x13, 0x03); // 32 KiB RAM
+	defer c.free();
+
+	c.write(0x0000, 0x0A);
+	c.write(0xA000, 0x11);            // RAM bank 0
+	c.write(0x4000, 0x08);            // RTC seconds register (not modelled)
+	c.write(0xA000, 0x99);
+	test::eq((char)0xFF, c.read(0xA000));
+
+	c.write(0x4000, 0x00);            // save RAM is intact
+	test::eq((char)0x11, c.read(0xA000));
+}

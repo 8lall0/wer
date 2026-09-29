@@ -6,7 +6,7 @@ enum Mbc : char {
 	NONE,
 	MBC1,
 	MBC2,
-	MBC3, // TODO: RTC not modelled — the clock registers read/write as plain RAM
+	MBC3, // TODO: RTC not modelled — the clock registers read $FF and ignore writes
 	MBC5,
 }
 
@@ -95,12 +95,20 @@ fn void Cartridge.save(&self) {
 	}
 }
 
+// A bank number beyond the chip's size wraps: a smaller ROM/RAM simply has
+// fewer address lines connected, so the high bits of the number are lost.
+fn uint wrap_bank(uint bank, usz size, usz bank_size) {
+	usz banks = size / bank_size;
+	return banks > 1 ? bank % (uint)banks : 0;
+}
+
 fn usz Cartridge.rom_offset(&self, ushort addr) {
 	if (addr < 0x4000) {
-		// MBC1 mode 1 maps banks 0x20/0x40/0x60 into the low area on big ROMs.
+		// MBC1 mode 1 maps banks 0x20/0x40/0x60 into the low area (wrapped on
+		// ROMs too small to have them).
 		if (self.mbc == MBC1 && self.mode1) {
 			uint hi = (self.rom_bank >> 5) & 3;
-			return ((usz)hi * 0x20) * 0x4000 + addr;
+			return (usz)wrap_bank(hi * 0x20, self.rom.len, 0x4000) * 0x4000 + addr;
 		}
 		return addr;
 	}
@@ -108,9 +116,10 @@ fn usz Cartridge.rom_offset(&self, ushort addr) {
 	if (self.mbc == MBC1 && !self.mode1) {
 		bank = (bank & 0x1F) | (self.rom_bank & 0x60);
 	}
+	// 0 -> 1 applies to the register value, BEFORE wrapping: on a 4-bank MBC1
+	// ROM, BANK1 = 4 really does map bank 0 at $4000.
 	if (bank == 0 && (self.mbc == MBC1 || self.mbc == MBC2 || self.mbc == MBC3)) bank = 1;
-	usz banks = self.rom.len / 0x4000;
-	if (banks > 0) bank %= (uint)banks;
+	bank = wrap_bank(bank, self.rom.len, 0x4000);
 	return (usz)bank * 0x4000 + (usz)(addr - 0x4000);
 }
 
@@ -130,7 +139,11 @@ fn usz Cartridge.ram_offset(&self, ushort addr) {
 	usz local = (usz)(addr - 0xA000);
 	if (self.mbc == MBC2) return local & 0x1FF;
 	uint bank = (self.mbc == MBC1 && !self.mode1) ? 0 : self.ram_bank;
-	return (usz)bank * 0x2000 + local;
+	// MBC3 banks $08-$0C are the RTC registers, not RAM: keep them out of range
+	// (reads $FF, writes dropped) instead of wrapping onto real save RAM.
+	if (self.mbc == MBC3 && bank >= 0x08) return self.ram.len;
+	bank = wrap_bank(bank, self.ram.len, 0x2000);
+	return (usz)bank * 0x2000 + local % (usz)self.ram.len; // 2 KiB RAM mirrors in its bank
 }
 
 fn void Cartridge.write(&self, ushort addr, char value) {
@@ -179,7 +192,7 @@ fn void Cartridge.write_control(&self, ushort addr, char value) {
 				case addr < 0x4000:
 					uint b = value & 0x7F;
 					self.rom_bank = b == 0 ? 1 : b;
-				case addr < 0x6000: self.ram_bank = value; // 0-3 = RAM, 8-C = RTC (as RAM)
+				case addr < 0x6000: self.ram_bank = value; // 0-3 = RAM, 8-C = RTC (unmodelled)
 				default: break; // RTC latch — ignored
 			}
 		case MBC5:
