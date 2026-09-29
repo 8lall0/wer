@@ -55,6 +55,12 @@ fn GameBoy new(bool boot = true) {
 		gb.mmu.set(0xFF48, 0xFF); // OBP0
 		gb.mmu.set(0xFF49, 0xFF); // OBP1
 		gb.mmu.set(0xFF40, 0x91); // LCDC: on, BG on, tile data $8000
+		// The boot ROM turned the LCD on long ago: normal line 0, not the
+		// special first line after LCD-on.
+		gb.mmu.ppu.first_line = false;
+		gb.mmu.ppu.dot = 0;
+		gb.mmu.ppu.mode = 2;
+		gb.mmu.ppu.stat = (gb.mmu.ppu.stat & 0xFC) | 2;
 		gb.mmu.timer.div = 0xABCC;  // DMG post-boot DIV counter (Pan Docs)
 		gb.mmu.set(0xFF0F, 0x01);   // IF: VBlank left pending by the boot ROM
 

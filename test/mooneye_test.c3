@@ -85,7 +85,7 @@ const Rom[*] ROMS = {
 	{ "acceptance/ppu/intr_2_mode0_timing.gb", true  },
 	{ "acceptance/ppu/intr_2_mode0_timing_sprites.gb", false },
 	{ "acceptance/ppu/intr_2_mode3_timing.gb", true  },
-	{ "acceptance/ppu/intr_2_oam_ok_timing.gb", false },
+	{ "acceptance/ppu/intr_2_oam_ok_timing.gb", true  },
 	{ "acceptance/ppu/lcdon_timing-GS.gb", false },
 	{ "acceptance/ppu/lcdon_write_timing-GS.gb", false },
 	{ "acceptance/ppu/stat_irq_blocking.gb", true  },

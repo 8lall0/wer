@@ -25,6 +25,7 @@ const char STAT_OAM_IE    = 0x20;
 const char STAT_VBLANK_IE = 0x10;
 const char STAT_HBLANK_IE = 0x08;
 const char STAT_LYC_FLAG  = 0x04;
+const int LCDON_START_DOT = 0;
 
 // Interrupt request bits returned by tick().
 const char INT_VBLANK = 0x01;
@@ -52,6 +53,7 @@ struct Ppu {
 	int  win_line;     // internal window line counter
 	bool frame_ready;  // set when VBlank begins; cleared by the consumer
 	bool stat_line;    // OR of the enabled STAT sources (see update_stat_line)
+	bool first_line;
 
 	char[WIDTH] bg_color; // BG colour index per pixel of the current line (sprite priority)
 }
@@ -64,12 +66,14 @@ fn void Ppu.write_lcdc(&self, char value) {
 	bool was_on = (self.lcdc & LCDC_ENABLE) != 0;
 	self.lcdc = value;
 	if (!was_on && (value & LCDC_ENABLE) != 0) {
-		self.dot = 0;
+		self.dot = LCDON_START_DOT;
 		self.ly = 0;
 		self.win_line = 0;
-		self.mode = 2;
-		self.stat = (self.stat & 0xFC) | 2;
+		self.mode = 0;
+		self.stat = self.stat & 0xFC;
 		self.frame_ready = false;
+		self.first_line = true;
+		self.check_lyc();
 	}
 }
 
@@ -104,6 +108,7 @@ fn char Ppu.tick(&self, uint tcycles) {
 	for (uint i = 0; i < tcycles; i++) {
 		self.dot++;
 		if (self.dot >= DOTS_PER_LINE) {
+			self.first_line = false;
 			self.dot = 0;
 			self.ly++;
 			if (self.ly >= TOTAL_LINES) {
@@ -139,6 +144,9 @@ fn char Ppu.update_mode(&self) {
 		want = 0;
 	}
 
+	if (self.first_line && want == 2) {
+		want = 0;
+	}
 	if (want == self.mode) return 0;
 	self.mode = want;
 	self.stat = (self.stat & 0xFC) | want;

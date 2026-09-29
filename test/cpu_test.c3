@@ -1216,7 +1216,8 @@ fn void cpu_locked_out_of_oam_in_mode_2() @test
 	cpu::Cpu c;
 	mmu::Mmu m;
 	m.set(0xFE00, 0x42);
-	m.set(0xFF40, 0x80);          // mode 2 right away
+	m.set(0xFF40, 0x80);
+	while (m.ppu.ly != 1) m.tick(1); // line 0 after LCD-on has no mode 2
 
 	test::eq((char)2, m.ppu.mode);
 	test::eq((char)0xFF, c.read(&m, 0xFE00));
