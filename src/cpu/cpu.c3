@@ -151,18 +151,24 @@ fn void Cpu.updateZero(&self, char value) {
 // ---------------------------------------------------------------------------
 // Bus wrappers: one M-cycle each. Every CPU memory access and every internal
 // cycle goes through exactly one of these, so an instruction's cost is the
-// number of calls it makes. (Later they also advance timer/PPU/DMA.)
+// number of calls it makes. The access happens at the start of the M-cycle,
+// then timer/PPU/APU advance 4 T-cycles. That order was measured on Mooneye:
+// ticking before reads (or before writes) breaks a dozen timer tests.
 // ---------------------------------------------------------------------------
 fn char Cpu.read(&self, mmu::Mmu* mmu, ushort addr) {
 	self.bus_cycles++;
-	return mmu.get(addr);
+	char output = mmu.get(addr);
+	mmu.tick(1);
+	return output;
 }
 
 fn void Cpu.write(&self, mmu::Mmu* mmu, ushort addr, char value) {
 	self.bus_cycles++;
 	mmu.set(addr, value);
+	mmu.tick(1);
 }
 
 fn void Cpu.idle(&self, mmu::Mmu* mmu) {
 	self.bus_cycles++;
+	mmu.tick(1);
 }

@@ -55,7 +55,7 @@ fn GameBoy new(bool boot = true) {
 		gb.mmu.set(0xFF48, 0xFF); // OBP0
 		gb.mmu.set(0xFF49, 0xFF); // OBP1
 		gb.mmu.set(0xFF40, 0x91); // LCDC: on, BG on, tile data $8000
-		gb.mmu.timer.div = 0xABD4;  // DMG post-boot; $ABCC per docs, +8 T calibrated on Mooneye boot_div
+		gb.mmu.timer.div = 0xABCC;  // DMG post-boot DIV counter (Pan Docs)
 		gb.mmu.set(0xFF0F, 0x01);   // IF: VBlank left pending by the boot ROM
 
 		// APU as the boot chime leaves it: powered, channel 1 still on but
@@ -136,7 +136,6 @@ fn void Cartridge.print(&self) {
 
 fn char GameBoy.step(&self) {
 	char cycles = self.cpu.step(&self.mmu);
-	self.mmu.tick(cycles);
 	return cycles;
 }
 
