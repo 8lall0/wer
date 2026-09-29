@@ -187,10 +187,16 @@ fn bool Mmu.dma_blocks(&self, ushort addr) {
 	return bus == OAM || bus == bus_of(self.dma.source);
 }
 
-fn bool Mmu.ppu_blocks(&self, ushort addr) {
+// CPU reads and writes to OAM/VRAM are locked at slightly different moments
+// (see Ppu.oam_locked, vram_locked, oam_write_locked; Mooneye lcdon_*_timing).
+fn bool Mmu.ppu_blocks(&self, ushort addr, bool write) {
 	if ((self.ppu.lcdc & ppu::LCDC_ENABLE) == 0) return false;
-	if (addr >= 0xFE00 && addr < 0xFEA0) return self.ppu.mode >= 2;
-	if (addr >= 0x8000 && addr < 0xA000) return self.ppu.mode == 3;
+	if (addr >= 0xFE00 && addr < 0xFEA0) {
+		return write ? self.ppu.oam_write_locked() : self.ppu.oam_locked();
+	}
+	if (addr >= 0x8000 && addr < 0xA000) {
+		return write ? self.ppu.mode == 3 : self.ppu.vram_locked();
+	}
 	return false;
 }
 

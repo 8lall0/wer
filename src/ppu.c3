@@ -8,6 +8,10 @@ const int TOTAL_LINES   = 154;
 const int VBLANK_LINE   = 144;
 const int MODE2_DOTS    = 80;   // OAM scan
 const int MODE3_DOTS    = 172;  // drawing (fixed; really 172-289)
+// LY (and the LY=LYC compare) move to the next line this many dots before
+// the line itself ends: for one M-cycle LY is already new while the old
+// line's HBlank is still running (Mooneye lcdon_timing).
+const int LY_EARLY_DOTS = 4;
 
 // LCDC ($FF40)
 const char LCDC_ENABLE     = 0x80;
@@ -54,6 +58,7 @@ struct Ppu {
 	bool frame_ready;  // set when VBlank begins; cleared by the consumer
 	bool stat_line;    // OR of the enabled STAT sources (see update_stat_line)
 	bool first_line;
+	int  line;         // line being processed (LY runs LY_EARLY_DOTS ahead of it)
 
 	char[WIDTH] bg_color; // BG colour index per pixel of the current line (sprite priority)
 }
@@ -68,6 +73,7 @@ fn void Ppu.write_lcdc(&self, char value) {
 	if (!was_on && (value & LCDC_ENABLE) != 0) {
 		self.dot = LCDON_START_DOT;
 		self.ly = 0;
+		self.line = 0;
 		self.win_line = 0;
 		self.mode = 0;
 		self.stat = self.stat & 0xFC;
@@ -97,6 +103,7 @@ fn char Ppu.tick(&self, uint tcycles) {
 	if ((self.lcdc & LCDC_ENABLE) == 0) {
 		self.dot = 0;
 		self.ly = 0;
+		self.line = 0;
 		self.win_line = 0;
 		self.mode = 0;
 		self.stat &= 0xFC;
@@ -107,14 +114,15 @@ fn char Ppu.tick(&self, uint tcycles) {
 	char irq = 0;
 	for (uint i = 0; i < tcycles; i++) {
 		self.dot++;
+		if (self.dot == DOTS_PER_LINE - LY_EARLY_DOTS) {
+			self.ly = (char)((self.line + 1) % TOTAL_LINES);
+			self.check_lyc();
+		}
 		if (self.dot >= DOTS_PER_LINE) {
 			self.first_line = false;
 			self.dot = 0;
-			self.ly++;
-			if (self.ly >= TOTAL_LINES) {
-				self.ly = 0;
-				self.win_line = 0;
-			}
+			self.line = (self.line + 1) % TOTAL_LINES;
+			if (self.line == 0) self.win_line = 0;
 			self.check_lyc();
 		}
 		irq |= self.update_mode();
@@ -123,9 +131,35 @@ fn char Ppu.tick(&self, uint tcycles) {
 	return irq;
 }
 
+// True while the CPU can't use OAM: modes 2 and 3, and already during the
+// LY_EARLY_DOTS before a visible line starts (its OAM scan begins with the
+// LY change, while STAT still reads mode 0).
+fn bool Ppu.oam_locked(&self) {
+	if (self.mode >= 2) return true;
+	int next = (self.line + 1) % TOTAL_LINES;
+	return self.dot >= DOTS_PER_LINE - LY_EARLY_DOTS && next < VBLANK_LINE;
+}
+
+// True while the CPU can't use VRAM: mode 3, and already the last
+// LY_EARLY_DOTS of mode 2 (drawing grabs VRAM before STAT reads mode 3).
+fn bool Ppu.vram_locked(&self) {
+	if (self.mode == 3) return true;
+	return self.mode == 2 && self.dot >= MODE2_DOTS - LY_EARLY_DOTS;
+}
+
+// CPU writes to OAM are blocked in modes 2 and 3, except during the last
+// LY_EARLY_DOTS of mode 2 (the hand-over to drawing), when they get through.
+fn bool Ppu.oam_write_locked(&self) {
+	if (self.mode == 3) return true;
+	return self.mode == 2 && self.dot < MODE2_DOTS - LY_EARLY_DOTS;
+}
+
 // Keep the LY=LYC flag (STAT bit 2) in sync. Interrupts come from update_stat_line.
+// While LY has already moved on but the line hasn't (the last LY_EARLY_DOTS
+// dots), the comparator sees no line at all: the flag reads 0.
 fn void Ppu.check_lyc(&self) {
-	if (self.ly == self.lyc) {
+	bool ly_settling = self.dot >= DOTS_PER_LINE - LY_EARLY_DOTS;
+	if (self.ly == self.lyc && !ly_settling) {
 		self.stat |= STAT_LYC_FLAG;
 	} else {
 		self.stat &= (char)~STAT_LYC_FLAG;
@@ -134,7 +168,7 @@ fn void Ppu.check_lyc(&self) {
 
 fn char Ppu.update_mode(&self) {
 	char want;
-	if (self.ly >= VBLANK_LINE) {
+	if (self.line >= VBLANK_LINE) {
 		want = 1;
 	} else if (self.dot < MODE2_DOTS) {
 		want = 2;
@@ -183,7 +217,7 @@ fn char Ppu.tile_pixel(&self, ushort map_base, bool signed_tiles, int px, int py
 fn void Ppu.render_line(&self) {
 	if (self.fb.len == 0) return;
 
-	int y = self.ly;
+	int y = self.line;
 	int row = y * WIDTH;
 
 	bool bg_on   = (self.lcdc & LCDC_BG_ENABLE) != 0;
@@ -271,12 +305,12 @@ fn void Ppu.render_sprites(&self, int y) {
 // on its rising edge. A source turning on while the line is already high
 // raises nothing ("STAT blocking").
 fn char Ppu.update_stat_line(&self) {
-	bool line = ((self.stat & STAT_LYC_IE)    != 0 && self.ly == self.lyc)
+	bool high = ((self.stat & STAT_LYC_IE)    != 0 && (self.stat & STAT_LYC_FLAG) != 0)
 	         || ((self.stat & STAT_OAM_IE)    != 0 && self.mode == 2)
 	         || ((self.stat & STAT_VBLANK_IE) != 0 && self.mode == 1)
 	         || ((self.stat & STAT_HBLANK_IE) != 0 && self.mode == 0);
 
-	bool rising = line && !self.stat_line;   // was low, is high now
-	self.stat_line = line;                   // remember for the next call
+	bool rising = high && !self.stat_line;   // was low, is high now
+	self.stat_line = high;                   // remember for the next call
 	return rising ? INT_STAT : 0;
 }

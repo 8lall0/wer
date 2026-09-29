@@ -59,6 +59,7 @@ fn GameBoy new(bool boot = true) {
 		// special first line after LCD-on.
 		gb.mmu.ppu.first_line = false;
 		gb.mmu.ppu.dot = 0;
+		gb.mmu.ppu.line = 0;
 		gb.mmu.ppu.mode = 2;
 		gb.mmu.ppu.stat = (gb.mmu.ppu.stat & 0xFC) | 2;
 		gb.mmu.timer.div = 0xABCC;  // DMG post-boot DIV counter (Pan Docs)
