@@ -6,14 +6,17 @@ import mmu;
 // 16-bit stack helpers (GB pushes the high byte first, at the lower address
 // after both decrements, so memory ends up little-endian).
 // ---------------------------------------------------------------------------
+// Callers spend the M-cycle before this idle, decrementing SP (Cpu.sp_dec_idle).
 fn void Cpu.push16(&self, mmu::Mmu *mmu, ushort value) {
 	self.sp--;
+	self.idu_next(self.sp); // the second decrement, during the first write
 	self.write(mmu, self.sp, (char)(value >> 8));
 	self.sp--;
 	self.write(mmu, self.sp, (char)(value & 0xFF));
 }
 
 fn ushort Cpu.pop16(&self, mmu::Mmu *mmu) {
+	self.idu_next(self.sp);
 	char lo = self.read(mmu, self.sp);
 	self.sp++;
 	char hi = self.read(mmu, self.sp);
@@ -57,11 +60,13 @@ fn void Cpu.ld_hl_sp_e8(&self, mmu::Mmu *mmu, ichar e8) {
 }
 
 fn void Cpu.dec_sp(&self, mmu::Mmu *mmu) {
+	self.idu_next(self.sp);
 	self.idle(mmu);
 	self.sp--;
 }
 
 fn void Cpu.inc_sp(&self, mmu::Mmu *mmu) {
+	self.idu_next(self.sp);
 	self.idle(mmu);
 	self.sp++;
 }
@@ -82,6 +87,7 @@ fn void Cpu.ld_sp_hl(&self, mmu::Mmu *mmu) {
 
 // POP AF : the low nibble of F is always zero on hardware.
 fn void Cpu.pop_af(&self, mmu::Mmu *mmu) {
+	self.idu_next(self.sp);
 	self.af.lo = self.read(mmu, self.sp) & 0xF0;
 	self.sp++;
 	self.af.hi = self.read(mmu, self.sp);
@@ -89,6 +95,7 @@ fn void Cpu.pop_af(&self, mmu::Mmu *mmu) {
 }
 
 fn void Cpu.pop_r16(&self, mmu::Mmu *mmu, HiLoReg *reg) {
+	self.idu_next(self.sp);
 	reg.lo = self.read(mmu, self.sp);
 	self.sp++;
 	reg.hi = self.read(mmu, self.sp);
@@ -96,17 +103,25 @@ fn void Cpu.pop_r16(&self, mmu::Mmu *mmu, HiLoReg *reg) {
 }
 
 fn void Cpu.push_af(&self, mmu::Mmu *mmu) {
-	self.idle(mmu);
+	self.sp_dec_idle(mmu);
 	self.sp--;
+	self.idu_next(self.sp);
 	self.write(mmu, self.sp, self.af.hi);
 	self.sp--;
 	self.write(mmu, self.sp, self.af.lo);
 }
 
 fn void Cpu.push_r16(&self, mmu::Mmu *mmu, HiLoReg *reg) {
-	self.idle(mmu);
+	self.sp_dec_idle(mmu);
 	self.sp--;
+	self.idu_next(self.sp);
 	self.write(mmu, self.sp, reg.hi);
 	self.sp--;
 	self.write(mmu, self.sp, reg.lo);
+}
+
+// The internal M-cycle before a push, in which SP is first decremented.
+fn void Cpu.sp_dec_idle(&self, mmu::Mmu *mmu) {
+	self.idu_next(self.sp);
+	self.idle(mmu);
 }

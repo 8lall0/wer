@@ -35,14 +35,23 @@ fn bool Cpu.service_interrupt(&self, mmu::Mmu *mmu) {
 
 	self.ime = false;
 	self.ime_delay = 0;  // a pending EI must not re-enable IME inside the handler
+	// EI; HALT with an interrupt already pending: HALT hits the HALT bug (IME
+	// is still off), then IME comes on and the interrupt is taken at once.
+	// The PC it pushes is HALT's own, so HALT runs again on return
+	// (SameSuite ei_delay_halt).
+	if (self.halt_bug) {
+		self.pc--;
+		self.halt_bug = false;
+	}
 	// 5 M-cycles: 2 internal, push PC high, push PC low, 1 internal (jump).
 	self.idle(mmu);
-	self.idle(mmu);
+	self.sp_dec_idle(mmu);
 
 	// PC is pushed by hand because the CPU picks the interrupt only after the
 	// high byte is on the stack: with SP = $0000 that byte lands in IE ($FFFF)
 	// and can disable the very interrupt being dispatched (Mooneye ie_push).
 	self.sp--;
+	self.idu_next(self.sp);
 	self.write(mmu, self.sp, (char)(self.pc >> 8));
 	char pending_now = (char)(mmu.get(IE_ADDR) & mmu.get(IF_ADDR) & INT_MASK);
 	self.sp--;

@@ -101,11 +101,11 @@ const Rom[*] ROMS = {
 	{ "apu/div_write_trigger_volume_10", false },
 	{ "dma/gbc_dma_cont", true  },
 	{ "dma/gdma_addr_mask", true  },
-	{ "dma/hdma_lcd_off", false },
-	{ "dma/hdma_mode0", false },
-	{ "interrupt/ei_delay_halt", false },
+	{ "dma/hdma_lcd_off", true  },
+	{ "dma/hdma_mode0", true  },
+	{ "interrupt/ei_delay_halt", true  },
 	{ "ppu/blocking_bgpi_increase", true  },
-	{ "sgb/command_mlt_req", false },
+	{ "sgb/command_mlt_req", true  },
 	{ "sgb/command_mlt_req_1_incrementing", true  },
 };
 

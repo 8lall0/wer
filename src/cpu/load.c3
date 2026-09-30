@@ -73,24 +73,28 @@ fn void Cpu.ldh_a_c(&self, mmu::Mmu *mmu) {
 
 // LD [HL+],A : store A at [HL], then increment HL.
 fn void Cpu.ld_hli_a(&self, mmu::Mmu *mmu) {
+	self.idu_next(self.hl.reg);
 	self.write(mmu, self.hl.reg, self.af.hi);
 	self.hl.reg++;
 }
 
 // LD [HL-],A : store A at [HL], then decrement HL.
 fn void Cpu.ld_hld_a(&self, mmu::Mmu *mmu) {
+	self.idu_next(self.hl.reg);
 	self.write(mmu, self.hl.reg, self.af.hi);
 	self.hl.reg--;
 }
 
 // LD A,[HL+] : load A from [HL], then increment HL.
 fn void Cpu.ld_a_hli(&self, mmu::Mmu *mmu) {
+	self.idu_next(self.hl.reg);
 	self.af.hi = self.read(mmu, self.hl.reg);
 	self.hl.reg++;
 }
 
 // LD A,[HL-] : load A from [HL], then decrement HL.
 fn void Cpu.ld_a_hld(&self, mmu::Mmu *mmu) {
+	self.idu_next(self.hl.reg);
 	self.af.hi = self.read(mmu, self.hl.reg);
 	self.hl.reg--;
 }

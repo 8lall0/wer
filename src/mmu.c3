@@ -186,9 +186,11 @@ fn void Mmu.vdma_block(&self) {
 // A write to $FF55: bits 0-6 = blocks - 1, bit 7 = HBlank DMA.
 fn void Mmu.vdma_start(&self, char value) {
 	if (self.vdma_hblank && (value & 0x80) == 0) {
-		// Stopping an HBlank DMA: $FF55 keeps the blocks left, bit 7 set.
+		// Stopping an HBlank DMA. The write still sets the length, so $FF55
+		// reads bit 7 set and the length just written (SameSuite
+		// hdma_lcd_off: stopping with 0 reads $80).
 		self.vdma_hblank = false;
-		self.vdma_ff55 = 0x80 | self.vdma_left;
+		self.vdma_ff55 = 0x80 | (value & 0x7F);
 		return;
 	}
 	self.vdma_left = value & 0x7F;
@@ -199,8 +201,10 @@ fn void Mmu.vdma_start(&self, char value) {
 		return;
 	}
 	self.vdma_hblank = true;
-	// With the LCD off there are no HBlanks to wait for: one block goes now.
-	if ((self.ppu.lcdc & ppu::LCDC_ENABLE) == 0) self.vdma_hblank_step();
+	// With the LCD off there are no HBlanks to wait for, and started during
+	// HBlank it doesn't wait for the next one: one block goes now.
+	bool in_hblank = self.ppu.mode == 0 && self.ppu.line < ppu::VBLANK_LINE && !self.ppu.r.active;
+	if ((self.ppu.lcdc & ppu::LCDC_ENABLE) == 0 || in_hblank) self.vdma_hblank_step();
 }
 
 // One HBlank DMA block (at the start of an HBlank on a visible line).
@@ -213,6 +217,76 @@ fn void Mmu.vdma_hblank_step(&self) {
 		return;
 	}
 	self.vdma_left--;
+}
+
+// DMG OAM corruption bug (Pan Docs "OAM Corruption Bug"): during mode 2 the
+// PPU reads OAM a row (8 bytes, 4 words) per M-cycle; a CPU access to
+// $FE00-$FEFF, or the 16-bit incrementer pointing there, in that M-cycle
+// corrupts the row being read. Not on a CGB.
+int oam_bug_row_offset = 4; // dot offset of the PPU's row (calibrated on Blargg oam_bug)
+
+fn void Mmu.oam_bug(&self, bool read, bool write) {
+	if (self.model == CGB) return;
+	if ((self.ppu.lcdc & ppu::LCDC_ENABLE) == 0 || self.ppu.mode != 2) return;
+	if (self.ppu.line >= ppu::VBLANK_LINE) return;
+	int row = (self.ppu.dot + oam_bug_row_offset) / 4;
+	if (row < 1 || row > 19) return;   // the first row is never affected
+	if (read && write) {
+		self.oam_bug_read_idu(row);
+	} else if (read) {
+		self.oam_bug_read(row);
+	} else {
+		self.oam_bug_write(row);
+	}
+}
+
+fn ushort Mmu.oam_word(&self, int row, int word) {
+	int at = row * 8 + word * 2;
+	return (ushort)(self.ppu.oam[at] | (ushort)self.ppu.oam[at + 1] << 8);
+}
+
+fn void Mmu.set_oam_word(&self, int row, int word, ushort v) {
+	int at = row * 8 + word * 2;
+	self.ppu.oam[at] = (char)v;
+	self.ppu.oam[at + 1] = (char)(v >> 8);
+}
+
+// Words 1-3 of the row become those of the row before.
+fn void Mmu.oam_copy_tail(&self, int row) {
+	for (int w = 1; w < 4; w++) self.set_oam_word(row, w, self.oam_word(row - 1, w));
+}
+
+fn void Mmu.oam_bug_write(&self, int row) {
+	ushort a = self.oam_word(row, 0);
+	ushort b = self.oam_word(row - 1, 0);
+	ushort c = self.oam_word(row - 1, 2);
+	self.set_oam_word(row, 0, ((a ^ c) & (b ^ c)) ^ c);
+	self.oam_copy_tail(row);
+}
+
+fn void Mmu.oam_bug_read(&self, int row) {
+	ushort a = self.oam_word(row, 0);
+	ushort b = self.oam_word(row - 1, 0);
+	ushort c = self.oam_word(row - 1, 2);
+	self.set_oam_word(row, 0, b | (a & c));
+	self.oam_copy_tail(row);
+}
+
+// A read and an increment in the same M-cycle.
+fn void Mmu.oam_bug_read_idu(&self, int row) {
+	if (row >= 4 && row < 19) {
+		ushort a = self.oam_word(row - 2, 0);
+		ushort b = self.oam_word(row - 1, 0);
+		ushort c = self.oam_word(row, 0);
+		ushort d = self.oam_word(row - 1, 2);
+		self.set_oam_word(row - 1, 0, (b & (a | c | d)) | (a & c & d));
+		for (int w = 0; w < 4; w++) {
+			ushort v = self.oam_word(row - 1, w);
+			self.set_oam_word(row, w, v);
+			self.set_oam_word(row - 2, w, v);
+		}
+	}
+	self.oam_bug_read(row);
 }
 
 // CGB palette RAM is out of the CPU's reach while the PPU draws (mode 3).

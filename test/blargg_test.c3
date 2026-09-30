@@ -88,13 +88,14 @@ const Rom[*] HALT_BUG = { { "halt_bug", true  } };
 const Rom[*] INTERRUPT_TIME = { { "interrupt_time", true  } };
 const Rom[*] OAM_BUG = {
 	{ "1-lcd_sync", true  },
-	{ "2-causes", false },
+	{ "2-causes", true  },
 	{ "3-non_causes", true  },
-	{ "4-scanline_timing", false },
-	{ "5-timing_bug", false },
+	{ "4-scanline_timing", true  },
+	{ "5-timing_bug", true  },
 	{ "6-timing_no_bug", true  },
-	{ "7-timing_effect", false },
-	{ "8-instr_effect", false },
+	{ "7-timing_effect", false }, // prints more than its 8 KB text buffer holds and
+	                              // runs over its own code, here as in SameBoy
+	{ "8-instr_effect", true  },
 };
 
 enum Outcome : char {

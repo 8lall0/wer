@@ -95,7 +95,7 @@ struct Sgb {
 	int    packets_received;
 
 	// multiplayer
-	int    players;     // 1, 2 or 4
+	int    players;     // 1, 2 or 4 (3: MLT_REQ's unofficial mode 2)
 	int    player;      // 0-based, selects the joypad id read back
 
 	uint[32] seen;      // commands executed, by code (tests / debugging)
@@ -139,8 +139,9 @@ fn void Sgb.write_p1(&self, char value) {
 	char prev = self.p1;
 	self.p1 = p1;
 
-	// Multiplayer: P15 (bit 5) rising selects the next joypad.
-	if ((prev & 0x20) == 0 && (p1 & 0x20) != 0 && self.players > 1) {
+	// Multiplayer: P15 (bit 5) rising selects the next joypad (2 or 4
+	// players; the glitched 3-player mode doesn't advance).
+	if ((prev & 0x20) == 0 && (p1 & 0x20) != 0 && (self.players == 2 || self.players == 4)) {
 		self.player = (self.player + 1) & (self.players - 1);
 	}
 
@@ -207,12 +208,21 @@ fn void Sgb.execute(&self, char cmd, char[] data) {
 		case CMD_ATTR_TRN:
 			self.pending_trn = cmd;
 		case CMD_MLT_REQ:
+			// 0-3 = 1, 2, (3), 4 players. Mode 2 is not a real mode: entering
+			// it the player becomes (player + 1) & 2, so player 3 can show
+			// up, and it never advances (worked out from SameSuite
+			// command_mlt_req).
 			switch (data[1] & 3) {
+				case 0:  self.players = 1;
 				case 1:  self.players = 2;
-				case 3:  self.players = 4;
-				default: self.players = 1;
+				case 2:  self.players = 3;
+				default: self.players = 4;
 			}
-			self.player &= self.players - 1;
+			if (self.players == 3) {
+				self.player = (self.player + 1) & 2;
+			} else {
+				self.player &= self.players - 1;
+			}
 		default:
 			break; // sound, SNES code/data and the border (next step)
 	}

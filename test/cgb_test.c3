@@ -138,9 +138,9 @@ fn void hblank_dma_one_block_per_hblank() @test
 	test::eq((char)0x0F, gb.mmu.ppu.vram[0x0F]);
 	test::eq((char)0x00, gb.mmu.ppu.vram[0x10]);  // second block not yet
 
-	// Stop it: bit 7 set, blocks left kept.
+	// Stop it: bit 7 set, and the write sets the length too (0 here).
 	gb.mmu.set(0xFF55, 0x00);
-	test::eq((char)0x82, gb.mmu.get(0xFF55));
+	test::eq((char)0x80, gb.mmu.get(0xFF55));
 	for (int i = 0; i < 1000; i++) gb.step();
 	test::eq((char)0x00, gb.mmu.ppu.vram[0x10]);  // nothing more copied
 }

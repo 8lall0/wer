@@ -118,6 +118,10 @@ struct Cpu {
 	bool stopped;
 	// HALT bug: the next opcode fetch must not advance PC (it is read twice).
 	bool halt_bug;
+	// The 16-bit incrementer puts its value on the address bus in the next
+	// bus cycle (DMG OAM corruption bug, see Mmu.oam_bug).
+	bool   idu_on;
+	ushort idu;
 	// EI is delayed by one instruction. Counts down at the end of each step;
 	// IME is set when it reaches 0. DI resets it to 0.
 	char ime_delay;
@@ -219,8 +223,25 @@ fn void Cpu.record(&self, BusOp op, ushort addr, char value) @inline {
 	self.trace[self.trace_len++] = { op, addr, value };
 }
 
+// The next bus cycle's 16-bit increment/decrement of `value`.
+fn void Cpu.idu_next(&self, ushort value) @inline {
+	self.idu = value;
+	self.idu_on = true;
+}
+
+fn bool in_oam(ushort addr) @inline => addr >= 0xFE00 && addr <= 0xFEFF;
+
+// This cycle's contribution to the OAM bug: a read or write of OAM and/or the
+// incrementer pointing there.
+fn void Cpu.oam_bug(&self, mmu::Mmu* mmu, bool read, bool write) @inline {
+	bool idu = self.idu_on && in_oam(self.idu);
+	self.idu_on = false;
+	if (read || write || idu) mmu.oam_bug(read, write || idu);
+}
+
 fn char Cpu.read(&self, mmu::Mmu* mmu, ushort addr) {
 	self.bus_cycles++;
+	self.oam_bug(mmu, in_oam(addr), false);
 	char output;
 	if (mmu.dma_blocks(addr)) {
 		output = mmu.dma_conflict_read(addr);
@@ -236,6 +257,7 @@ fn char Cpu.read(&self, mmu::Mmu* mmu, ushort addr) {
 
 fn void Cpu.write(&self, mmu::Mmu* mmu, ushort addr, char value) {
 	self.bus_cycles++;
+	self.oam_bug(mmu, false, in_oam(addr));
 	if (!mmu.dma_blocks(addr) && !mmu.ppu_blocks(addr, true)) mmu.set(addr, value);
 	self.record(WRITE, addr, value);
 	mmu.tick(1);
@@ -243,6 +265,7 @@ fn void Cpu.write(&self, mmu::Mmu* mmu, ushort addr, char value) {
 
 fn void Cpu.idle(&self, mmu::Mmu* mmu) {
 	self.bus_cycles++;
+	self.oam_bug(mmu, false, false);
 	self.record(IDLE, 0, 0);
 	mmu.tick(1);
 }

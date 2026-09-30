@@ -13,7 +13,7 @@ taken: the extra cycles are the idle()/read()/write() calls on that path.
 */
 
 fn void Cpu.call_n16(&self, mmu::Mmu *mmu, ushort address) {
-	self.idle(mmu);
+	self.sp_dec_idle(mmu);
 	self.push16(mmu, self.pc);
 	self.pc = address;
 }
@@ -73,7 +73,7 @@ fn void Cpu.reti(&self, mmu::Mmu *mmu) {
 
 // RST: call one of the fixed vectors ($00, $08, $10, ... $38).
 fn void Cpu.rst_vec(&self, mmu::Mmu *mmu, char vec) {
-	self.idle(mmu);
+	self.sp_dec_idle(mmu);
 	self.push16(mmu, self.pc);
 	self.pc = vec;
 }

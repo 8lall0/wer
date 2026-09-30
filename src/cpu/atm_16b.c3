@@ -15,11 +15,13 @@ fn void Cpu.add_hl_r16(&self, mmu::Mmu *mmu, HiLoReg *reg) {
 
 // INC/DEC r16 do not affect any flags.
 fn void Cpu.dec_r16(&self, mmu::Mmu *mmu, HiLoReg *reg) {
+	self.idu_next(reg.reg);
 	self.idle(mmu);
 	reg.reg -= 1;
 }
 
 fn void Cpu.inc_r16(&self, mmu::Mmu *mmu, HiLoReg *reg) {
+	self.idu_next(reg.reg);
 	self.idle(mmu);
 	reg.reg += 1;
 }
