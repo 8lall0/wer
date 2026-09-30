@@ -101,9 +101,11 @@ struct Renderer {
 	// CGB TILE_SEL glitch (SameBoy, after Matt Currie's research)
 	bool     tile_sel_glitch;  // TILE_SEL is being cleared in this dot
 	bool     last_tileset;     // TILE_SEL as the bitplane address was formed
-	char     glitch_data;      // the last high bitplane byte read (tiles and objects)
-	char     obj_glitch_data;  // the high bitplane of the last object fetched
-	bool     obj_fetched;      // an object has been fetched on this line
+	// What a TILE_SEL set glitch reads: latched by the last object fetch (its
+	// high bitplane) or TILE_SEL clear (the bitplane byte read last by then),
+	// whichever came later. Ordinary tile reads leave it alone.
+	char     glitch_data;
+	char     last_read;        // the last bitplane byte read (tiles and objects)
 	bool     cgb_wx_glitch;    // CGB: the window is starting here, the fetcher skips reads
 	char     obj_tile;
 	char     obj_flags;
@@ -172,7 +174,6 @@ fn void Ppu.render_start(&self) {
 	r.state = TILE_T1;
 	r.obj_step = NONE;
 	r.insert_bg_pixel = false;
-	r.obj_fetched = false;
 
 	if (self.first_line) r.n_obj = 0; // no OAM scan on the first line after LCD on
 }
@@ -232,15 +233,13 @@ fn void Ppu.render_dot(&self) {
 		case OAM_IDLE:
 			r.obj_step = LOW;
 		case LOW:
-			r.obj_lo = self.vram_read(self.object_line_address());
+			r.last_read = r.obj_lo = self.vram_read(self.object_line_address());
 			r.obj_step = LOW_IDLE;
 		case LOW_IDLE:
 			r.obj_step = HIGH;
 		case HIGH:
 			r.obj_hi = self.vram_read(self.object_line_address() + 1);
-			r.glitch_data = r.obj_hi;
-			r.obj_glitch_data = r.obj_hi;
-			r.obj_fetched = true;
+			r.last_read = r.glitch_data = r.obj_hi;
 			r.obj_step = OVERLAY;
 		case OVERLAY:
 			self.overlay_object();
@@ -350,10 +349,11 @@ fn bool Ppu.window_check(&self) {
 			if (self.wx == u8(r.pos + 7)) {
 				start = true;
 			} else if (!self.cgb_hw && self.wx == u8(r.pos + 6) && !self.wx_just_changed) {
-				// DMG: the window can start a pixel early, and then the LCD
-				// falls a pixel behind the PPU.
+				// DMG: WX is also matched a pixel late (WIN_EN turned on right
+				// after the exact match). SameBoy also shifts the LCD back a
+				// pixel here, which only some DMGs do; the DMG-blob screenshots
+				// (Mealybug m3_lcdc_win_en_change_multiple_wx) show no shift.
 				start = true;
-				if (r.lcd_x > 0) r.lcd_x--;
 			}
 		}
 		if (start) {
@@ -434,7 +434,7 @@ fn void Ppu.advance_fetcher(&self) {
 			}
 			bool used;
 			if (r.tile_sel_glitch) r.lo = self.tile_sel_glitch_data(&used);
-			if (!used) r.lo = self.vram_read(r.addr);
+			if (!used) r.last_read = r.lo = self.vram_read(r.addr);
 			if (r.last_tileset && r.tile_sel_glitch) r.glitch_data = self.vram_read(r.addr);
 			r.state = HIGH_T1;
 		case HIGH_T1:
@@ -451,7 +451,7 @@ fn void Ppu.advance_fetcher(&self) {
 			}
 			bool used;
 			if (r.tile_sel_glitch) r.hi = self.tile_sel_glitch_data(&used);
-			if (!used) r.glitch_data = r.hi = self.vram_read(r.addr);
+			if (!used) r.last_read = r.hi = self.vram_read(r.addr);
 			if (r.last_tileset && r.tile_sel_glitch) r.glitch_data = self.vram_read(r.addr);
 			if (r.wx_triggered) r.window_tile_x = (r.window_tile_x + 1) & 0x1F;
 			r.state = PUSH;
@@ -461,9 +461,13 @@ fn void Ppu.advance_fetcher(&self) {
 	}
 }
 
-// CGB (up to CPU CGB C): a bitplane read in the dot TILE_SEL is cleared reads
-// the tile number instead (when the address was formed with TILE_SEL set, and
-// the tile number is below $80), or else the last bitplane byte read.
+// CGB (up to CPU CGB C) TILE_SEL glitch, when the bit changes in the dot a
+// bitplane is read (worked out from the Mealybug CGB screenshots):
+// - clearing it reads the tile number instead (when the tile number is below
+//   $80; the real read goes into the latch below);
+// - setting it reads the latch: the high bitplane of the last object fetched,
+//   or the bitplane byte read last when TILE_SEL was last cleared (in that
+//   very dot, what the glitched read really fetched), whichever came later.
 fn char Ppu.tile_sel_glitch_data(&self, bool* used) {
 	Renderer* r = &self.r;
 	if (r.last_tileset) {
@@ -471,9 +475,7 @@ fn char Ppu.tile_sel_glitch_data(&self, bool* used) {
 		return r.tile;
 	}
 	*used = true;
-	// Setting TILE_SEL: the high bitplane of the most recent object if there
-	// is one (Matt Currie's findings), else of the most recent tile.
-	return r.obj_fetched ? r.obj_glitch_data : r.glitch_data;
+	return r.glitch_data;
 }
 
 // Tile data address for the current tile and fetcher Y (TILE_SEL and SCY

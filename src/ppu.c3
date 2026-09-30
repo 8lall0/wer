@@ -110,6 +110,7 @@ struct RegWrite {
 const char WX_SETTLED = 0x00;
 const char TILE_SEL_GLITCH_ON  = 0x02; // CGB: TILE_SEL cleared on a bitplane read (see ppu_fifo)
 const char TILE_SEL_GLITCH_OFF = 0x03;
+const char TILE_SEL_CLEARED    = 0x05; // CGB: latch the last bitplane read (see ppu_fifo)
 const char LCDC_DMG   = 0x01; // DMG LCDC write: mixed old/new value for a dot (see apply)
 const char LCDC_PART  = 0x04; // LCDC write where the bits in `keep` land later
 
@@ -415,6 +416,7 @@ fn void Ppu.write_render_reg(&self, char reg, char value) {
 				// CGB: changing TILE_SEL disturbs a bitplane read in that dot.
 				self.schedule(reg, value, cgb_delay[0]);
 				self.schedule(TILE_SEL_GLITCH_ON, 0, cgb_delay[4]);
+				if ((value & LCDC_TILE_DATA) == 0) self.schedule(TILE_SEL_CLEARED, 0, cgb_delay[4]);
 				self.schedule(TILE_SEL_GLITCH_OFF, 0, cgb_delay[4] + 1);
 			} else if (!dmg) {
 				// CGB: the object size bit lands a dot later than the rest
@@ -471,6 +473,7 @@ fn void Ppu.apply(&self, RegWrite w) {
 		case WX_SETTLED: self.wx_just_changed = false;
 		case TILE_SEL_GLITCH_ON: self.r.tile_sel_glitch = true;
 		case TILE_SEL_GLITCH_OFF: self.r.tile_sel_glitch = false;
+		case TILE_SEL_CLEARED: self.r.glitch_data = self.r.last_read;
 		case 0x42: self.scy = w.value;
 		case 0x43: self.scx = w.value;
 		case 0x4A:
