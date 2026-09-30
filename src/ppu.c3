@@ -102,7 +102,8 @@ int render_start_dot = 89;
 struct RegWrite {
 	char reg;    // low byte of the register address; WX_SETTLED ends wx_just_changed
 	char value;
-	char old;    // LCDC_DMG: the value before the write
+	char old;    // LCDC_DMG, LCDC_PART: the value before the write
+	char keep;   // LCDC_PART: bits that still show the old value
 	int  delay;
 }
 
@@ -110,6 +111,7 @@ const char WX_SETTLED = 0x00;
 const char TILE_SEL_GLITCH_ON  = 0x02; // CGB: TILE_SEL cleared on a bitplane read (see ppu_fifo)
 const char TILE_SEL_GLITCH_OFF = 0x03;
 const char LCDC_DMG   = 0x01; // DMG LCDC write: mixed old/new value for a dot (see apply)
+const char LCDC_PART  = 0x04; // LCDC write where the bits in `keep` land later
 
 // CGB tile attributes (VRAM bank 1, same address as the tile index).
 const char ATTR_PALETTE  = 0x07;
@@ -414,8 +416,13 @@ fn void Ppu.write_render_reg(&self, char reg, char value) {
 				self.schedule(reg, value, cgb_delay[0]);
 				self.schedule(TILE_SEL_GLITCH_ON, 0, cgb_delay[4]);
 				self.schedule(TILE_SEL_GLITCH_OFF, 0, cgb_delay[4] + 1);
+			} else if (!dmg) {
+				// CGB: the object size bit lands a dot later than the rest
+				// (Mealybug m3_lcdc_obj_size_change_scx).
+				self.queue({ .reg = LCDC_PART, .value = value, .old = old, .keep = LCDC_OBJ_SIZE, .delay = cgb_delay[0] });
+				self.schedule(reg, value, cgb_delay[0] + 1);
 			} else {
-				self.schedule(reg, value, dmg ? 2 : cgb_delay[0]);
+				self.schedule(reg, value, 2);
 			}
 	}
 }
@@ -479,6 +486,8 @@ fn void Ppu.apply(&self, RegWrite w) {
 			self.r_lcdc = (self.r_lcdc & LCDC_ENABLE) | (w.value & 0x7F);
 			// Enabling the window re-checks WY (SameBoy: after an LCDC write).
 			if (self.line < VBLANK_LINE) self.wy_check();
+		case LCDC_PART:
+			self.r_lcdc = (self.r_lcdc & LCDC_ENABLE) | (((w.value & ~w.keep) | (w.old & w.keep)) & 0x7F);
 		case LCDC_DMG:
 			// The new LCDC, except that the BG and object enable bits and a
 			// window enable (not a disable) take a dot longer. Disabling objects

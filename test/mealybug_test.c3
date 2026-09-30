@@ -73,7 +73,7 @@ const Rom[*] CGB_ROMS = {
 	{ "m3_lcdc_obj_en_change", true  },
 	{ "m3_lcdc_obj_en_change_variant", true  },
 	{ "m3_lcdc_obj_size_change", true  },
-	{ "m3_lcdc_obj_size_change_scx", false },
+	{ "m3_lcdc_obj_size_change_scx", true  },
 	{ "m3_lcdc_tile_sel_change", false },
 	{ "m3_lcdc_tile_sel_change2", false },
 	{ "m3_lcdc_tile_sel_win_change", false },
@@ -89,7 +89,7 @@ const Rom[*] CGB_ROMS = {
 	{ "m3_scy_change2", true  },
 	{ "m3_window_timing", true  },
 	{ "m3_window_timing_wx_0", true  },
-	{ "m3_wx_4_change_sprites", false },
+	{ "m3_wx_4_change_sprites", true  },
 };
 
 enum Outcome : char {

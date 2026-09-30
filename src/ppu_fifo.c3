@@ -103,7 +103,7 @@ struct Renderer {
 	bool     last_tileset;     // TILE_SEL as the bitplane address was formed
 	char     glitch_data;      // the last high bitplane byte read (tiles and objects)
 	char     obj_glitch_data;  // the high bitplane of the last object fetched
-	bool     obj_fetched;      // an object has been fetched (on any line so far)
+	bool     obj_fetched;      // an object has been fetched on this line
 	bool     cgb_wx_glitch;    // CGB: the window is starting here, the fetcher skips reads
 	char     obj_tile;
 	char     obj_flags;
@@ -172,6 +172,7 @@ fn void Ppu.render_start(&self) {
 	r.state = TILE_T1;
 	r.obj_step = NONE;
 	r.insert_bg_pixel = false;
+	r.obj_fetched = false;
 
 	if (self.first_line) r.n_obj = 0; // no OAM scan on the first line after LCD on
 }
@@ -367,8 +368,10 @@ fn bool Ppu.window_check(&self) {
 			r.window_y++;
 		}
 	}
-	// DMG: WX matching again while the window runs inserts a pixel.
-	if (self.wx == u8(r.pos + 7) && (!self.cgb_hw || self.wx == 0) && r.wx_triggered
+	// WX matching again while the window runs inserts a colour-0 pixel (a
+	// sprite behind the BG shows through it; Mealybug m3_wx_4_change_sprites,
+	// on the CGB too).
+	if (self.wx == u8(r.pos + 7) && r.wx_triggered
 		&& !r.window_fetching && r.state == TILE_T1 && r.bg.size == 8) {
 		r.insert_bg_pixel = true;
 	}
