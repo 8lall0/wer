@@ -23,12 +23,12 @@ fn void power_off_zeros_channel_registers() @test
 
 	a.write(0xFF12, 0xF0); // CH1 envelope -> DAC on
 	a.write(0xFF14, 0x80); // trigger CH1
-	test::@check(a.ch1.enabled, "CH1 running");
+	test::@check(a.active[apu::SQ1], "CH1 running");
 
 	a.write(0xFF26, 0x00); // power off
-	test::@check(!a.ch1.enabled, "power off disables channels");
+	test::@check(!a.active[apu::SQ1], "power off disables channels");
 	test::eq((char)0x00, a.read(0xFF12) & 0xFF); // ... hmm read mask; check raw
-	test::eq((char)0x00, a.ch1.nr2);
+	test::eq((char)0x00, a.io[apu::NR12]);
 	test::@check(!a.power, "power flag cleared");
 }
 
@@ -75,11 +75,11 @@ fn void trigger_enables_and_dac_gates() @test
 	// DAC off (envelope upper 5 bits zero) -> trigger does not enable.
 	a.write(0xFF17, 0x00);
 	a.write(0xFF19, 0x80);
-	test::@check(!a.ch2.enabled, "no DAC -> channel stays off");
+	test::@check(!a.active[apu::SQ2], "no DAC -> channel stays off");
 
 	a.write(0xFF17, 0x80); // volume 8, DAC on
 	a.write(0xFF19, 0x80);
-	test::@check(a.ch2.enabled, "DAC on + trigger -> enabled");
+	test::@check(a.active[apu::SQ2], "DAC on + trigger -> enabled");
 	test::@check((a.read(0xFF26) & 0x02) != 0, "NR52 shows CH2 active");
 }
 
@@ -91,11 +91,11 @@ fn void length_counter_disables_channel() @test
 	a.write(0xFF21, 0xF0);       // CH4 DAC on
 	a.write(0xFF20, 0x3F);       // length load 0x3F -> length = 1
 	a.write(0xFF23, 0xC0);       // trigger + length enable
-	test::@check(a.ch4.enabled, "CH4 running");
+	test::@check(a.active[apu::NOI], "CH4 running");
 
-	// One length clock (frame sequencer step 0) should expire it.
-	a.ch4.clock_length();
-	test::@check(!a.ch4.enabled, "length expired -> channel off");
+	// The next frame sequencer step clocks the length and expires it.
+	a.div_event();
+	test::@check(!a.active[apu::NOI], "length expired -> channel off");
 }
 
 fn void envelope_decreases_volume() @test
@@ -105,10 +105,15 @@ fn void envelope_decreases_volume() @test
 
 	a.write(0xFF12, 0x83); // vol 8, decrease, period 3
 	a.write(0xFF14, 0x80); // trigger
-	test::eq((char)8, a.ch1.env.volume);
+	test::eq(8, a.sq[0].current_volume);
 
-	for (int i = 0; i < 3; i++) a.ch1.env.clock();
-	test::eq((char)7, a.ch1.env.volume);
+	// The envelope steps every 8 frame sequencer steps (64 Hz) times the
+	// period; each step is a falling then a rising edge of the DIV bit.
+	for (int i = 0; i < 8 * 3 + 1; i++) {
+		a.div_event();
+		a.div_secondary_event();
+	}
+	test::eq(7, a.sq[0].current_volume);
 }
 
 fn void wave_ram_readable_writable() @test
@@ -134,10 +139,10 @@ fn void square_produces_alternating_output() @test
 	bool saw_high;
 	bool saw_low;
 	for (int i = 0; i < 64; i++) {
-		char o = a.ch1.output();
+		char o = a.pcm12() & 0x0F;
 		if (o == 15) saw_high = true;
 		if (o == 0) saw_low = true;
-		a.ch1.step(16);
+		a.run(8);
 	}
 	test::@check(saw_high && saw_low, "square wave toggles between 0 and volume");
 }
@@ -147,12 +152,12 @@ fn void routes_through_mmu() @test
 	mmu::Mmu m;
 	m.apu.power = true;
 	m.set(0xFF25, 0xF3); // NR51 panning
-	test::eq((char)0xF3, m.apu.nr51);
+	test::eq((char)0xF3, m.apu.io[apu::NR51]);
 	test::eq((char)0xF3, m.get(0xFF25));
 
 	m.set(0xFF1A, 0x80); // CH3 DAC on
 	m.set(0xFF1E, 0x80); // trigger CH3
-	test::@check(m.apu.ch3.enabled, "CH3 triggered via MMU");
+	test::@check(m.apu.active[apu::WAV], "CH3 triggered via MMU");
 }
 
 fn void tick_generates_samples() @test

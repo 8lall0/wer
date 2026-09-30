@@ -119,13 +119,17 @@ fn void div_clocks_the_apu_frame_sequencer() @test
 	r = t.tick(8192 * 3);
 	test::eq((uint)3, r.apu_steps);
 
-	// A DIV write while bit 12 is high also produces a step.
-	t.tick(4096); // bit 12 now high
-	r = t.tick(0);
+	// Bit 12 rising is the APU's secondary event.
+	r = t.tick(4096); // bit 12 now high
+	test::eq((uint)1, r.apu_rises);
 	test::eq((uint)0, r.apu_steps);
+
+	// A DIV write while bit 12 is high also produces a step, reported apart
+	// (it times the sweep differently).
 	t.write_div();
 	r = t.tick(1);
-	test::eq((uint)1, r.apu_steps);
+	test::@check(r.apu_div_write, "DIV write step");
+	test::eq((uint)0, r.apu_steps);
 }
 
 // In the M-cycle TMA is copied into TIMA, a TIMA write loses to the reload.

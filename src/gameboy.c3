@@ -104,7 +104,7 @@ fn GameBoy new(bool boot = true, mmu::Model model = DMG) {
 		gb.mmu.set(0xFF24, 0x77);   // NR50: master volume
 		gb.mmu.set(0xFF25, 0xF3);   // NR51: panning
 		// The DMG and CGB boot ROMs play the chime; the SGB's leaves channel 1 off.
-		gb.mmu.apu.ch1.enabled = !model.is_sgb();
+		gb.mmu.apu.active[apu::SQ1] = !model.is_sgb();
 	}
 	return gb;
 }

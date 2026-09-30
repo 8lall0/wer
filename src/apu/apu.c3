@@ -1,51 +1,98 @@
 module apu;
 
-// Models the DMG quirks Blargg's dmg_sound checks (length counter on trigger
-// and power, sweep negate exit, wave RAM access and corruption while playing).
-// Channels 1, 2 and 4 are stepped per M-cycle, not per T-cycle.
+// The APU, modelled after SameBoy's (Core/apu.c) at the level SameSuite and
+// Blargg's sound tests check: every channel counts on the APU's 2 MHz clock,
+// the frame sequencer is DIV-driven (a primary event on the falling edge of
+// DIV bit 12, a secondary one on the rising edge for the envelopes), and the
+// start/restart, sweep, envelope and NR43 quirks follow the hardware. The
+// DMG paths are SameBoy's DMG ones, the CGB paths its CGB-E ones.
 
 const int  SAMPLE_RATE = 48000;
 const ulong CPU_HZ     = 4194304;
 
-const char[4] DUTY = { 0b00000001, 0b00000011, 0b00001111, 0b11111100 };
+const int SQ1 = 0;
+const int SQ2 = 1;
+const int WAV = 2;
+const int NOI = 3;
 
-const int[8] NOISE_DIVISOR = { 8, 16, 32, 48, 64, 80, 96, 112 };
+// Register offsets in `io` ($FF10 + n).
+const int NR10 = 0x00;
+const int NR11 = 0x01;
+const int NR12 = 0x02;
+const int NR13 = 0x03;
+const int NR14 = 0x04;
+const int NR21 = 0x06;
+const int NR22 = 0x07;
+const int NR30 = 0x0A;
+const int NR32 = 0x0C;
+const int NR42 = 0x11;
+const int NR43 = 0x12;
+const int NR44 = 0x13;
+const int NR50 = 0x14;
+const int NR51 = 0x15;
+const int WAVE_RAM = 0x20;
 
+// skip_div_event
+const int SKIP_INACTIVE = 0;
+const int SKIP_SKIPPED  = 1;
+const int SKIP_SKIP     = 2;
 
 struct Apu {
 	bool power;
+	char[0x30] io;       // $FF10-$FF3F as written; wave RAM at WAVE_RAM
 
-	Square ch1;
-	Square ch2;
-	Wave   ch3;
-	Noise  ch4;
+	bool[4] active;
+	char[4] samples;     // each channel's digital output (0-15)
 
-	char nr50; // master volume + VIN
-	char nr51; // panning
+	int div_divider;     // frame sequencer step counter (8 bits)
+	int lf_div;          // 1 MHz phase of the 2 MHz clock
 
-	char  fs_step;
+	// channel 1 sweep
+	int  sweep_countdown;         // in 128 Hz ticks
+	int  sweep_calc_countdown;    // in 1 MHz ticks
+	int  sweep_calc_reload_timer; // in 1 MHz ticks
+	int  sweep_addend;
+	int  shadow_sweep_length;
+	bool unshifted_sweep;
+	bool sweep_instant_done;
+	int  ch1_restart_hold;
+	int  ch1_completed_addend;
+
+	Square[2] sq;
+	Wave  wave;
+	Noise noise;
+
+	int  skip_div_event;
+	bool pending_envelope_tick;
+	bool noise_counter_active;
+	bool noise_background_counter_active;
+	bool lfsr_stepped_in_narrow;
+	bool lfsr_bit_7_before_step;
+	bool noise_started_with_dac_disabled;
+	bool during_div_write;
+
+	// Set by the MMU.
+	bool   cgb;          // CGB hardware (either mode): CGB-E behaviour
+	bool   double_speed;
+	ushort div_counter;  // the timer's 16-bit counter, for power-on
+
+	// Output.
 	ulong sample_acc;
-
-	// one-pole DC-blocking high-pass, per channel of the stereo mix
-	float hp_l;
+	float hp_l;          // one-pole DC-blocking high-pass
 	float hp_r;
-
-	// caller-provided ring buffer of interleaved s16 L,R samples
-	short[] ring;
+	short[] ring;        // caller-provided ring of interleaved s16 L,R samples
 	usz     cap;
 	usz     w;
 	usz     r;
 	usz     count;
-
 	uint out_rate;
-	uint clock_hz; // T-cycles per real second (the model's clock); 0 = CPU_HZ
-	bool cgb;      // CGB hardware (either mode): no DMG wave/length quirks
+	uint clock_hz;       // T-cycles per real second (the model's clock); 0 = CPU_HZ
 }
 
 fn void Apu.init(&self) {
-	self.ch1.has_sweep = true;
 	self.cap = (usz)self.ring.len;
 	self.out_rate = SAMPLE_RATE;
+	self.reset_channels();
 }
 
 fn ulong Apu.hz(&self) => self.clock_hz ? self.clock_hz : CPU_HZ;
@@ -55,78 +102,374 @@ fn void Apu.set_ring(&self, short[] buf) {
 	self.cap = (usz)buf.len;
 }
 
-fn void Apu.frame_step(&self) {
-	switch (self.fs_step) {
-		case 0:
-		case 4:
-			self.clock_length();
-		case 2:
-		case 6:
-			self.clock_length();
-			self.ch1.clock_sweep();
-		case 7:
-			self.ch1.env.clock();
-			self.ch2.env.clock();
-			self.ch4.env.clock();
+fn bool Apu.dmg(&self) => !self.cgb;
+
+// Clears the channel state like a power cycle does (not the registers).
+fn void Apu.clear_state(&self) {
+	Apu keep = *self;
+	*self = {};
+	self.power = keep.power;
+	self.io = keep.io;
+	self.cgb = keep.cgb;
+	self.double_speed = keep.double_speed;
+	self.div_counter = keep.div_counter;
+	self.sample_acc = keep.sample_acc;
+	self.hp_l = keep.hp_l;
+	self.hp_r = keep.hp_r;
+	self.ring = keep.ring;
+	self.cap = keep.cap;
+	self.w = keep.w;
+	self.r = keep.r;
+	self.count = keep.count;
+	self.out_rate = keep.out_rate;
+	self.clock_hz = keep.clock_hz;
+}
+
+// The state after power-on (GB_apu_init).
+fn void Apu.reset_channels(&self) {
+	self.clear_state();
+	self.lf_div = 1;
+	self.wave.shift = 4;
+	// Turning the APU on while DIV's APU bit is set skips the first event.
+	if (self.div_counter & (self.double_speed ? 0x2000 : 0x1000)) {
+		self.skip_div_event = SKIP_SKIP;
+		self.div_divider = 1;
 	}
-	self.fs_step = (self.fs_step + 1) & 7;
+	self.sq[0].sample_countdown = 0xFFFF;
+	self.sq[1].sample_countdown = 0xFFFF;
 }
 
-fn void Apu.clock_length(&self) {
-	self.ch1.clock_length();
-	self.ch2.clock_length();
-	self.ch3.clock_length();
-	self.ch4.clock_length();
+fn bool Apu.dac_on(&self, int ch) {
+	switch (ch) {
+		case SQ1: return (self.io[NR12] & 0xF8) != 0;
+		case SQ2: return (self.io[NR22] & 0xF8) != 0;
+		case WAV: return self.wave.enable;
+		default:  return (self.io[NR42] & 0xF8) != 0;
+	}
 }
 
-fn void Apu.tick(&self, uint t, uint frame_steps) {
-	if (!self.power) {
-		// Still advance the sample clock so the stream doesn't starve.
-		self.push_silence(t);
+fn void Apu.stop(&self, int ch) {
+	self.active[ch] = false;
+	self.samples[ch] = 0;
+}
+
+fn void Apu.update_square_sample(&self, int i) {
+	Square* s = &self.sq[i];
+	if (s.sample_surpressed) return;
+	int duty = self.io[i * 5 + 1] >> 6;
+	self.samples[i] = DUTY_TABLE[s.current_sample_index + duty * 8] ? (char)s.current_volume : 0;
+}
+
+fn void Apu.update_wave_sample(&self) {
+	char b = self.wave.current_sample_byte;
+	char nibble = (self.wave.current_sample_index & 1) ? b & 0xF : b >> 4;
+	self.samples[WAV] = self.wave.shift == 4 ? 0 : nibble >> self.wave.shift;
+}
+
+// --- frame sequencer -----------------------------------------------------
+
+fn void Apu.tick_square_envelope(&self, int i) {
+	Square* s = &self.sq[i];
+	s.env.set(false, false, 0);
+	if (s.env.locked) return;
+	char nrx2 = self.io[i * 5 + 2];
+	if ((nrx2 & 7) == 0) return;
+	s.current_volume = (nrx2 & 8) ? (s.current_volume + 1) & 0xFF : (s.current_volume - 1) & 0xFF;
+	if (self.active[i]) self.update_square_sample(i);
+}
+
+fn void Apu.tick_noise_envelope(&self) {
+	self.noise.env.set(false, false, 0);
+	if (self.noise.env.locked) return;
+	char nr42 = self.io[NR42];
+	if ((nr42 & 7) == 0) return;
+	self.noise.current_volume = (nr42 & 8) ? (self.noise.current_volume + 1) & 0xFF : (self.noise.current_volume - 1) & 0xFF;
+	if (self.active[NOI]) self.samples[NOI] = (self.noise.lfsr & 1) ? (char)self.noise.current_volume : 0;
+}
+
+fn void Apu.sweep_calculation_done(&self) {
+	// Sweep bug: the frequency is checked after adding the delta twice.
+	if (self.ch1_restart_hold == 0) self.shadow_sweep_length = self.sq[0].sample_length;
+	if (self.io[NR10] & 8) self.sweep_addend ^= 0x7FF;
+	if (self.shadow_sweep_length + self.sweep_addend > 0x7FF && (self.io[NR10] & 8) == 0) {
+		self.stop(SQ1);
+	}
+	self.ch1_completed_addend = self.sweep_addend;
+}
+
+fn void Apu.trigger_sweep_calculation(&self) {
+	char nr10 = self.io[NR10];
+	if ((nr10 & 0x70) == 0 || self.sweep_countdown != 7) return;
+	if (nr10 & 0x07) {
+		self.sq[0].sample_length = (self.sweep_addend + self.shadow_sweep_length + ((nr10 & 8) ? 1 : 0)) & 0x7FF;
+	}
+	if (self.ch1_restart_hold == 0) {
+		self.sweep_addend = self.sq[0].sample_length >> (nr10 & 7);
+	}
+	// Recalculation and the overflow check only happen after a delay.
+	self.sweep_calc_countdown = nr10 & 7;
+	self.sweep_calc_reload_timer = 1 + self.lf_div;
+	if (!self.double_speed && self.during_div_write) self.sweep_calc_reload_timer = 1;
+	self.unshifted_sweep = (nr10 & 7) == 0;
+	self.sweep_countdown = ((nr10 >> 4) & 7) ^ 7;
+	if (self.sweep_calc_countdown == 0) self.sweep_instant_done = true;
+}
+
+// Envelope ticks postponed by one M-cycle (CGB double speed).
+fn void Apu.delayed_envelope_tick(&self) {
+	self.pending_envelope_tick = false;
+	if (!self.power) return;
+	for (int i = 0; i < 2; i++) {
+		if (self.sq[i].env.clock) self.tick_square_envelope(i);
+	}
+	if (self.noise.env.clock) self.tick_noise_envelope();
+}
+
+fn void Apu.clock_length(&self, int* length, bool enabled, int ch) {
+	if (enabled && *length) {
+		(*length)--;
+		if (*length == 0) self.stop(ch);
+	}
+}
+
+// Falling edge of the DIV bit: the 512 Hz frame sequencer step.
+fn void Apu.div_event(&self) {
+	if (!self.power) return;
+	if (self.skip_div_event == SKIP_SKIP) {
+		self.skip_div_event = SKIP_SKIPPED;
 		return;
 	}
+	if (self.skip_div_event == SKIP_SKIPPED) {
+		self.skip_div_event = SKIP_INACTIVE;
+	} else {
+		self.div_divider = (self.div_divider + 1) & 0xFF;
+	}
 
-	self.ch1.step(t);
-	self.ch2.step(t);
-	self.ch3.step(t);
-	self.ch4.step(t);
+	if ((self.div_divider & 7) == 7) {
+		for (int i = 0; i < 2; i++) {
+			if (!self.sq[i].env.clock) self.sq[i].volume_countdown = (self.sq[i].volume_countdown - 1) & 7;
+		}
+		if (!self.noise.env.clock) self.noise.volume_countdown = (self.noise.volume_countdown - 1) & 7;
+	}
 
-	for (uint i = 0; i < frame_steps; i++) self.frame_step();
+	if (self.double_speed && self.cgb) {
+		self.pending_envelope_tick = true;
+	} else {
+		for (int i = 0; i < 2; i++) {
+			if (self.sq[i].env.clock) self.tick_square_envelope(i);
+		}
+		if (self.noise.env.clock) self.tick_noise_envelope();
+	}
+
+	if (self.div_divider & 1) {
+		for (int i = 0; i < 2; i++) self.clock_length(&self.sq[i].pulse_length, self.sq[i].length_enabled, i);
+		self.clock_length(&self.wave.pulse_length, self.wave.length_enabled, WAV);
+		self.clock_length(&self.noise.pulse_length, self.noise.length_enabled, NOI);
+	}
+
+	if ((self.div_divider & 3) == 3) {
+		self.sweep_countdown = (self.sweep_countdown + 1) & 7;
+		self.trigger_sweep_calculation();
+	}
+}
+
+// Rising edge of the DIV bit: envelope periods that ran out raise the clock.
+fn void Apu.div_secondary_event(&self) {
+	if (!self.power) return;
+	for (int i = 0; i < 2; i++) {
+		Square* s = &self.sq[i];
+		char nrx2 = self.io[i * 5 + 2];
+		if (self.active[i] && s.volume_countdown == 0) {
+			s.volume_countdown = nrx2 & 7;
+			s.env.set(s.volume_countdown != 0, (nrx2 & 8) != 0, s.current_volume);
+		}
+	}
+	if (self.active[NOI] && self.noise.volume_countdown == 0) {
+		char nr42 = self.io[NR42];
+		self.noise.volume_countdown = nr42 & 7;
+		self.noise.env.set(self.noise.volume_countdown != 0, (nr42 & 8) != 0, self.noise.current_volume);
+	}
+}
+
+// --- the 2 MHz clock -----------------------------------------------------
+
+fn void Apu.update_lfsr(&self) {
+	self.noise.current_lfsr_sample = (self.noise.lfsr & 1) != 0;
+	if (self.active[NOI]) {
+		self.samples[NOI] = self.noise.current_lfsr_sample ? (char)self.noise.current_volume : 0;
+	}
+}
+
+fn void Apu.step_lfsr(&self) {
+	Noise* n = &self.noise;
+	self.lfsr_bit_7_before_step = (n.lfsr & 0x80) != 0;
+	int high_bit_mask = n.narrow ? 0x4040 : 0x4000;
+	bool new_high_bit = ((n.lfsr ^ (n.lfsr >> 1) ^ 1) & 1) != 0;
+	n.lfsr >>= 1;
+	if (new_high_bit) {
+		n.lfsr |= high_bit_mask;
+	} else {
+		n.lfsr &= ~high_bit_mask; // matters when switching widths
+	}
+	self.update_lfsr();
+	self.lfsr_stepped_in_narrow = n.narrow;
+}
+
+// Runs the channels for `cycles` 2 MHz ticks.
+fn void Apu.run(&self, int cycles) {
+	if (cycles <= 0) return;
+
+	bool start_ch4 = false;
+	if (self.noise.dmg_delayed_start) {
+		if (self.noise.dmg_delayed_start == cycles) {
+			self.noise.dmg_delayed_start = 0;
+			start_ch4 = true;
+		} else if (self.noise.dmg_delayed_start > cycles) {
+			self.noise.dmg_delayed_start -= cycles;
+		} else {
+			int first = self.noise.dmg_delayed_start;
+			cycles -= first;
+			self.run(first);
+		}
+	}
+
+	// Channels 1, 2 and 4 run at 1 MHz: keep track of the phase.
+	self.lf_div ^= cycles & 1;
+	self.noise.alignment = (self.noise.alignment + cycles) & 0xFF;
+
+	int sweep_cycles = cycles / 2;
+	if ((cycles & 1) && !self.lf_div) sweep_cycles++;
+
+	if (self.sweep_calc_reload_timer > sweep_cycles) {
+		self.sweep_calc_reload_timer -= sweep_cycles;
+		sweep_cycles = 0;
+	} else {
+		if (self.sweep_calc_reload_timer && !self.sweep_calc_countdown && self.sweep_instant_done) {
+			self.sweep_calculation_done();
+		}
+		self.sweep_instant_done = false;
+		sweep_cycles -= self.sweep_calc_reload_timer;
+		self.sweep_calc_reload_timer = 0;
+	}
+
+	// The calculation pauses while the shift is 0.
+	if (self.sweep_calc_countdown && ((self.io[NR10] & 7) || self.unshifted_sweep)) {
+		if (self.sweep_calc_countdown > sweep_cycles) {
+			self.sweep_calc_countdown -= sweep_cycles;
+		} else {
+			self.sweep_calc_countdown = 0;
+			self.sweep_calculation_done();
+		}
+	}
+
+	if (self.ch1_restart_hold) {
+		self.ch1_restart_hold = self.ch1_restart_hold > cycles ? self.ch1_restart_hold - cycles : 0;
+	}
+
+	for (int i = 0; i < 2; i++) {
+		if (!self.active[i]) continue;
+		Square* s = &self.sq[i];
+		int left = cycles;
+		if (s.delay) s.delay = s.delay < left ? 0 : s.delay - left;
+		while (left > s.sample_countdown) {
+			left -= s.sample_countdown + 1;
+			s.sample_countdown = s.reload();
+			s.current_sample_index = (s.current_sample_index + 1) & 7;
+			s.sample_surpressed = false;
+			s.did_tick = true;
+			self.update_square_sample(i);
+		}
+		s.just_reloaded = left == 0;
+		if (left) s.sample_countdown -= left;
+	}
+
+	self.wave.just_read = false;
+	if (self.active[WAV]) {
+		Wave* w = &self.wave;
+		int left = cycles;
+		while (left > w.sample_countdown) {
+			left -= w.sample_countdown + 1;
+			w.sample_countdown = w.sample_length ^ 0x7FF;
+			w.current_sample_index = (w.current_sample_index + 1) & 0x1F;
+			w.current_sample_byte = self.io[WAVE_RAM + (w.current_sample_index >> 1)];
+			self.update_wave_sample();
+			w.just_read = true;
+		}
+		if (left) {
+			w.sample_countdown -= left;
+			w.just_read = false;
+		}
+	}
+
+	if (self.noise_counter_active || self.noise_background_counter_active) {
+		Noise* n = &self.noise;
+		int left = cycles;
+		int divisor = (self.io[NR43] & 0x07) << 2;
+		if (!divisor) divisor = 2;
+		if (n.counter_countdown == 0) n.counter_countdown = divisor;
+		while (left >= n.counter_countdown) {
+			left -= n.counter_countdown;
+			n.counter_countdown = divisor;
+			int mask = 1 << (self.io[NR43] >> 4);
+			bool old_bit = (n.counter & mask) != 0;
+			n.counter = (n.counter + 1) & 0x3FFF;
+			n.did_step_counter = true;
+			bool new_bit = (n.counter & mask) != 0;
+			if (new_bit && !old_bit && self.active[NOI]) self.step_lfsr();
+		}
+		if (left) {
+			n.counter_countdown -= left;
+			n.countdown_reloaded = false;
+		} else {
+			n.countdown_reloaded = true;
+		}
+	}
+
+	if (start_ch4) self.write(0xFF23, self.io[NR44] | 0x80);
+}
+
+// One M-cycle's worth (or more) of time: `t` T-cycles at the real-time rate,
+// with the DIV events that happened in it (see timer::TickResult).
+fn void Apu.tick(&self, uint t, uint div_events, uint div_secondary = 0, bool div_write = false) {
+	if (self.pending_envelope_tick) self.delayed_envelope_tick();
+	if (div_write) {
+		self.during_div_write = true;
+		self.div_event();
+		self.during_div_write = false;
+	}
+	for (uint i = 0; i < div_events; i++) self.div_event();
+	for (uint i = 0; i < div_secondary; i++) self.div_secondary_event();
+
+	if (self.power) self.run((int)t / 2);
 
 	self.sample_acc += (ulong)t * self.out_rate;
 	while (self.sample_acc >= self.hz()) {
 		self.sample_acc -= self.hz();
-		self.emit_sample();
+		if (self.power) {
+			self.emit_sample();
+		} else {
+			self.write_sample(0, 0);
+		}
 	}
 }
 
-fn void Apu.push_silence(&self, uint t) {
-	self.sample_acc += (ulong)t * self.out_rate;
-	while (self.sample_acc >= self.hz()) {
-		self.sample_acc -= self.hz();
-		self.write_sample(0, 0);
-	}
-}
+// --- output --------------------------------------------------------------
 
 const float HP_CHARGE = 0.996336f;
 const int   DAC_SCALE = 380; // per-unit; 15 units * 4 channels ~= 22800
 
 fn void Apu.emit_sample(&self) {
-	int[4] out;
-	out[0] = self.ch1.enabled ? ((int)self.ch1.output() * 2 - 15) * DAC_SCALE : 0;
-	out[1] = self.ch2.enabled ? ((int)self.ch2.output() * 2 - 15) * DAC_SCALE : 0;
-	out[2] = self.ch3.enabled ? ((int)self.ch3.output() * 2 - 15) * DAC_SCALE : 0;
-	out[3] = self.ch4.enabled ? ((int)self.ch4.output() * 2 - 15) * DAC_SCALE : 0;
-
 	int left;
 	int right;
 	for (int c = 0; c < 4; c++) {
-		if ((self.nr51 & (1 << (c + 4))) != 0) left  += out[c];
-		if ((self.nr51 & (1 << c)) != 0)       right += out[c];
+		if (!self.active[c]) continue;
+		int out = ((int)self.samples[c] * 2 - 15) * DAC_SCALE;
+		if (self.io[NR51] & (1 << (c + 4))) left  += out;
+		if (self.io[NR51] & (1 << c))       right += out;
 	}
 
-	int lvol = ((self.nr50 >> 4) & 0x07) + 1;
-	int rvol = (self.nr50 & 0x07) + 1;
+	int lvol = ((self.io[NR50] >> 4) & 0x07) + 1;
+	int rvol = (self.io[NR50] & 0x07) + 1;
 
 	float fl = (float)(left  * lvol / 8);
 	float fr = (float)(right * rvol / 8);
@@ -167,208 +510,8 @@ fn uint Apu.drain(&self, short[] out) {
 	return (uint)n;
 }
 
-// --- register access ($FF10-$FF3F) --------------------------------------
-
-// Bits that read as 1 (OR mask) for each register $FF10-$FF26.
-const char[23] READ_MASK = {
-	0x80, 0x3F, 0x00, 0xFF, 0xBF,       // NR10-NR14
-	0xFF, 0x3F, 0x00, 0xFF, 0xBF,       // NR20-NR24 (NR20 unused -> 0xFF)
-	0x7F, 0xFF, 0x9F, 0xFF, 0xBF,       // NR30-NR34
-	0xFF, 0xFF, 0x00, 0x00, 0xBF,       // NR40-NR44
-	0x00, 0x00, 0x70,                   // NR50-NR52
-};
-
-fn char Apu.read(&self, ushort addr) {
-	if (addr >= 0xFF30 && addr <= 0xFF3F) {
-		if (!self.ch3.enabled) return self.ch3.ram[addr - 0xFF30];
-		// While playing: the byte being played (CGB), or on a DMG only the
-		// byte the channel is fetching right now.
-		int i = self.cgb ? self.ch3.pos >> 1 : self.ch3.cpu_access_index();
-		return i < 0 ? (char)0xFF : self.ch3.ram[i];
-	}
-
-	char v;
-	switch (addr) {
-		case 0xFF10: v = self.ch1.nr0;
-		case 0xFF11: v = self.ch1.nr1;
-		case 0xFF12: v = self.ch1.nr2;
-		case 0xFF13: v = self.ch1.nr3;
-		case 0xFF14: v = self.ch1.nr4;
-		case 0xFF16: v = self.ch2.nr1;
-		case 0xFF17: v = self.ch2.nr2;
-		case 0xFF18: v = self.ch2.nr3;
-		case 0xFF19: v = self.ch2.nr4;
-		case 0xFF1A: v = self.ch3.nr0;
-		case 0xFF1B: v = self.ch3.nr1;
-		case 0xFF1C: v = self.ch3.nr2;
-		case 0xFF1D: v = self.ch3.nr3;
-		case 0xFF1E: v = self.ch3.nr4;
-		case 0xFF20: v = self.ch4.nr1;
-		case 0xFF21: v = self.ch4.nr2;
-		case 0xFF22: v = self.ch4.nr3;
-		case 0xFF23: v = self.ch4.nr4;
-		case 0xFF24: v = self.nr50;
-		case 0xFF25: v = self.nr51;
-		case 0xFF26:
-			v = self.power ? (char)0x80 : (char)0x00;
-			if (self.ch1.enabled) v |= 0x01;
-			if (self.ch2.enabled) v |= 0x02;
-			if (self.ch3.enabled) v |= 0x04;
-			if (self.ch4.enabled) v |= 0x08;
-		default:
-			return 0xFF;
-	}
-
-	return (char)(v | READ_MASK[addr - 0xFF10]);
-}
-
-fn void Apu.write(&self, ushort addr, char value) {
-	if (addr >= 0xFF30 && addr <= 0xFF3F) {
-		if (!self.ch3.enabled) {
-			self.ch3.ram[addr - 0xFF30] = value;
-			return;
-		}
-		int i = self.cgb ? self.ch3.pos >> 1 : self.ch3.cpu_access_index();
-		if (i >= 0) self.ch3.ram[i] = value;
-		return;
-	}
-
-	// While powered off only NR52 is writable (wave RAM handled above) — except
-	// that on the DMG the length counters keep working: NRx1 writes still load
-	// them (the duty bits are not stored). Blargg dmg_sound 08.
-	if (!self.power && self.cgb && addr != 0xFF26) return;
-	if (!self.power) {
-		switch (addr) {
-			case 0xFF11: self.ch1.length = 64 - (value & 0x3F);
-			case 0xFF16: self.ch2.length = 64 - (value & 0x3F);
-			case 0xFF1B: self.ch3.length = 256 - value;
-			case 0xFF20: self.ch4.length = 64 - (value & 0x3F);
-			case 0xFF26: break;
-			default:     return;
-		}
-		if (addr != 0xFF26) return;
-	}
-
-	switch (addr) {
-		case 0xFF10:
-			// Leaving subtract mode after a sweep calculation was made in it
-			// disables the channel (Blargg dmg_sound 05).
-			if ((self.ch1.nr0 & 0x08) != 0 && (value & 0x08) == 0 && self.ch1.sweep_neg_used) {
-				self.ch1.enabled = false;
-			}
-			self.ch1.nr0 = value;
-		case 0xFF11:
-			self.ch1.nr1 = value;
-			self.ch1.length = 64 - (value & 0x3F);
-		case 0xFF12:
-			self.ch1.nr2 = value;
-			self.ch1.dac = (value & 0xF8) != 0;
-			if (!self.ch1.dac) self.ch1.enabled = false;
-		case 0xFF13: self.ch1.nr3 = value;
-		case 0xFF14:
-			bool off = nrx4_length(&self.ch1.length, 64, self.ch1.nr4, value, self.length_first_half());
-			self.ch1.nr4 = value;
-			if ((value & 0x80) != 0) self.ch1.trigger();
-			if (off) self.ch1.enabled = false;
-		case 0xFF16:
-			self.ch2.nr1 = value;
-			self.ch2.length = 64 - (value & 0x3F);
-		case 0xFF17:
-			self.ch2.nr2 = value;
-			self.ch2.dac = (value & 0xF8) != 0;
-			if (!self.ch2.dac) self.ch2.enabled = false;
-		case 0xFF18: self.ch2.nr3 = value;
-		case 0xFF19:
-			bool off = nrx4_length(&self.ch2.length, 64, self.ch2.nr4, value, self.length_first_half());
-			self.ch2.nr4 = value;
-			if ((value & 0x80) != 0) self.ch2.trigger();
-			if (off) self.ch2.enabled = false;
-		case 0xFF1A:
-			self.ch3.nr0 = value;
-			self.ch3.dac = (value & 0x80) != 0;
-			if (!self.ch3.dac) self.ch3.enabled = false;
-		case 0xFF1B:
-			self.ch3.nr1 = value;
-			self.ch3.length = 256 - value;
-		case 0xFF1C: self.ch3.nr2 = value;
-		case 0xFF1D: self.ch3.nr3 = value;
-		case 0xFF1E:
-			bool off = nrx4_length(&self.ch3.length, 256, self.ch3.nr4, value, self.length_first_half());
-			self.ch3.nr4 = value;
-			if ((value & 0x80) != 0) self.ch3.trigger(!self.cgb);
-			if (off) self.ch3.enabled = false;
-		case 0xFF20:
-			self.ch4.nr1 = value;
-			self.ch4.length = 64 - (value & 0x3F);
-		case 0xFF21:
-			self.ch4.nr2 = value;
-			self.ch4.dac = (value & 0xF8) != 0;
-			if (!self.ch4.dac) self.ch4.enabled = false;
-		case 0xFF22: self.ch4.nr3 = value;
-		case 0xFF23:
-			bool off = nrx4_length(&self.ch4.length, 64, self.ch4.nr4, value, self.length_first_half());
-			self.ch4.nr4 = value;
-			if ((value & 0x80) != 0) self.ch4.trigger();
-			if (off) self.ch4.enabled = false;
-		case 0xFF24: self.nr50 = value;
-		case 0xFF25: self.nr51 = value;
-		case 0xFF26:
-			bool on = (value & 0x80) != 0;
-			if (self.power && !on) self.power_off();
-			self.power = on;
-		default:
-			break;
-	}
-}
-
 // CGB PCM12/PCM34 ($FF76/$FF77): the current digital output (0-15) of
 // channels 1+2 and 3+4, the second channel of each pair in the high nibble.
-fn char Apu.pcm12(&self) => (char)(self.ch1.output() | self.ch2.output() << 4);
-fn char Apu.pcm34(&self) => (char)(self.ch3.output() | self.ch4.output() << 4);
-
-// True while the frame sequencer's next step will not clock the length
-// counters (they are clocked on steps 0, 2, 4, 6; fs_step is the next step).
-fn bool Apu.length_first_half(&self) => (self.fs_step & 1) != 0;
-
-// NRx4 length-counter quirks (Blargg dmg_sound 03). In the first half of a
-// length period, enabling the counter clocks it once right away, and a
-// trigger that reloads an empty counter loads max - 1 if length is enabled.
-// Returns true when the extra clock emptied the counter without a trigger,
-// which turns the channel off. The channel's own trigger() then sees a
-// non-zero counter and leaves it alone.
-fn bool nrx4_length(int* length, int max, char old, char value, bool first_half) {
-	bool enable = (value & 0x40) != 0;
-	bool trigger = (value & 0x80) != 0;
-	bool off = false;
-	if (first_half && enable && (old & 0x40) == 0 && *length > 0) {
-		(*length)--;
-		if (*length == 0 && !trigger) off = true;
-	}
-	if (trigger && *length == 0) {
-		*length = max;
-		if (first_half && enable) (*length)--;
-	}
-	return off;
-}
-
-// Powering off clears every register, but on the DMG not the length counters
-// (Blargg dmg_sound 08, 11; a CGB clears them too) and never wave RAM.
-fn void Apu.power_off(&self) {
-	int[4] length = { self.ch1.length, self.ch2.length, self.ch3.length, self.ch4.length };
-	Square s1;
-	s1.has_sweep = true;
-	self.ch1 = s1;
-	self.ch2 = {};
-	char[16] wave = self.ch3.ram;
-	self.ch3 = {};
-	self.ch3.ram = wave;
-	self.ch4 = {};
-	if (self.cgb) length = {};
-	self.ch1.length = length[0];
-	self.ch2.length = length[1];
-	self.ch3.length = length[2];
-	self.ch4.length = length[3];
-	self.nr50 = 0;
-	self.nr51 = 0;
-	self.fs_step = 0;
-}
+fn char Apu.pcm12(&self) => self.pcm(SQ1) | self.pcm(SQ2) << 4;
+fn char Apu.pcm34(&self) => self.pcm(WAV) | self.pcm(NOI) << 4;
+fn char Apu.pcm(&self, int ch) => self.active[ch] ? self.samples[ch] : 0;

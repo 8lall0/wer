@@ -1,48 +1,33 @@
 module apu;
 
+// Channel 4. A 14-bit counter runs at 2 MHz / divisor; a rising edge of the
+// counter bit NR43 selects steps the LFSR.
 struct Noise {
-	bool enabled;
-	bool dac;
-	char nr1, nr2, nr3, nr4;
-	int  timer;
-	ushort lfsr;
-	Envelope env;
-	int  length;
+	int  pulse_length;
+	int  current_volume;
+	int  volume_countdown;
+	int  lfsr;               // 15 bits
+	bool narrow;             // 7-bit mode (NR43 bit 3)
+	int  counter_countdown;  // 2 MHz ticks to the next counter step (8 bits)
+	int  counter;            // 14 bits
+	bool length_enabled;
+	int  alignment;          // 2 MHz ticks run, for the start alignment quirks
+	bool current_lfsr_sample;
+	bool did_step_counter;
+	bool countdown_reloaded; // the countdown reloaded in the last tick
+	int  dmg_delayed_start;  // DMG: a trigger off the 1 MHz grid starts later
+	EnvClock env;
 }
 
-fn void Noise.step(&self, uint t) {
-	int divisor = NOISE_DIVISOR[self.nr3 & 0x07];
-	int period = divisor << ((self.nr3 >> 4) & 0x0F);
-	if (period <= 0) period = 8;
-
-	self.timer -= (int)t;
-	while (self.timer <= 0) {
-		self.timer += period;
-		ushort x = (self.lfsr ^ (self.lfsr >> 1)) & 1;
-		self.lfsr = (self.lfsr >> 1) | (x << 14);
-		if ((self.nr3 & 0x08) != 0) {
-			self.lfsr = (self.lfsr & (ushort)~0x40) | (x << 6);
-		}
-	}
-}
-
-fn void Noise.clock_length(&self) {
-	if ((self.nr4 & 0x40) != 0 && self.length > 0) {
-		self.length--;
-		if (self.length == 0) self.enabled = false;
-	}
-}
-
-fn void Noise.trigger(&self) {
-	self.enabled = self.dac;
-	if (self.length == 0) self.length = 64;
-	self.env.trigger(self.nr2);
-	self.lfsr = 0x7FFF;
-	int divisor = NOISE_DIVISOR[self.nr3 & 0x07];
-	self.timer = divisor << ((self.nr3 >> 4) & 0x0F);
-}
-
-fn char Noise.output(&self) {
-	if (!self.enabled || !self.dac) return 0;
-	return (self.lfsr & 1) == 0 ? self.env.volume : 0;
-}
+// Category 2 NR43 glitches on a CGB-E, by old and new clock shift (octal
+// index old*8 + new, both with bit 7 of the new value set).
+const char[64] NR43_GLITCH = {
+	0, 0, 4, 2, 2, 2, 0, 0,
+	0, 0, 2, 4, 2, 2, 0, 0,
+	1, 2, 0, 1, 5, 3, 0, 0,
+	0, 0, 0, 0, 2, 2, 0, 0,
+	0, 2, 2, 2, 0, 0, 0, 0,
+	6, 0, 2, 2, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0,
+};

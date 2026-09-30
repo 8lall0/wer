@@ -155,7 +155,11 @@ fn void Mmu.set(&self, ushort addr, char value) {
 	if (addr < 0xFE00) { *self.wram_at(addr - 0xE000) = value; return; }  // echo RAM
 	if (addr < 0xFEA0) { self.ppu.oam[addr - 0xFE00] = value; return; }
 	if (addr < 0xFF00) { return; }                                    // unusable
-	if (addr >= 0xFF10 && addr <= 0xFF3F) { self.apu.write(addr, value); return; }
+	if (addr >= 0xFF10 && addr <= 0xFF3F) {
+		self.apu.div_counter = self.timer.div;
+		self.apu.write(addr, value);
+		return;
+	}
 	if (addr < 0xFF80) { self.io_set(addr, value); return; }
 	if (addr < 0xFFFF) { self.hram[addr - 0xFF80] = value; return; }
 	self.ie = value;
@@ -533,6 +537,7 @@ fn void Mmu.enter_compat_mode(&self) {
 fn void Mmu.set_double_speed(&self, bool on) {
 	self.double_speed = on;
 	self.timer.double_speed = on;
+	self.apu.double_speed = on;
 	self.key1 = 0;
 }
 
@@ -558,7 +563,7 @@ fn void Mmu.tick(&self, char mcycles) {
 	if (self.sgb && (pirq & ppu::INT_VBLANK)) self.sgb.capture_transfer(&self.ppu);
 	self.request_irq(pirq);
 
-	self.apu.tick(rt, tr.apu_steps);
+	self.apu.tick(rt, tr.apu_steps, tr.apu_rises, tr.apu_div_write);
 
 	if (self.cart && self.cart.has_rtc) self.cart.rtc.tick(rt);
 }
