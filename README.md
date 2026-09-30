@@ -4,7 +4,7 @@ A Game Boy, Super Game Boy and Game Boy Color emulator written in
 [C3](https://c3-lang.org), with SDL3 for video, sound and input.
 
 It aims at accuracy: the CPU, timer, PPU and APU are modelled at the level
-the common hardware test suites check, and it passes all of the ones below.
+the common hardware test suites check; results below.
 
 ## Features
 
@@ -34,8 +34,10 @@ the common hardware test suites check, and it passes all of the ones below.
 | [Mooneye Test Suite](https://github.com/Gekkio/mooneye-test-suite) | 105/105 (every test for DMG, SGB, SGB2 and CGB) |
 | [Mealybug Tearoom](https://github.com/mattcurrie/mealybug-tearoom-tests) | DMG 24/24, CGB 27/27 |
 | [dmg-acid2](https://github.com/mattcurrie/dmg-acid2), [cgb-acid2](https://github.com/mattcurrie/cgb-acid2) | pixel-exact |
-| Blargg `cpu_instrs`, `instr_timing` | pass |
+| Blargg `cpu_instrs`, `instr_timing`, `mem_timing`, `mem_timing-2`, `halt_bug`, `interrupt_time` | pass |
 | Blargg `dmg_sound`, `cgb_sound` | 12/12, 12/12 |
+| Blargg `oam_bug` | 7/8 (`7-timing_effect` writes past its own text buffer, on SameBoy too) |
+| [SameSuite](https://github.com/LIJI32/SameSuite) | 65/78 (the rest target specific CGB revisions, or give SameBoy's results) |
 | [SingleStepTests sm83](https://github.com/SingleStepTests/sm83) | every case, including bus timing |
 
 ## Building
@@ -95,13 +97,14 @@ the build of wer that wrote it; another version of wer refuses to load it.
 
 ```sh
 scripts/fetch-mooneye.sh      # and fetch-mealybug.sh, fetch-acid2.sh,
-scripts/fetch-blargg.sh       #     fetch-sm83-tests.sh
+scripts/fetch-blargg.sh       #     fetch-sm83-tests.sh, fetch-samesuite.sh
 c3c test
 ./build/testrun --test-nocapture --test-filter mooneye   # a suite's report
 ```
 
 The test ROMs are not in the repository; each fetch script downloads its
-suite into `test/`. Without them, those tests pass with a note.
+suite into `test/` (SameSuite is built from source and needs RGBDS). Without
+them, those tests pass with a note.
 
 ## Boot ROMs
 
