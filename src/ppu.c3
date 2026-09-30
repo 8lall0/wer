@@ -175,6 +175,13 @@ fn void Ppu.write_lcdc(&self, char value) {
 		self.first_line = true;
 		self.check_lyc();
 	}
+	if (was_on && (value & LCDC_ENABLE) == 0) self.blank();
+}
+
+// With the LCD off the screen shows no picture: white (the lightest shade).
+fn void Ppu.blank(&self) {
+	foreach (&px : self.fb) *px = 0;
+	foreach (&px : self.cfb) *px = 0x7FFF;
 }
 
 // Writable STAT bits are the four interrupt enables (3-6). Turning one on

@@ -178,12 +178,24 @@ fn void boot_rom_runs_dmg_game_in_compat_mode() @test
 	gb.load_rom(rom);
 	test::@check(gb.mmu.cgb_mode, "CGB features on while the boot ROM runs");
 
-	for (int f = 0; f < 600 && gb.mmu.boot_active; f++) gb.run_frame();
+	ulong limit = gb.cpu.clk + 4194304UL; // 4 s
+	while (gb.mmu.boot_active && gb.cpu.clk < limit) gb.step();
 	test::@check(!gb.mmu.boot_active, "the boot ROM finished");
 	test::@check(!gb.mmu.cgb_mode && gb.mmu.ppu.compat, "DMG game: compatibility mode");
 	test::eq((char)0xFF, gb.mmu.get(0xFF4C));    // KEY0 gone after boot
 	test::eq((char)0xFF, gb.mmu.get(0xFF70));    // CGB registers locked
-	test::@check(gb.cpu.pc >= 0x100 && gb.cpu.pc < 0x102, "running the game");
+	test::eq((char)1, gb.mmu.ppu.opri);          // DMG object priority
+	// The hand-over (Pan Docs, CGB in DMG mode; B = 0: not a Nintendo title).
+	test::eq((ushort)0x0100, gb.cpu.pc);
+	test::eq((ushort)0x1180, gb.cpu.af.reg);
+	test::eq((ushort)0x0000, gb.cpu.bc.reg);
+	test::eq((ushort)0x0008, gb.cpu.de.reg);
+	test::eq((ushort)0x007C, gb.cpu.hl.reg);
+	// The default compatibility palette: white, green, blue, black.
+	test::eq((char)0xFF, gb.mmu.ppu.bg_pal[0]);
+	test::eq((char)0x7F, gb.mmu.ppu.bg_pal[1]);
+	test::eq((char)0x00, gb.mmu.ppu.bg_pal[6]);
+	test::eq((char)0x00, gb.mmu.ppu.bg_pal[7]);
 }
 
 fn void boot_rom_keeps_cgb_mode_for_cgb_game() @test
@@ -193,9 +205,16 @@ fn void boot_rom_keeps_cgb_mode_for_cgb_game() @test
 	gameboy::GameBoy gb = gameboy::new(true, CGB);
 	defer gb.destroy();
 	gb.load_rom(rom);
-	for (int f = 0; f < 600 && gb.mmu.boot_active; f++) gb.run_frame();
+	ulong limit = gb.cpu.clk + 4194304UL; // 4 s
+	while (gb.mmu.boot_active && gb.cpu.clk < limit) gb.step();
 	test::@check(!gb.mmu.boot_active, "the boot ROM finished");
 	test::@check(gb.mmu.cgb_mode && !gb.mmu.ppu.compat, "CGB game: CGB mode");
+	// The hand-over (Pan Docs, CGB).
+	test::eq((ushort)0x0100, gb.cpu.pc);
+	test::eq((ushort)0x1180, gb.cpu.af.reg);
+	test::eq((ushort)0x0000, gb.cpu.bc.reg);
+	test::eq((ushort)0xFF56, gb.cpu.de.reg);
+	test::eq((ushort)0x000D, gb.cpu.hl.reg);
 }
 
 fn void key0_only_while_booting() @test

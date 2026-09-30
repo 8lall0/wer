@@ -45,6 +45,7 @@ fn GameBoy new(bool boot = true, mmu::Model model = DMG) {
 		gb.mmu.wram_ext = mem::new_array(char, mmu::WRAM_EXT_SIZE).ptr;
 		gb.mmu.ppu.vram1 = mem::new_array(char, 0x2000).ptr;
 		gb.mmu.ppu.cfb = mem::new_array(ushort, ppu::WIDTH * ppu::HEIGHT);
+		gb.mmu.ppu.blank(); // the LCD starts off: a white screen
 		// Until a cartridge says otherwise (load_rom_named).
 		gb.mmu.cgb_mode = true;
 		gb.mmu.ppu.cgb = true;
