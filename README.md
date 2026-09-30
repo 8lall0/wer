@@ -1,5 +1,7 @@
 # wer
 
+<img src="resources/wer.svg" alt="" width="128" align="right">
+
 A Game Boy, Super Game Boy and Game Boy Color emulator written in
 [C3](https://c3-lang.org), with SDL3 for video, sound and input.
 
@@ -123,4 +125,8 @@ the author's direction and review.
 
 ## License
 
-Public domain ([The Unlicense](LICENSE)).
+[MIT](LICENSE).
+
+The sound (`src/apu/`) is a port of [SameBoy](https://github.com/LIJI32/SameBoy)'s
+APU and the pixel renderer follows SameBoy's; those parts also carry
+SameBoy's MIT licence ([LICENSE-sameboy](LICENSE-sameboy)).

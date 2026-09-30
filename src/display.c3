@@ -1,6 +1,6 @@
 module display;
 
-import sdl, ppu, joypad, sgb, config;
+import sdl, ppu, joypad, sgb, config, icon;
 import std::io, std::atomic;
 
 // The window shows the picture enlarged by a whole factor (sharp square
@@ -169,6 +169,7 @@ fn Display? open(ZString title, int scale = DEFAULT_SCALE) {
 		return SDL_FAILED~;
 	}
 	sdl::set_render_vsync(d.renderer, 0);
+	set_icon(d.window);
 
 	d.resize(ppu::WIDTH, ppu::HEIGHT);
 
@@ -182,6 +183,21 @@ fn Display? open(ZString title, int scale = DEFAULT_SCALE) {
 		io::eprintfn("audio unavailable: %s", sdl::get_error().str_view());
 	}
 	return d;
+}
+
+// The window's icon: the 32x32 pixel art at 4x, so a desktop that shows it
+// larger doesn't blur it. SDL copies the pixels.
+const int ICON_SCALE = 4;
+
+fn void set_icon(sdl::Window* window) {
+	int w = icon::SIZE * ICON_SCALE;
+	char[] pixels = mem::new_array(char, (usz)(w * w * 4));
+	defer free(pixels.ptr);
+	icon::rgba(pixels, ICON_SCALE);
+	sdl::Surface* s = sdl::create_surface_from(w, w, sdl::PIXELFORMAT_ABGR8888, pixels.ptr, w * 4);
+	if (!s) return;
+	sdl::set_window_icon(window, s);
+	sdl::destroy_surface(s);
 }
 
 fn void Display.close(&self) {

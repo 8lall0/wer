@@ -7,6 +7,7 @@ alias Renderer = void;
 alias Texture = void;
 alias AudioStream = void;
 alias Gamepad = void;
+alias Surface = void;
 
 // SDL_Init flags
 const uint INIT_AUDIO  = 0x00000010;
@@ -157,6 +158,9 @@ extern fn Window*   create_window(ZString title, int w, int h, ulong flags) @cna
 extern fn void      destroy_window(Window* window)                          @cname("SDL_DestroyWindow");
 extern fn bool      set_window_title(Window* window, ZString title)         @cname("SDL_SetWindowTitle");
 extern fn bool      set_window_size(Window* window, int w, int h)           @cname("SDL_SetWindowSize");
+extern fn bool      set_window_icon(Window* window, Surface* icon)          @cname("SDL_SetWindowIcon");
+extern fn Surface*  create_surface_from(int w, int h, uint format, void* pixels, int pitch) @cname("SDL_CreateSurfaceFrom");
+extern fn void      destroy_surface(Surface* surface)                       @cname("SDL_DestroySurface");
 
 extern fn void      show_open_file_dialog(DialogFileCallback callback, void* userdata, Window* window,
                         DialogFileFilter* filters, int nfilters, ZString default_location,
