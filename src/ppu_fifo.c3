@@ -97,6 +97,14 @@ struct Renderer {
 	int      n_obj;
 	ObjStep  obj_step;
 	bool     obj_abort;   // DMG: OBJ_EN was cleared during an object fetch
+
+	// CGB TILE_SEL glitch (SameBoy, after Matt Currie's research)
+	bool     tile_sel_glitch;  // TILE_SEL is being cleared in this dot
+	bool     last_tileset;     // TILE_SEL as the bitplane address was formed
+	char     glitch_data;      // the last high bitplane byte read (tiles and objects)
+	char     obj_glitch_data;  // the high bitplane of the last object fetched
+	bool     obj_fetched;      // an object has been fetched (on any line so far)
+	bool     cgb_wx_glitch;    // CGB: the window is starting here, the fetcher skips reads
 	char     obj_tile;
 	char     obj_flags;
 	char     obj_lo;
@@ -229,6 +237,9 @@ fn void Ppu.render_dot(&self) {
 			r.obj_step = HIGH;
 		case HIGH:
 			r.obj_hi = self.vram_read(self.object_line_address() + 1);
+			r.glitch_data = r.obj_hi;
+			r.obj_glitch_data = r.obj_hi;
+			r.obj_fetched = true;
 			r.obj_step = OVERLAY;
 		case OVERLAY:
 			self.overlay_object();
@@ -271,6 +282,22 @@ fn void Ppu.object_wait(&self) {
 	}
 	self.advance_fetcher();
 	r.obj_step = OAM;
+}
+
+// An object fetch counts as in progress (for LCDC writes) until its high
+// bitplane read starts: mixing the fetched row in can no longer be stopped.
+fn bool Ppu.during_object_fetch(&self) {
+	switch (self.r.obj_step) {
+		case WAIT:
+		case OAM:
+		case OAM_IDLE:
+		case LOW:
+		case LOW_IDLE:
+		case HIGH:
+			return true;
+		default:
+			return false;
+	}
 }
 
 fn ushort Ppu.object_line_address(&self) {
@@ -348,10 +375,27 @@ fn bool Ppu.window_check(&self) {
 	return stall;
 }
 
+// CGB: while the window is being switched in, the fetcher's reads are
+// skipped (SameBoy's cgb_wx_glitch). Re-evaluated at each address step.
+fn void Ppu.update_wx_glitch(&self) {
+	Renderer* r = &self.r;
+	if (!self.cgb_hw) return;
+	if ((self.r_lcdc & LCDC_WIN_ENABLE) == 0 || !r.wy_triggered) {
+		r.cgb_wx_glitch = false;
+		return;
+	}
+	if (self.wx == 0) {
+		r.cgb_wx_glitch = u8(r.pos + 16) <= 8 || (r.pos == -7 && r.fractional);
+		return;
+	}
+	r.cgb_wx_glitch = u8(r.pos + 7 + (r.window_fetching ? 1 : 0)) == self.wx;
+}
+
 fn void Ppu.advance_fetcher(&self) {
 	Renderer* r = &self.r;
 	switch (r.state) {
 		case TILE_T1:
+			self.update_wx_glitch();
 			if ((self.r_lcdc & LCDC_WIN_ENABLE) == 0) r.wx_triggered = false;
 			ushort map = 0x1800;
 			if (r.wx_triggered ? (self.r_lcdc & LCDC_WIN_MAP) != 0 : (self.r_lcdc & LCDC_BG_MAP) != 0) map = 0x1C00;
@@ -368,20 +412,44 @@ fn void Ppu.advance_fetcher(&self) {
 			r.addr = (ushort)(map + x + (y / 8) * 32);
 			r.state = TILE_T2;
 		case TILE_T2:
+			if (r.cgb_wx_glitch) {
+				r.state = LOW_T1;
+				return;
+			}
 			r.tile = self.vram_read(r.addr);
 			r.attr = self.cgb ? self.vram_read(r.addr | 0x2000) : 0;
 			r.state = LOW_T1;
 		case LOW_T1:
+			self.update_wx_glitch();
 			r.addr = self.tile_data_address();
 			r.state = LOW_T2;
 		case LOW_T2:
-			r.lo = self.vram_read(r.addr);
+			if (r.cgb_wx_glitch) {
+				r.lo = r.hi;
+				r.state = HIGH_T1;
+				return;
+			}
+			bool used;
+			if (r.tile_sel_glitch) r.lo = self.tile_sel_glitch_data(&used);
+			if (!used) r.lo = self.vram_read(r.addr);
+			if (r.last_tileset && r.tile_sel_glitch) r.glitch_data = self.vram_read(r.addr);
 			r.state = HIGH_T1;
 		case HIGH_T1:
+			self.update_wx_glitch();
 			r.addr = self.tile_data_address() + 1;
 			r.state = HIGH_T2;
 		case HIGH_T2:
-			r.hi = self.vram_read(r.addr);
+			if (r.cgb_wx_glitch) {
+				// No push in this dot.
+				r.hi = r.lo;
+				r.state = PUSH;
+				if (r.wx_triggered) r.window_tile_x = (r.window_tile_x + 1) & 0x1F;
+				return;
+			}
+			bool used;
+			if (r.tile_sel_glitch) r.hi = self.tile_sel_glitch_data(&used);
+			if (!used) r.glitch_data = r.hi = self.vram_read(r.addr);
+			if (r.last_tileset && r.tile_sel_glitch) r.glitch_data = self.vram_read(r.addr);
 			if (r.wx_triggered) r.window_tile_x = (r.window_tile_x + 1) & 0x1F;
 			r.state = PUSH;
 			self.fetcher_push();
@@ -390,11 +458,27 @@ fn void Ppu.advance_fetcher(&self) {
 	}
 }
 
+// CGB (up to CPU CGB C): a bitplane read in the dot TILE_SEL is cleared reads
+// the tile number instead (when the address was formed with TILE_SEL set, and
+// the tile number is below $80), or else the last bitplane byte read.
+fn char Ppu.tile_sel_glitch_data(&self, bool* used) {
+	Renderer* r = &self.r;
+	if (r.last_tileset) {
+		*used = (r.tile & 0x80) == 0;
+		return r.tile;
+	}
+	*used = true;
+	// Setting TILE_SEL: the high bitplane of the most recent object if there
+	// is one (Matt Currie's findings), else of the most recent tile.
+	return r.obj_fetched ? r.obj_glitch_data : r.glitch_data;
+}
+
 // Tile data address for the current tile and fetcher Y (TILE_SEL and SCY
 // are read again for each bitplane).
 fn ushort Ppu.tile_data_address(&self) {
 	Renderer* r = &self.r;
 	char y = self.fetcher_y();
+	r.last_tileset = (self.r_lcdc & LCDC_TILE_DATA) != 0;
 	int a = (self.r_lcdc & LCDC_TILE_DATA) ? (int)r.tile * 16 : (int)(ichar)r.tile * 16 + 0x1000;
 	if (r.attr & ATTR_BANK) a += 0x2000;
 	int fine = (r.attr & ATTR_YFLIP) ? 7 - (y & 7) : y & 7;
@@ -515,6 +599,9 @@ fn void Ppu.render_pixel(&self) {
 fn void Ppu.render_end(&self) {
 	Renderer* r = &self.r;
 	r.active = false;
+	// HBlank starts for VRAM DMA only once the last pixel is out: an HDMA
+	// block copied earlier could change tile data still being fetched.
+	self.hblank_start = true;
 	while (r.lcd_x < WIDTH) {
 		int at = self.line * WIDTH + r.lcd_x;
 		if (r.lcd_x > 0) {

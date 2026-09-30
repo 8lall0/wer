@@ -34,10 +34,10 @@ const Rom[*] DMG_ROMS = {
 	{ "m2_win_en_toggle", true  },
 	{ "m3_bgp_change", true  },
 	{ "m3_bgp_change_sprites", true  },
-	{ "m3_lcdc_bg_en_change", false },
+	{ "m3_lcdc_bg_en_change", true  },
 	{ "m3_lcdc_bg_map_change", true  },
-	{ "m3_lcdc_obj_en_change", false },
-	{ "m3_lcdc_obj_en_change_variant", false },
+	{ "m3_lcdc_obj_en_change", true  },
+	{ "m3_lcdc_obj_en_change_variant", true  },
 	{ "m3_lcdc_obj_size_change", true  },
 	{ "m3_lcdc_obj_size_change_scx", true  },
 	{ "m3_lcdc_tile_sel_change", true  },
@@ -55,6 +55,41 @@ const Rom[*] DMG_ROMS = {
 	{ "m3_wx_4_change_sprites", true  },
 	{ "m3_wx_5_change", true  },
 	{ "m3_wx_6_change", true  },
+};
+
+// Expected on a CGB (CPU CGB C screenshots). The ROMs are DMG games: the
+// CGB runs them in compatibility mode, coloured by the boot ROM, so these
+// run through the boot ROM. Left out: the four whose CGB screenshot is a
+// "not currently available" placeholder (m3_lcdc_win_en_change_multiple_wx,
+// m3_wx_4_change, m3_wx_5_change, m3_wx_6_change).
+const Rom[*] CGB_ROMS = {
+	{ "m2_win_en_toggle", true  },
+	{ "m3_bgp_change", true  },
+	{ "m3_bgp_change_sprites", true  },
+	{ "m3_lcdc_bg_en_change", true  },
+	{ "m3_lcdc_bg_en_change2", true  },
+	{ "m3_lcdc_bg_map_change", true  },
+	{ "m3_lcdc_bg_map_change2", true  },
+	{ "m3_lcdc_obj_en_change", true  },
+	{ "m3_lcdc_obj_en_change_variant", true  },
+	{ "m3_lcdc_obj_size_change", true  },
+	{ "m3_lcdc_obj_size_change_scx", false },
+	{ "m3_lcdc_tile_sel_change", false },
+	{ "m3_lcdc_tile_sel_change2", false },
+	{ "m3_lcdc_tile_sel_win_change", false },
+	{ "m3_lcdc_tile_sel_win_change2", false },
+	{ "m3_lcdc_win_en_change_multiple", true  },
+	{ "m3_lcdc_win_map_change", true  },
+	{ "m3_lcdc_win_map_change2", true  },
+	{ "m3_obp0_change", true  },
+	{ "m3_scx_high_5_bits", true  },
+	{ "m3_scx_high_5_bits_change2", true  },
+	{ "m3_scx_low_3_bits", true  },
+	{ "m3_scy_change", true  },
+	{ "m3_scy_change2", true  },
+	{ "m3_window_timing", true  },
+	{ "m3_window_timing_wx_0", true  },
+	{ "m3_wx_4_change_sprites", false },
 };
 
 enum Outcome : char {
@@ -92,6 +127,46 @@ fn Outcome run_dmg(String name, int* wrong) {
 	return TIMEOUT;
 }
 
+// Runs one ROM on a CGB, through the boot ROM; compares the RGB frame.
+fn Outcome run_cgb(String name, int* wrong) {
+	char[]? rom = file::load_temp(string::tformat("%sroms/%s.gb", DIR, name));
+	char[]? ref = file::load_temp(string::tformat("%scgb/%s.ppm", DIR, name));
+	if (catch rom, ref) return MISSING;
+	if (ref.len < PIXELS * 3) return MISSING;
+	char[] want = ref[ref.len - PIXELS * 3..];
+
+	gameboy::GameBoy gb = gameboy::new(true, CGB);
+	defer gb.destroy();
+	gb.load_rom(rom);
+
+	ulong limit = gb.cpu.clk + TIMEOUT * 2;
+	while (gb.cpu.clk < limit) {
+		if (!gb.mmu.boot_active && gb.mmu.get(gb.cpu.pc) == 0x40) { // LD B,B
+			char[] rgb = mem::new_array(char, gameboy::MAX_FRAME_RGB);
+			defer free(rgb.ptr);
+			gb.frame_rgb(rgb, {});
+			for (int i = 0; i < PIXELS; i++) {
+				if (rgb[i * 3:3] != want[i * 3:3]) (*wrong)++;
+			}
+			if (*wrong == 0) return PASS;
+			(void)write_ppm(string::tformat("%sout/%s-cgb.ppm", DIR, name), rgb[:PIXELS * 3]);
+			return FAIL;
+		}
+		gb.step();
+	}
+	return TIMEOUT;
+}
+
+fn void? write_ppm(String path, char[] rgb) {
+	if (!file::is_dir(DIR +++ "out")) path::mkdir(DIR +++ "out")!;
+	DString out;
+	out.init(mem);
+	defer out.free();
+	out.appendf("P6\n%d %d\n255\n", ppu::WIDTH, ppu::HEIGHT);
+	foreach (b : rgb) out.append_char(b);
+	file::save(path, out.str_view())!;
+}
+
 // Our frame, for comparing by eye (test/mealybug/out/<name>.pgm).
 fn void? write_pgm(String path, char[] fb) {
 	if (!file::is_dir(DIR +++ "out")) path::mkdir(DIR +++ "out")!;
@@ -103,34 +178,42 @@ fn void? write_pgm(String path, char[] fb) {
 	file::save(path, out.str_view())!;
 }
 
-fn void run_all() @test
+alias Runner = fn Outcome(String, int*);
+
+fn void run_suite(String label, Rom[] roms, Runner run)
 {
 	uint present;
 	uint passed;
 	uint regressed;
 	uint new_pass;
-	foreach (rom : DMG_ROMS) {
+	foreach (rom : roms) {
 		int wrong;
-		Outcome o = run_dmg(rom.name, &wrong);
+		Outcome o = run(rom.name, &wrong);
 		if (o == MISSING) continue;
 		present++;
 		if (o == PASS) {
 			passed++;
 			if (!rom.must_pass) {
 				new_pass++;
-				io::eprintfn("  NEW PASS  %s  (mark it `true`)", rom.name);
+				io::eprintfn("  NEW PASS  %s %s  (mark it `true`)", label, rom.name);
 			}
 			continue;
 		}
 		if (rom.must_pass) regressed++;
 		String what = o == TIMEOUT ? "timeout" : string::tformat("%d px", wrong);
-		io::eprintfn("  %s%-9s %s", rom.must_pass ? "REGRESSED " : "", what, rom.name);
+		io::eprintfn("  %s%-9s %s %s", rom.must_pass ? "REGRESSED " : "", what, label, rom.name);
 	}
 
 	if (present == 0) {
-		io::eprintn("  mealybug: no ROMs in test/mealybug — run scripts/fetch-mealybug.sh");
+		io::eprintfn("  %s: no ROMs in test/mealybug — run scripts/fetch-mealybug.sh", label);
 		return;
 	}
-	io::eprintfn("  mealybug: %d/%d pass, %d newly passing, %d regressed", passed, present, new_pass, regressed);
+	io::eprintfn("  %s: %d/%d pass, %d newly passing, %d regressed", label, passed, present, new_pass, regressed);
 	test::@check(regressed == 0, "a must-pass Mealybug ROM regressed (see lines above)");
+}
+
+fn void run_all() @test
+{
+	run_suite("mealybug dmg", &DMG_ROMS, &run_dmg);
+	run_suite("mealybug cgb", &CGB_ROMS, &run_cgb);
 }

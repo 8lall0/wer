@@ -79,7 +79,7 @@ struct Ppu {
 	bool first_line;
 	int  line;         // line being processed (LY runs LY_EARLY_DOTS ahead of it)
 	int  mode3_len;    // length of this line's mode 3, fixed when it starts
-	bool hblank_start; // a visible line entered HBlank (CGB HDMA); cleared by the Mmu
+	bool hblank_start; // a visible line's last pixel is out (CGB HDMA); cleared by the Mmu
 
 	// Mode 3 drawing (ppu_fifo.c3), and what it sees of the registers: SCY,
 	// SCX, WY, WX and the palettes change a few dots after the CPU writes
@@ -107,6 +107,8 @@ struct RegWrite {
 }
 
 const char WX_SETTLED = 0x00;
+const char TILE_SEL_GLITCH_ON  = 0x02; // CGB: TILE_SEL cleared on a bitplane read (see ppu_fifo)
+const char TILE_SEL_GLITCH_OFF = 0x03;
 const char LCDC_DMG   = 0x01; // DMG LCDC write: mixed old/new value for a dot (see apply)
 
 // CGB tile attributes (VRAM bank 1, same address as the tile index).
@@ -327,12 +329,9 @@ fn char Ppu.update_mode(&self) {
 	self.stat = (self.stat & 0xFC) | want;
 
 	char irq = 0;
-	switch (want) {
-		case 0:
-			self.hblank_start = true;
-		case 1:
-			self.frame_ready = true;
-			irq |= INT_VBLANK;
+	if (want == 1) {
+		self.frame_ready = true;
+		irq |= INT_VBLANK;
 	}
 	return irq;
 }
@@ -375,6 +374,10 @@ fn char Ppu.update_stat_line(&self) {
 // those two). The
 // register itself (what the CPU reads, and the timing code) was already set;
 // LCDC reaches the renderer through r_lcdc.
+// CGB write delays (LCDC, SCY, SCX, WX, TILE_SEL glitch dot): SameBoy's,
+// swept on the Mealybug tests.
+int[5] cgb_delay = { 4, 4, 4, 5, 4 };
+
 fn void Ppu.write_render_reg(&self, char reg, char value) {
 	char old;
 	switch (reg) {
@@ -390,11 +393,11 @@ fn void Ppu.write_render_reg(&self, char reg, char value) {
 	old = self.cpu_view(reg, old);
 	bool dmg = !self.cgb_hw;
 	switch (reg) {
-		case 0x42: self.schedule(reg, value, dmg ? 2 : 4);
-		case 0x43: self.schedule(reg, value, dmg ? 2 : 4);
+		case 0x42: self.schedule(reg, value, dmg ? 2 : cgb_delay[1]);
+		case 0x43: self.schedule(reg, value, dmg ? 2 : cgb_delay[2]);
 		case 0x4A: self.schedule(reg, value, 4);
 		case 0x4B:
-			self.schedule(reg, value, dmg ? 4 : 5);
+			self.schedule(reg, value, dmg ? 4 : cgb_delay[3]);
 			if (dmg) self.schedule(WX_SETTLED, 0, 5);
 		case 0x47:
 		case 0x48:
@@ -406,8 +409,13 @@ fn void Ppu.write_render_reg(&self, char reg, char value) {
 			if (dmg && !self.sgb_hw) {
 				self.queue({ .reg = LCDC_DMG, .value = value, .old = old, .delay = 2 });
 				self.schedule(reg, value, 3);
+			} else if (!dmg && ((old ^ value) & LCDC_TILE_DATA)) {
+				// CGB: changing TILE_SEL disturbs a bitplane read in that dot.
+				self.schedule(reg, value, cgb_delay[0]);
+				self.schedule(TILE_SEL_GLITCH_ON, 0, cgb_delay[4]);
+				self.schedule(TILE_SEL_GLITCH_OFF, 0, cgb_delay[4] + 1);
 			} else {
-				self.schedule(reg, value, dmg ? 2 : 4);
+				self.schedule(reg, value, dmg ? 2 : cgb_delay[0]);
 			}
 	}
 }
@@ -454,6 +462,8 @@ fn void Ppu.apply_writes(&self) {
 fn void Ppu.apply(&self, RegWrite w) {
 	switch (w.reg) {
 		case WX_SETTLED: self.wx_just_changed = false;
+		case TILE_SEL_GLITCH_ON: self.r.tile_sel_glitch = true;
+		case TILE_SEL_GLITCH_OFF: self.r.tile_sel_glitch = false;
 		case 0x42: self.scy = w.value;
 		case 0x43: self.scx = w.value;
 		case 0x4A:
@@ -470,15 +480,16 @@ fn void Ppu.apply(&self, RegWrite w) {
 			// Enabling the window re-checks WY (SameBoy: after an LCDC write).
 			if (self.line < VBLANK_LINE) self.wy_check();
 		case LCDC_DMG:
-			// The new LCDC, except the BG and object enable bits and a window
-			// enable (not a disable), which take a dot longer; disabling objects
-			// is immediate when it meets an object fetch in progress or the
-			// first pixel (SameBoy's DMG LCDC conflict; the rest calibrated on
-			// the Mealybug tests).
-			char keep = LCDC_BG_ENABLE | LCDC_OBJ_ENABLE;
+			// The new LCDC, except that the BG and object enable bits and a
+			// window enable (not a disable) take a dot longer. Disabling objects
+			// during an object fetch or at the first pixel, and disabling the BG
+			// at the first pixel, are immediate. (SameBoy's DMG LCDC conflict,
+			// reworked against the Mealybug DMG screenshots.)
+			char keep = LCDC_OBJ_ENABLE | LCDC_BG_ENABLE;
+			if ((w.value & LCDC_BG_ENABLE) == 0 && self.r.pos == 0) keep &= (char)~LCDC_BG_ENABLE;
 			if ((w.old & LCDC_WIN_ENABLE) == 0) keep |= LCDC_WIN_ENABLE;
-			if ((w.value & LCDC_OBJ_ENABLE) == 0 && (self.r.pos == 0 || self.r.obj_step != NONE)) keep &= (char)~LCDC_OBJ_ENABLE;
-			if ((w.old & LCDC_OBJ_ENABLE) && (w.value & LCDC_OBJ_ENABLE) == 0 && self.r.obj_step != NONE) self.r.obj_abort = true;
+			if ((w.value & LCDC_OBJ_ENABLE) == 0 && (self.r.pos == 0 || self.during_object_fetch())) keep &= (char)~LCDC_OBJ_ENABLE;
+			if ((w.old & LCDC_OBJ_ENABLE) && (w.value & LCDC_OBJ_ENABLE) == 0 && self.during_object_fetch()) self.r.obj_abort = true;
 			self.r_lcdc = (self.r_lcdc & LCDC_ENABLE) | (((w.value & ~keep) | (w.old & keep)) & 0x7F);
 			if ((w.old & LCDC_WIN_ENABLE) && (w.value & LCDC_WIN_ENABLE) == 0 && self.r.window_fetching) {
 				self.r.no_insert_glitch = true;

@@ -124,7 +124,8 @@ fn void hblank_dma_one_block_per_hblank() @test
 	gb.mmu.set(0xFF55, 0x83);                    // 4 blocks, HBlank DMA
 	test::eq((char)0x03, gb.mmu.get(0xFF55));    // running, 3 left after this
 
-	// Run until one HBlank has happened.
+	// Run until one HBlank has begun, and a little longer: the block goes once
+	// the line's last pixel is out, a few dots into HBlank.
 	int hblanks = 0;
 	char last = gb.mmu.ppu.mode;
 	while (hblanks < 1) {
@@ -132,6 +133,7 @@ fn void hblank_dma_one_block_per_hblank() @test
 		if (gb.mmu.ppu.mode == 0 && last != 0) hblanks++;
 		last = gb.mmu.ppu.mode;
 	}
+	for (int i = 0; i < 4; i++) gb.step();
 	test::eq((char)0x02, gb.mmu.get(0xFF55));
 	test::eq((char)0x0F, gb.mmu.ppu.vram[0x0F]);
 	test::eq((char)0x00, gb.mmu.ppu.vram[0x10]);  // second block not yet
