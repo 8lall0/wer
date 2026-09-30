@@ -84,6 +84,9 @@ struct Mmu {
 	bool   serial_active; // internal-clock transfer in progress
 	int    serial_bits;   // bits shifted so far (0..8)
 	bool   serial_echo;   // when true, print each transferred byte to stderr
+	// The first bytes sent over serial (test ROMs report results there).
+	char[1024] serial_log;
+	usz    serial_log_len;
 
 	bool boot_active;
 	Model model;
@@ -408,6 +411,7 @@ fn char Mmu.dma_conflict_read(&self, ushort addr) {
 // the serial clock edges (Timer SERIAL_BIT), 8 of them per transfer.
 fn void Mmu.serial_start(&self) {
 	if (self.serial_echo) io::eprintf("%c", self.io[0x01]); // the byte being sent
+	if (self.serial_log_len < self.serial_log.len) self.serial_log[self.serial_log_len++] = self.io[0x01];
 	self.serial_active = true;
 	self.serial_bits = 0;
 }
