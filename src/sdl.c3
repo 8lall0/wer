@@ -67,9 +67,15 @@ const int SC_UP     = 82;
 const int SC_RSHIFT = 229;
 
 const int SC_O      = 18;
+const int SC_N      = 17;
+const int SC_P      = 19;
+const int SC_TAB    = 43;
+const int SC_F1     = 58; // F1-F9 are consecutive
+const int SC_F9     = 66;
 
-// SDL_Keymod: either Ctrl key
-const ushort KMOD_CTRL = 0x00C0;
+// SDL_Keymod: either Ctrl / either Shift key
+const ushort KMOD_CTRL  = 0x00C0;
+const ushort KMOD_SHIFT = 0x0003;
 
 // The SDL_Event union is 128 bytes; we read `type`, and for key events view
 // the same memory as a KeyboardEvent.

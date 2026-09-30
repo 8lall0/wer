@@ -9,6 +9,9 @@ fn NanoDuration frame_period(mmu::Model model) {
 }
 const NanoDuration MAX_LAG = (NanoDuration)100_000_000;
 
+// Fast forward runs at most this many frames per shown frame.
+const int FAST_FORWARD_MAX = 16;
+
 const float AUDIO_TARGET_BYTES = 9600;  // 50 ms of s16 stereo @ 48 kHz
 const float MAX_RATE_ADJ = 0.005; // ±0.5%
 const float MAX_INTEG = 0.002;  // ±0.2%
@@ -150,8 +153,60 @@ fn void save_settings(config::Config* cfg, mmu::Model model, int pal, int scale)
 	if (catch cfg.save()) io::eprintfn("could not save %s", config::tpath());
 }
 
+// A one-line notice shown over the game for a moment.
+struct Notice {
+	char[64] text;
+	usz      len;
+	Clock    until;
+}
+
+fn void Notice.show(&self, String s) {
+	self.len = s.len < self.text.len ? s.len : self.text.len;
+	for (usz i = 0; i < self.len; i++) self.text[i] = s[i];
+	self.until = clock::now() + (NanoDuration)2_000_000_000;
+}
+
+fn String Notice.current(&self) => clock::now() < self.until ? (String)self.text[:self.len] : "";
+
+// Save states: slots 1-9 per game, files next to the ROM (see gameboy::state_path).
+const int STATE_SLOTS = 9;
+
+fn void save_slot(gameboy::GameBoy* gb, String rom_path, int n, Notice* notice) {
+	if (catch gb.save_state_file(gameboy::state_path(rom_path, n))) {
+		notice.show(string::tformat("Could not save state %d", n));
+		return;
+	}
+	notice.show(string::tformat("Saved state %d", n));
+}
+
+// True when the state was loaded (the game continues from it).
+fn bool load_slot(gameboy::GameBoy* gb, String rom_path, int n, Notice* notice) {
+	String path = gameboy::state_path(rom_path, n);
+	if (!file::is_file(path)) {
+		notice.show(string::tformat("State %d is empty", n));
+		return false;
+	}
+	if (catch f = gb.load_state_file(path)) {
+		String why;
+		switch (f) {
+			case gameboy::STATE_OTHER_BUILD: why = "another wer version";
+			case gameboy::STATE_OTHER_MODEL: why = "another model";
+			case gameboy::STATE_OTHER_GAME:  why = "another game";
+			default:                         why = "unreadable";
+		}
+		notice.show(string::tformat("State %d: %s", n, why));
+		return false;
+	}
+	notice.show(string::tformat("Loaded state %d", n));
+	return true;
+}
+
+fn bool slot_used(String rom_path, int n) => file::is_file(gameboy::state_path(rom_path, n));
+
 enum MenuItem : char {
 	RESUME,
+	SAVE_STATE,
+	LOAD_STATE,
 	OPEN,
 	MODE,
 	PALETTE,
@@ -265,6 +320,9 @@ fn int main(String[] args)
 	int selected = 0;
 	bool controls = false;  // the Controls submenu is showing
 	int  binding = -1;      // Controls: the button waiting for a new key/pad button
+	bool paused = false;    // P: the game stops (N runs it one frame)
+	int  slot = 1;          // save state slot the menu works on
+	Notice notice;
 
 	char[] rgb = mem::new_array(char, gameboy::MAX_FRAME_RGB);
 	defer free(rgb.ptr);
@@ -287,6 +345,7 @@ fn int main(String[] args)
 				rom_path = chosen.copy(mem);
 				screen.set_title(window_title(&cart, gb.mmu.model));
 				screen.clear_audio();
+				paused = false;
 				next = clock::now();
 			}
 		}
@@ -317,8 +376,32 @@ fn int main(String[] args)
 			screen.clear_audio();
 		}
 
+		// Hotkeys while a game is showing: pause, frame advance, save states.
+		bool advance = false;
+		if (has_rom && !menu) {
+			if (in.pressed & display::KEY_PAUSE) {
+				paused = !paused;
+				screen.clear_audio();
+				notice.show(paused ? "Paused" : "");
+			}
+			if (in.pressed & display::KEY_ADVANCE) {
+				if (!paused) screen.clear_audio();
+				paused = true;
+				advance = true;
+			}
+			if (in.state_slot > 0) {
+				slot = in.state_slot;
+				if (in.state_save) {
+					save_slot(&gb, rom_path, slot, &notice);
+				} else if (load_slot(&gb, rom_path, slot, &notice)) {
+					screen.clear_audio();
+					next = clock::now();
+				}
+			}
+		}
+
 		// The menu: which items exist depends on whether a game is loaded.
-		MenuItem[8] items;
+		MenuItem[10] items;
 		String[CONTROLS_COUNT] lines;
 		int count = 0;
 		if (menu && controls) {
@@ -358,7 +441,11 @@ fn int main(String[] args)
 				count = 0; // left the submenu: the main menu draws from the next frame
 			}
 		} else if (menu) {
-			if (has_rom) items[count++] = RESUME;
+			if (has_rom) {
+				items[count++] = RESUME;
+				items[count++] = SAVE_STATE;
+				items[count++] = LOAD_STATE;
+			}
 			items[count++] = OPEN;
 			items[count++] = MODE;
 			if (model.is_sgb()) items[count++] = PALETTE;
@@ -400,6 +487,9 @@ fn int main(String[] args)
 				screen.set_scale(scale);
 				save_settings(&cfg, model, pal, scale);
 			}
+			if ((item == SAVE_STATE || item == LOAD_STATE) && step != 0) {
+				slot = (slot - 1 + step + STATE_SLOTS) % STATE_SLOTS + 1;
+			}
 			if (item == PALETTE && step != 0) {
 				int n = (int)PALETTE_NAMES.len;
 				pal = (pal + step + n) % n;
@@ -410,6 +500,14 @@ fn int main(String[] args)
 			if (enter) {
 				switch (item) {
 					case RESUME: menu = false;
+					case SAVE_STATE:
+						save_slot(&gb, rom_path, slot, &notice);
+						menu = false;
+					case LOAD_STATE:
+						if (load_slot(&gb, rom_path, slot, &notice)) {
+							menu = false;
+							next = clock::now();
+						}
 					case OPEN:   screen.open_rom_dialog();
 					case CONTROLS:
 						controls = true;
@@ -418,6 +516,7 @@ fn int main(String[] args)
 						if (try loaded = load_game(&gb, rom_path, boot, model, pal)) {
 							cart = loaded;
 							menu = false;
+							paused = false;
 							next = clock::now();
 						}
 					case QUIT:   break;
@@ -431,6 +530,10 @@ fn int main(String[] args)
 			for (int i = 0; i < count; i++) {
 				switch (items[i]) {
 					case RESUME:  lines[i] = "Resume";
+					case SAVE_STATE:
+						lines[i] = string::tformat("Save state: < %d >%s", slot, slot_used(rom_path, slot) ? "" : " (empty)");
+					case LOAD_STATE:
+						lines[i] = string::tformat("Load state: < %d >%s", slot, slot_used(rom_path, slot) ? "" : " (empty)");
 					// At 1x the window is 20 characters wide: no hints there.
 					case OPEN:
 						if (scale == 1) {
@@ -448,21 +551,45 @@ fn int main(String[] args)
 			}
 		}
 
-		// The game only runs while neither the menu nor the file dialog is up.
-		if (!menu && !screen.dialog_open()) {
+		// The game only runs while neither the menu nor the file dialog is up,
+		// and not while paused (except the one frame N asks for).
+		bool running = !menu && !screen.dialog_open() && (!paused || advance);
+		if (running && in.fast && !paused) {
+			// Fast forward: as many frames as fit in most of a frame's time,
+			// the last one shown, without sound.
+			Clock start = clock::now();
+			NanoDuration budget = frame_period(gb.mmu.model) * 3 / 4;
+			int n = 0;
+			do {
+				gb.mmu.set_input(in.buttons, in.dpad);
+				gb.run_frame();
+				gb.audio(&audio);
+				n++;
+			} while (n < FAST_FORWARD_MAX && clock::now() - start < budget);
+			screen.clear_audio();
+		} else if (running) {
 			gb.mmu.set_input(in.buttons, in.dpad);
 			gb.run_frame();
-			screen.queue_audio(&audio, gb.audio(&audio));
-			int queued = screen.audio_queued();
-			avg += (queued - avg) / 32;
-			float e = (avg - AUDIO_TARGET_BYTES) / AUDIO_TARGET_BYTES;
-			e = math::clamp(e, -1, 1);
-			integ += e * INTEG_GAIN;
-			integ = math::clamp(integ, -MAX_INTEG, +MAX_INTEG);
-			gb.set_audio_rate((uint)(display::AUDIO_RATE * (1 - MAX_RATE_ADJ * e - integ)));
+			if (paused) {
+				gb.audio(&audio); // a single frame's sound would only click
+			} else {
+				screen.queue_audio(&audio, gb.audio(&audio));
+				int queued = screen.audio_queued();
+				avg += (queued - avg) / 32;
+				float e = (avg - AUDIO_TARGET_BYTES) / AUDIO_TARGET_BYTES;
+				e = math::clamp(e, -1, 1);
+				integ += e * INTEG_GAIN;
+				integ = math::clamp(integ, -MAX_INTEG, +MAX_INTEG);
+				gb.set_audio_rate((uint)(display::AUDIO_RATE * (1 - MAX_RATE_ADJ * e - integ)));
+			}
+		}
+		String message = notice.current();
+		if (!message.len && has_rom && !menu) {
+			if (paused) message = "Paused";
+			if (in.fast && !paused) message = "Fast forward";
 		}
 		gameboy::FrameSize size = gb.frame_rgb(rgb, colors);
-		screen.present(rgb, size.w, size.h, lines[:count], selected);
+		screen.present(rgb, size.w, size.h, lines[:count], selected, message);
 
 		next += frame_period(gb.mmu.model);
 		Clock now = clock::now();

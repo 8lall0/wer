@@ -90,20 +90,28 @@ struct Bindings {
 	int[8] pads;
 }
 
-// Key presses (not held keys) for the menu, as bits in Input.pressed.
-const char KEY_MENU  = 0x01; // Esc
-const char KEY_UP    = 0x02;
-const char KEY_DOWN  = 0x04;
-const char KEY_LEFT  = 0x08;
-const char KEY_RIGHT = 0x10;
-const char KEY_ENTER = 0x20;
-const char KEY_OPEN  = 0x40; // Ctrl+O
+// Key presses (not held keys) for the menu and hotkeys, as bits in
+// Input.pressed.
+const ushort KEY_MENU    = 0x01; // Esc
+const ushort KEY_UP      = 0x02;
+const ushort KEY_DOWN    = 0x04;
+const ushort KEY_LEFT    = 0x08;
+const ushort KEY_RIGHT   = 0x10;
+const ushort KEY_ENTER   = 0x20;
+const ushort KEY_OPEN    = 0x40; // Ctrl+O
+const ushort KEY_PAUSE   = 0x80; // P
+const ushort KEY_ADVANCE = 0x100; // N: one frame while paused
 
 struct Input {
 	bool quit;     // window closed
 	char buttons;  // held Game Boy buttons
 	char dpad;
-	char pressed;  // KEY_* pressed this poll
+	ushort pressed; // KEY_* pressed this poll
+	bool fast;     // Tab held: fast forward
+	// F1-F9 pressed this poll: the save state slot (0 = none), to save with
+	// Shift held, else to load.
+	int  state_slot;
+	bool state_save;
 	// The first key / gamepad button pressed this poll (-1 = none), for
 	// binding a control in the menu.
 	int  key;
@@ -221,7 +229,7 @@ fn void Display.set_scale(&self, int scale) {
 	sdl::set_window_size(self.window, self.width * scale, self.height * scale);
 }
 
-fn void Display.present(&self, char[] rgb, int w, int h, String[] menu = {}, int selected = -1) {
+fn void Display.present(&self, char[] rgb, int w, int h, String[] menu = {}, int selected = -1, String message = "") {
 	if (w != self.width || h != self.height) self.resize(w, h);
 	int pixels = w * h;
 
@@ -235,7 +243,26 @@ fn void Display.present(&self, char[] rgb, int w, int h, String[] menu = {}, int
 	sdl::render_clear(self.renderer);
 	sdl::render_texture(self.renderer, self.texture, null, null);
 	if (menu.len) self.draw_menu(menu, selected);
+	if (message.len && !menu.len) self.draw_message(message);
 	sdl::render_present(self.renderer);
+}
+
+// A one-line notice ("Saved state 1", "Paused") in the bottom left corner,
+// on a dark strip.
+fn void Display.draw_message(&self, String text) {
+	float font = self.scale >= 3 ? 2 : 1;
+	float pad = 4 * font;
+	float h = 8 * font + pad * 2;
+	float y = (float)(self.height * self.scale) - h;
+	sdl::set_render_draw_blend_mode(self.renderer, sdl::BLENDMODE_BLEND);
+	sdl::set_render_draw_color(self.renderer, 0x08, 0x18, 0x20, 0xC0);
+	sdl::FRect strip = { 0, y, (float)text.len * 8 * font + pad * 2, h };
+	sdl::render_fill_rect(self.renderer, &strip);
+	sdl::set_render_scale(self.renderer, font, font);
+	sdl::set_render_draw_color(self.renderer, 0xE0, 0xF8, 0xD0, 0xFF);
+	sdl::render_debug_text(self.renderer, pad / font, (y + pad) / font, text.zstr_tcopy());
+	sdl::set_render_scale(self.renderer, 1, 1);
+	sdl::set_render_draw_color(self.renderer, 0, 0, 0, 0xFF);
 }
 
 // Menu layout in window pixels per unit of window scale (so at 4x: 48 px in,
@@ -330,6 +357,16 @@ fn Input Display.poll(&self) {
 			case sdl::EVENT_KEY_DOWN:
 				sdl::KeyboardEvent* k = (sdl::KeyboardEvent*)&e;
 				if (!k.repeat && in.key < 0) in.key = (int)k.scancode;
+				// Hotkeys give way to a Game Boy button bound to the same key.
+				if (!k.repeat && !self.is_bound((int)k.scancode)) {
+					switch (k.scancode) {
+						case sdl::SC_P: in.pressed |= KEY_PAUSE;
+						case sdl::SC_N: in.pressed |= KEY_ADVANCE;
+						case sdl::SC_F1..sdl::SC_F9:
+							in.state_slot = (int)k.scancode - sdl::SC_F1 + 1;
+							in.state_save = (k.mod & sdl::KMOD_SHIFT) != 0;
+					}
+				}
 				switch (k.scancode) {
 					case sdl::SC_ESCAPE: if (!k.repeat) in.pressed |= KEY_MENU;
 					case sdl::SC_UP:     in.pressed |= KEY_UP;
@@ -352,11 +389,12 @@ fn Input Display.poll(&self) {
 
 	// The menu also follows the left stick: one step per push.
 	int dir = self.stick_direction();
-	if (dir != 0 && dir != self.stick_dir) in.pressed |= (char)dir;
+	if (dir != 0 && dir != self.stick_dir) in.pressed |= (ushort)dir;
 	self.stick_dir = dir;
 
 	int n;
 	char* ks = sdl::get_keyboard_state(&n);
+	in.fast = !self.is_bound(sdl::SC_TAB) && sdl::SC_TAB < n && ks[sdl::SC_TAB] != 0;
 	for (int i = 0; i < 8; i++) {
 		bool held = self.bindings.keys[i] < n && ks[self.bindings.keys[i]] != 0;
 		foreach (p : self.pads) {
@@ -377,6 +415,11 @@ fn Input Display.poll(&self) {
 	}
 
 	return in;
+}
+
+fn bool Display.is_bound(&self, int scancode) {
+	foreach (k : self.bindings.keys) if (k == scancode) return true;
+	return false;
 }
 
 // A newly connected gamepad (SDL also reports the ones present at start).
@@ -400,7 +443,7 @@ fn void Display.remove_pad(&self, uint id) {
 // Menu keys on a gamepad: the d-pad moves, the bottom face button or Start
 // confirms, Guide (or Back + Start, for pads whose Guide the system takes)
 // opens and closes the menu.
-fn char Display.pad_menu_key(&self, int button) {
+fn ushort Display.pad_menu_key(&self, int button) {
 	switch (button) {
 		case sdl::GAMEPAD_BUTTON_DPAD_UP:    return KEY_UP;
 		case sdl::GAMEPAD_BUTTON_DPAD_DOWN:  return KEY_DOWN;

@@ -22,6 +22,8 @@ the common hardware test suites check, and it passes all of the ones below.
   emulators use).
 - **Own boot ROMs** for the DMG and the CGB, with the WER logo (sources in
   `bootrom/`); no Nintendo code. `--no-boot` starts games directly instead.
+- **Save states** (9 slots per game), **pause**, **frame advance** and
+  **fast forward**.
 - **Gamepads** (any SDL3 gamepad), **key remapping**, **window scale** 1x-4x,
   a menu, a file dialog to open ROMs, and settings kept in `~/.wer/wer.conf`.
 
@@ -74,10 +76,20 @@ Options given on the command line override `~/.wer/wer.conf` for that run.
 | Start / Select | Enter / Right Shift | Start / Back |
 | Menu | Esc | Guide, or Back + Start |
 | Open ROM | Ctrl+O | |
+| Save state 1-9 | Shift+F1 … Shift+F9 | Menu |
+| Load state 1-9 | F1 … F9 | Menu |
+| Pause | P | |
+| Frame advance | N | |
+| Fast forward | hold Tab | |
 
 Every Game Boy button can be rebound, to a key or a gamepad button, in
-**Menu → Controls**. The menu also switches the model, SGB palette and scale;
-changes are saved to `~/.wer/wer.conf`.
+**Menu → Controls**; a hotkey whose key is bound to a Game Boy button gives
+way to it. The menu also switches the model, SGB palette and scale; changes
+are saved to `~/.wer/wer.conf`.
+
+Save states are stored next to the ROM (`game.gb.ss1` … `game.gb.ss9`, beside
+the battery save `game.gb.sav`). A state belongs to the game, the model and
+the build of wer that wrote it; another version of wer refuses to load it.
 
 ## Tests
 
