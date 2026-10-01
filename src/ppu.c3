@@ -250,6 +250,11 @@ fn char Ppu.tick(&self, uint tcycles) {
 			self.line = (self.line + 1) % TOTAL_LINES;
 			if (self.line == 0) self.render_frame_start();
 			if (self.line < VBLANK_LINE) self.wy_check();
+			// Line 153 reads LY 0 almost all along (2 dots later in double speed).
+			if (self.line == TOTAL_LINES - 1 && !self.double_speed) self.ly = 0;
+			self.check_lyc();
+		} else if (self.line == TOTAL_LINES - 1 && self.dot <= LINE153_LYC0_DOT) {
+			if (self.dot == 2) self.ly = 0;
 			self.check_lyc();
 		}
 		char now = self.update_mode() | self.update_stat_line();
@@ -288,9 +293,25 @@ fn bool Ppu.oam_write_locked(&self) {
 // Keep the LY=LYC flag (STAT bit 2) in sync. Interrupts come from update_stat_line.
 // While LY has already moved on but the line hasn't (the last LY_EARLY_DOTS
 // dots), the comparator sees no line at all: the flag reads 0.
+// Line 153 (SameBoy, DMG / CGB C): LY reads 0 from the start of the line,
+// but LY=LYC compares with 153 for 2 dots, with nothing for 4, then with 0.
+// In CGB double speed LY reads 153 for 2 dots, and the compare stays 153
+// until it turns 0.
+const int LINE153_LYC0_DOT = 6;
+
+// The LY value LY=LYC compares with right now, or -1 for none.
+fn int Ppu.ly_compare(&self) {
+	if (self.dot >= DOTS_PER_LINE - LY_EARLY_DOTS) return -1; // LY settling
+	if (self.line == TOTAL_LINES - 1) {
+		if (self.dot < 2 || (self.double_speed && self.dot < LINE153_LYC0_DOT)) return TOTAL_LINES - 1;
+		if (self.dot < LINE153_LYC0_DOT) return -1;
+		return 0;
+	}
+	return self.ly;
+}
+
 fn void Ppu.check_lyc(&self) {
-	bool ly_settling = self.dot >= DOTS_PER_LINE - LY_EARLY_DOTS;
-	if (self.ly == self.lyc && !ly_settling) {
+	if (self.ly_compare() == (int)self.lyc) {
 		self.stat |= STAT_LYC_FLAG;
 	} else {
 		self.stat &= (char)~STAT_LYC_FLAG;
@@ -421,11 +442,21 @@ fn char Ppu.update_stat_line(&self) {
 // CGB write delays (LCDC, SCY, SCX, WX, TILE_SEL glitch dot): SameBoy's,
 // swept on the Mealybug tests.
 int[5] cgb_delay = { 4, 4, 4, 5, 4 };
+// In double speed the CPU's writes reach the renderer earlier in dots: one
+// dot for all of these, SCX two more (swept on Gambatte *_ds, scx_during_m3).
+const int DS_DELAY_SHIFT = 1;
+const int DS_SCX_EXTRA_SHIFT = 2;
 // A WY write reaches the renderer on the next dot (line starts compare with
 // it from then on), and is compared with LY by itself this many dots after the
 // write (swept on Gambatte window/*late_wy*; SameBoy schedules that check on
 // an 8-cycle boundary after the write).
 const int[2] WY_CHECK_DELAY = { 7, 11 }; // DMG, CGB
+
+// CGB write delay `i` (cgb_delay), shorter in double speed.
+fn int Ppu.cgb_delay(&self, int i) {
+	int d = cgb_delay[i] - (self.double_speed ? DS_DELAY_SHIFT : 0);
+	return d < 0 ? 0 : d;
+}
 
 fn void Ppu.write_render_reg(&self, char reg, char value) {
 	char old;
@@ -442,13 +473,13 @@ fn void Ppu.write_render_reg(&self, char reg, char value) {
 	old = self.cpu_view(reg, old);
 	bool dmg = !self.cgb_hw;
 	switch (reg) {
-		case 0x42: self.schedule(reg, value, dmg ? 2 : cgb_delay[1]);
-		case 0x43: self.schedule(reg, value, dmg ? 2 : cgb_delay[2]);
+		case 0x42: self.schedule(reg, value, dmg ? 2 : self.cgb_delay(1));
+		case 0x43: self.schedule(reg, value, dmg ? 2 : self.cgb_delay(2) - (self.double_speed ? DS_SCX_EXTRA_SHIFT : 0));
 		case 0x4A:
 			self.schedule(reg, value, 1);
 			self.schedule(WY_CHECK, 0, WY_CHECK_DELAY[dmg ? 0 : 1]);
 		case 0x4B:
-			self.schedule(reg, value, dmg ? 4 : cgb_delay[3]);
+			self.schedule(reg, value, dmg ? 4 : self.cgb_delay(3));
 			if (dmg) self.schedule(WX_SETTLED, 0, 5);
 		case 0x47:
 		case 0x48:
@@ -462,15 +493,15 @@ fn void Ppu.write_render_reg(&self, char reg, char value) {
 				self.schedule(reg, value, 3);
 			} else if (!dmg && ((old ^ value) & LCDC_TILE_DATA)) {
 				// CGB: changing TILE_SEL disturbs a bitplane read in that dot.
-				self.schedule(reg, value, cgb_delay[0]);
-				self.schedule(TILE_SEL_GLITCH_ON, 0, cgb_delay[4]);
-				if ((value & LCDC_TILE_DATA) == 0) self.schedule(TILE_SEL_CLEARED, 0, cgb_delay[4]);
-				self.schedule(TILE_SEL_GLITCH_OFF, 0, cgb_delay[4] + 1);
+				self.schedule(reg, value, self.cgb_delay(0));
+				self.schedule(TILE_SEL_GLITCH_ON, 0, self.cgb_delay(4));
+				if ((value & LCDC_TILE_DATA) == 0) self.schedule(TILE_SEL_CLEARED, 0, self.cgb_delay(4));
+				self.schedule(TILE_SEL_GLITCH_OFF, 0, self.cgb_delay(4) + 1);
 			} else if (!dmg) {
 				// CGB: the object size bit lands a dot later than the rest
 				// (Mealybug m3_lcdc_obj_size_change_scx).
-				self.queue({ .reg = LCDC_PART, .value = value, .old = old, .keep = LCDC_OBJ_SIZE, .delay = cgb_delay[0] });
-				self.schedule(reg, value, cgb_delay[0] + 1);
+				self.queue({ .reg = LCDC_PART, .value = value, .old = old, .keep = LCDC_OBJ_SIZE, .delay = self.cgb_delay(0) });
+				self.schedule(reg, value, self.cgb_delay(0) + 1);
 			} else {
 				self.schedule(reg, value, 2);
 			}
