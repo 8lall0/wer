@@ -82,6 +82,7 @@ struct Ppu {
 	bool first_line;
 	int  line;         // line being processed (LY runs LY_EARLY_DOTS ahead of it)
 	int  mode3_len;    // length of this line's mode 3, fixed when it starts
+	bool window_paid;  // the window's dots are already in mode3_len
 	bool hblank_start; // a visible line's last pixel is out (CGB HDMA); cleared by the Mmu
 
 	// Mode 3 drawing (ppu_fifo.c3), and what it sees of the registers: SCY,
@@ -116,6 +117,7 @@ const char TILE_SEL_GLITCH_OFF = 0x03;
 const char TILE_SEL_CLEARED    = 0x05; // CGB: latch the last bitplane read (see ppu_fifo)
 const char LCDC_DMG   = 0x01; // DMG LCDC write: mixed old/new value for a dot (see apply)
 const char LCDC_PART  = 0x04; // LCDC write where the bits in `keep` land later
+const char WY_CHECK   = 0x06; // compare WY with LY after a WY write (see WY_CHECK_DELAY)
 
 // CGB tile attributes (VRAM bank 1, same address as the tile index).
 const char ATTR_PALETTE  = 0x07;
@@ -294,14 +296,13 @@ fn void Ppu.check_lyc(&self) {
 
 // How long mode 3 lasts on the current line (Pan Docs "Mode 3 length"):
 //   172 dots, + SCX % 8 (pixels discarded from the first tile),
-//   + 6 if the window starts on this line,
+//   + 6 if the window starts on this line (added when it does),
 //   + per object on the line: 6, plus max(0, 5 - (X + SCX) % 8) for the first
 //     object whose left edge falls in a given BG tile (X = 0 always pays 11).
 fn int Ppu.mode3_length(&self) {
 	int len = MODE3_DOTS + (self.scx & 7);
-
-	bool win = (self.lcdc & LCDC_WIN_ENABLE) != 0 && self.line >= (int)self.wy && self.wx <= 166;
-	if (win) len += 6;
+	// The window's 6 dots are added when the renderer starts it on this line
+	// (Ppu.window_check): WY, WX and LCDC can still change after this.
 
 	if ((self.lcdc & LCDC_OBJ_ENABLE) == 0) return len;
 	int without_objects = len;
@@ -325,8 +326,27 @@ fn int Ppu.mode3_length(&self) {
 	return len;
 }
 
+// Mode 3 grows by this much on a line that starts with the window already
+// running (DMG WX=166; swept on Gambatte window/m2int_wxA6_*).
+const int WINDOW_CARRIED_MODE3_DOTS = 2;
+
 fn char Ppu.update_mode(&self) {
-	if (self.dot == MODE2_DOTS && self.line < VBLANK_LINE) self.mode3_len = self.mode3_length();
+	if (self.dot == MODE2_DOTS && self.line < VBLANK_LINE) {
+		self.mode3_len = self.mode3_length();
+		self.window_paid = false;
+		// DMG WX=166: the window carried over from the last line runs from
+		// this line's first pixel (Ppu.render_end), which costs less.
+		if (self.r.wx_triggered) {
+			self.mode3_len += WINDOW_CARRIED_MODE3_DOTS;
+			self.window_paid = true;
+		}
+	}
+	// STAT leaves mode 3 a few dots before the renderer's last pixel: a
+	// window still about to start (WX near the right edge) already counts.
+	if (self.line < VBLANK_LINE && self.dot == MODE2_DOTS + self.mode3_len && !self.window_paid && self.window_pending()) {
+		self.mode3_len += WINDOW_MODE3_DOTS;
+		self.window_paid = true;
+	}
 
 	char want;
 	if (self.line >= VBLANK_LINE) {
@@ -398,6 +418,11 @@ fn char Ppu.update_stat_line(&self) {
 // CGB write delays (LCDC, SCY, SCX, WX, TILE_SEL glitch dot): SameBoy's,
 // swept on the Mealybug tests.
 int[5] cgb_delay = { 4, 4, 4, 5, 4 };
+// A WY write reaches the renderer on the next dot (line starts compare with
+// it from then on), and is compared with LY by itself this many dots after the
+// write (swept on Gambatte window/*late_wy*; SameBoy schedules that check on
+// an 8-cycle boundary after the write).
+const int[2] WY_CHECK_DELAY = { 7, 11 }; // DMG, CGB
 
 fn void Ppu.write_render_reg(&self, char reg, char value) {
 	char old;
@@ -416,7 +441,9 @@ fn void Ppu.write_render_reg(&self, char reg, char value) {
 	switch (reg) {
 		case 0x42: self.schedule(reg, value, dmg ? 2 : cgb_delay[1]);
 		case 0x43: self.schedule(reg, value, dmg ? 2 : cgb_delay[2]);
-		case 0x4A: self.schedule(reg, value, 4);
+		case 0x4A:
+			self.schedule(reg, value, 1);
+			self.schedule(WY_CHECK, 0, WY_CHECK_DELAY[dmg ? 0 : 1]);
 		case 0x4B:
 			self.schedule(reg, value, dmg ? 4 : cgb_delay[3]);
 			if (dmg) self.schedule(WX_SETTLED, 0, 5);
@@ -494,9 +521,8 @@ fn void Ppu.apply(&self, RegWrite w) {
 		case TILE_SEL_CLEARED: self.r.glitch_data = self.r.last_read;
 		case 0x42: self.scy = w.value;
 		case 0x43: self.scx = w.value;
-		case 0x4A:
-			self.wy = w.value;
-			if (self.line < VBLANK_LINE) self.wy_check();
+		case 0x4A: self.wy = w.value;
+		case WY_CHECK: if (self.line < VBLANK_LINE) self.wy_check();
 		case 0x4B:
 			self.wx = w.value;
 			if (!self.cgb_hw) self.wx_just_changed = true;

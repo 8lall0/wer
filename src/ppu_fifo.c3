@@ -336,6 +336,16 @@ fn void Ppu.overlay_object(&self) {
 	r.n_obj--;
 }
 
+// Mode 3 grows by this much when the window starts on a line.
+const int WINDOW_MODE3_DOTS = 6;
+
+// The window will start further on in this line (WY matched, WX ahead).
+fn bool Ppu.window_pending(&self) {
+	Renderer* r = &self.r;
+	return !r.wx_triggered && r.wy_triggered && (self.r_lcdc & LCDC_WIN_ENABLE)
+	       && self.wx <= 166 && (int)self.wx - 7 > r.pos;
+}
+
 // The window starts when WY has matched this frame and WX is reached.
 // True when starting it takes an extra dot.
 fn bool Ppu.window_check(&self) {
@@ -364,6 +374,10 @@ fn bool Ppu.window_check(&self) {
 			r.state = TILE_T1;
 			r.window_fetching = true;
 			stall = self.wx == 0 && (self.scx & 7) != 0 && !self.cgb_hw;
+			if (self.mode == 3 && !self.window_paid) {
+				self.mode3_len += WINDOW_MODE3_DOTS;
+				self.window_paid = true;
+			}
 		} else if (!self.cgb_hw && self.wx == 166 && self.wx == u8(r.pos + 7)) {
 			r.window_y++;
 		}

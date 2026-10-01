@@ -278,7 +278,7 @@ fn void lyc_flag_frozen_while_lcd_off() @test
 }
 
 // Mode 3 grows with SCX % 8, the window and objects on the line.
-fn void mode3_length_depends_on_scx_window_and_objects() @test
+fn void mode3_length_depends_on_scx_and_objects() @test
 {
 	ppu::Ppu p;
 	p.line = 20;
@@ -288,11 +288,13 @@ fn void mode3_length_depends_on_scx_window_and_objects() @test
 	p.scx = 0x0B;                              // SCX % 8 = 3
 	test::eq(ppu::MODE3_DOTS + 3, p.mode3_length());
 
+	// The window's 6 dots are not predicted: the renderer adds them when it
+	// actually starts the window on the line (Ppu.window_check).
 	p.scx = 0;
-	p.lcdc |= ppu::LCDC_WIN_ENABLE;            // window starts at or above this line
+	p.lcdc |= ppu::LCDC_WIN_ENABLE;
 	p.wy = 0;
 	p.wx = 7;
-	test::eq(ppu::MODE3_DOTS + 6, p.mode3_length());
+	test::eq(ppu::MODE3_DOTS, p.mode3_length());
 
 	p.lcdc = ppu::LCDC_ENABLE | ppu::LCDC_OBJ_ENABLE;
 	p.oam[0] = 20 + 16; p.oam[1] = 0;          // one object on line 20 at X=0: 11 dots
