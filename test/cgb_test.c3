@@ -107,7 +107,7 @@ fn void general_purpose_dma_copies_everything() @test
 	for (int i = 0; i < 48; i++) test::eq((char)(0x00 + i), gb.mmu.ppu.vram1[0x200 + i]);
 	test::eq((char)0x00, gb.mmu.ppu.vram1[0x230]); // stops after 3 blocks
 	test::eq((char)0xFF, gb.mmu.get(0xFF55));
-	test::eq(24, gb.mmu.vdma_stall);             // 8 M-cycles per block
+	test::eq(24 + mmu::GDMA_OVERHEAD, gb.mmu.vdma_stall); // 8 M-cycles per block, plus the start
 
 	ulong before = gb.cpu.clk;
 	gb.step();

@@ -196,6 +196,9 @@ fn char* Mmu.wram_at(&self, ushort off) {
 
 // M-cycles the CPU waits per 16-byte VRAM DMA block: the copy takes the same
 // real time in both speeds.
+// A general purpose VRAM DMA holds the CPU this much longer than its blocks
+// (Gambatte dma/gdma_cycles_*).
+const int GDMA_OVERHEAD = 1;
 fn int Mmu.vdma_block_mcycles(&self) => self.double_speed ? 16 : 8;
 
 // Copy one 16-byte block, advancing source and destination.
@@ -222,6 +225,7 @@ fn void Mmu.vdma_start(&self, char value) {
 	if ((value & 0x80) == 0) {
 		// General purpose: everything now, the CPU waits for all of it.
 		for (int n = self.vdma_left; n >= 0; n--) self.vdma_block();
+		self.vdma_stall += GDMA_OVERHEAD;
 		self.vdma_ff55 = 0xFF;
 		return;
 	}
@@ -631,6 +635,7 @@ fn void Mmu.set_double_speed(&self, bool on) {
 	self.double_speed = on;
 	self.timer.double_speed = on;
 	self.apu.double_speed = on;
+	self.ppu.double_speed = on;
 	self.key1 = 0;
 }
 

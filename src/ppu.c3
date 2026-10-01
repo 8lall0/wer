@@ -9,8 +9,10 @@ const int VBLANK_LINE   = 144;
 const int MODE2_DOTS    = 80;   // OAM scan
 const int MODE3_DOTS    = 172;  // drawing, minimum; see Ppu.mode3_length
 // A line with objects ends mode 3 this many dots before the plain Pan Docs
-// sum. Measured on Mooneye intr_2_mode0_timing_sprites (which only sees whole
-// M-cycles): with it, every case of that test lines up.
+// sum, in normal speed. Measured on Mooneye intr_2_mode0_timing_sprites
+// (which only sees whole M-cycles); CGB double speed, where the CPU samples
+// STAT every 2 dots, shows the plain sum is right (Gambatte sprites/*_ds):
+// the adjustment stands for where in a 4-dot M-cycle STAT is sampled.
 const int OBJ_PENALTY_ADJUST = 3;
 // LY (and the LY=LYC compare) move to the next line this many dots before
 // the line itself ends: for one M-cycle LY is already new while the old
@@ -83,6 +85,7 @@ struct Ppu {
 	int  line;         // line being processed (LY runs LY_EARLY_DOTS ahead of it)
 	int  mode3_len;    // length of this line's mode 3, fixed when it starts
 	bool window_paid;  // the window's dots are already in mode3_len
+	bool double_speed; // CGB double speed (set by the Mmu)
 	bool hblank_start; // a visible line's last pixel is out (CGB HDMA); cleared by the Mmu
 
 	// Mode 3 drawing (ppu_fifo.c3), and what it sees of the registers: SCY,
@@ -322,7 +325,7 @@ fn int Ppu.mode3_length(&self) {
 		int extra = x == 0 ? 5 : 5 - ((x + self.scx) & 7);
 		if (extra > 0) len += extra;
 	}
-	if (len > without_objects) len -= OBJ_PENALTY_ADJUST;
+	if (len > without_objects && !self.double_speed) len -= OBJ_PENALTY_ADJUST;
 	return len;
 }
 
