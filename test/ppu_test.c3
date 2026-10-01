@@ -278,30 +278,36 @@ fn void lyc_flag_frozen_while_lcd_off() @test
 	test::@check((gb.mmu.get(0xFF41) & 0x04) == 0, "compared again after LCD-on");
 }
 
-// Mode 3 grows with SCX % 8, the window and objects on the line.
-fn void mode3_length_depends_on_scx_and_objects() @test
-{
+// Mode 3 ends where the pixel pipeline does: it grows with SCX % 8, the
+// window and objects on the line. Returns the dot of line 20 where STAT
+// turns to mode 0.
+fn int mode0_dot(char lcdc, char scx, char wx, char[] objects_x) {
 	ppu::Ppu p;
-	p.line = 20;
-	p.lcdc = ppu::LCDC_ENABLE;
-	test::eq(ppu::MODE3_DOTS, p.mode3_length());
+	p.lcdc = lcdc;
+	p.r_lcdc = lcdc;
+	p.scx = scx;
+	p.wy = 20;        // the window (if on) starts on this line
+	p.wx = wx;
+	foreach (i, x : objects_x) {
+		p.oam[i * 4] = 20 + 16;
+		p.oam[i * 4 + 1] = x;
+	}
+	while (p.line < 20) p.tick(1);
+	while (p.mode != 3) p.tick(1);
+	while (p.mode == 3) p.tick(1);
+	return p.dot;
+}
 
-	p.scx = 0x0B;                              // SCX % 8 = 3
-	test::eq(ppu::MODE3_DOTS + 3, p.mode3_length());
-
-	// The window's 6 dots are not predicted: the renderer adds them when it
-	// actually starts the window on the line (Ppu.window_check).
-	p.scx = 0;
-	p.lcdc |= ppu::LCDC_WIN_ENABLE;
-	p.wy = 0;
-	p.wx = 7;
-	test::eq(ppu::MODE3_DOTS, p.mode3_length());
-
-	p.lcdc = ppu::LCDC_ENABLE | ppu::LCDC_OBJ_ENABLE;
-	p.oam[0] = 20 + 16; p.oam[1] = 0;          // one object on line 20 at X=0: 11 dots
-	int one = p.mode3_length();
-	p.oam[4] = 20 + 16; p.oam[5] = 0;          // a second one in the same tile: +6
-	test::eq(one + 6, p.mode3_length());
-	p.oam[8] = 20 + 16; p.oam[9] = 168;        // off the right edge: free
-	test::eq(one + 6, p.mode3_length());
+fn void mode3_length_follows_the_pipeline() @test
+{
+	char on = ppu::LCDC_ENABLE | ppu::LCDC_BG_ENABLE;
+	int plain = mode0_dot(on, 0, 0xFF, {});
+	test::eq(ppu::MODE2_DOTS + ppu::MODE3_DOTS, plain);
+	test::eq(plain + 3, mode0_dot(on, 0x0B, 0xFF, {}));           // SCX % 8 = 3
+	test::eq(plain + 6, mode0_dot(on | ppu::LCDC_WIN_ENABLE, 0, 7, {})); // the window
+	char obj = on | ppu::LCDC_OBJ_ENABLE;
+	int one = mode0_dot(obj, 0, 0xFF, { 0 });                     // X = 0: 11 dots
+	test::eq(plain + 11 - ppu::MODE3_OBJ_TAIL, one);
+	test::eq(one + 6, mode0_dot(obj, 0, 0xFF, { 0, 0 }));          // a second one: +6
+	test::eq(one + 6, mode0_dot(obj, 0, 0xFF, { 0, 0, 168 }));     // off the right edge: free
 }

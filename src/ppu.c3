@@ -7,13 +7,7 @@ const int DOTS_PER_LINE = 456;
 const int TOTAL_LINES   = 154;
 const int VBLANK_LINE   = 144;
 const int MODE2_DOTS    = 80;   // OAM scan
-const int MODE3_DOTS    = 172;  // drawing, minimum; see Ppu.mode3_length
-// A line with objects ends mode 3 this many dots before the plain Pan Docs
-// sum, in normal speed. Measured on Mooneye intr_2_mode0_timing_sprites
-// (which only sees whole M-cycles); CGB double speed, where the CPU samples
-// STAT every 2 dots, shows the plain sum is right (Gambatte sprites/*_ds):
-// the adjustment stands for where in a 4-dot M-cycle STAT is sampled.
-const int OBJ_PENALTY_ADJUST = 3;
+const int MODE3_DOTS    = 172;  // drawing, minimum (a plain line; see Ppu.predict_mode3)
 // LY (and the LY=LYC compare) move to the next line this many dots before
 // the line itself ends: for one M-cycle LY is already new while the old
 // line's HBlank is still running (Mooneye lcdon_timing).
@@ -83,8 +77,9 @@ struct Ppu {
 	bool stat_line;    // OR of the enabled STAT sources (see update_stat_line)
 	bool first_line;
 	int  line;         // line being processed (LY runs LY_EARLY_DOTS ahead of it)
-	int  mode3_len;    // length of this line's mode 3, fixed when it starts
-	bool window_paid;  // the window's dots are already in mode3_len
+	bool predicting;   // a dry-run copy (Ppu.predict_mode3): no pixels, no prediction of its own
+	bool repredict;    // a renderer write landed during mode 3: predict again
+	int  pipe_end_dot; // the dot the pipeline outputs its last pixel this line (predicted)
 	bool double_speed; // CGB double speed (set by the Mmu)
 	bool hblank_start; // a visible line's last pixel is out (CGB HDMA); cleared by the Mmu
 
@@ -121,6 +116,7 @@ const char TILE_SEL_CLEARED    = 0x05; // CGB: latch the last bitplane read (see
 const char LCDC_DMG   = 0x01; // DMG LCDC write: mixed old/new value for a dot (see apply)
 const char LCDC_PART  = 0x04; // LCDC write where the bits in `keep` land later
 const char WY_CHECK   = 0x06; // compare WY with LY after a WY write (see WY_CHECK_DELAY)
+const char LYC_LATE   = 0x07; // CGB: a LYC write reaching the comparator
 
 // CGB tile attributes (VRAM bank 1, same address as the tile index).
 const char ATTR_PALETTE  = 0x07;
@@ -211,6 +207,11 @@ fn char Ppu.write_stat(&self, char value) {
 // With the LCD off the comparison clock is stopped: the flag keeps its last
 // value until the LCD is turned on again (Mooneye stat_lyc_onoff).
 fn char Ppu.write_lyc(&self, char value) {
+	// A CGB's LYC write reaches the comparator a dot later (SameBoy WRITE_CPU).
+	if (self.cgb_hw && (self.lcdc & LCDC_ENABLE)) {
+		self.schedule(LYC_LATE, value, 1);
+		return 0;
+	}
 	self.lyc = value;
 	if ((self.lcdc & LCDC_ENABLE) == 0) return 0;
 	self.check_lyc();
@@ -234,6 +235,7 @@ fn char Ppu.tick(&self, uint tcycles) {
 	char irq = 0;
 	self.irq_dot = -1;
 	for (uint i = 0; i < tcycles; i++) {
+		if (self.repredict && self.r.active && !self.predicting) self.predict_mode3();
 		self.apply_writes();
 		// Mode 3 drawing for this dot (before the counters move on).
 		if (self.line < VBLANK_LINE) {
@@ -242,7 +244,12 @@ fn char Ppu.tick(&self, uint tcycles) {
 			// The first line after the LCD is switched on has no OAM scan and
 			// starts drawing earlier.
 			int start = self.first_line ? render_start_dot - (self.cgb_hw ? 6 : 5) : render_start_dot;
-			if (self.dot == start) self.render_start();
+			if (self.dot == start) {
+				self.render_start();
+				// The OAM scan is done: predict where this line's mode 3 ends
+				// (from the start of the next dot, with this one complete).
+				if (!self.predicting) self.repredict = true;
+			}
 			if (self.r.active) self.render_dot();
 		}
 		self.dot++;
@@ -325,66 +332,72 @@ fn void Ppu.check_lyc(&self) {
 	}
 }
 
-// How long mode 3 lasts on the current line (Pan Docs "Mode 3 length"):
-//   172 dots, + SCX % 8 (pixels discarded from the first tile),
-//   + 6 if the window starts on this line (added when it does),
-//   + per object on the line: 6, plus max(0, 5 - (X + SCX) % 8) for the first
-//     object whose left edge falls in a given BG tile (X = 0 always pays 11).
-fn int Ppu.mode3_length(&self) {
-	int len = MODE3_DOTS + (self.scx & 7);
-	// The window's 6 dots are added when the renderer starts it on this line
-	// (Ppu.window_check): WY, WX and LCDC can still change after this.
+// STAT leaves mode 3 this many dots before the pipeline outputs its last
+// pixel (Mooneye intr_2_mode0_timing; on a plain line, the Pan Docs 172 +
+// SCX % 8 dots).
+const int MODE3_TAIL = 5;
+// ... and this many more on a line where objects were fetched, in normal
+// speed: the whole-M-cycle STAT sampling of Mooneye
+// intr_2_mode0_timing_sprites sees the line end that much sooner (CGB double
+// speed, sampling every 2 dots, does not: Gambatte sprites/*_ds).
+const int MODE3_OBJ_TAIL = 3;
 
-	if ((self.lcdc & LCDC_OBJ_ENABLE) == 0) return len;
-	int without_objects = len;
-	int height = (self.lcdc & LCDC_OBJ_SIZE) ? 16 : 8;
-	bool[32] tile_paid;
-	int n = 0;
-	for (int i = 0; i < 40 && n < 10; i++) {
-		int oy = (int)self.oam[i * 4] - 16;
-		if (self.line < oy || self.line >= oy + height) continue;
-		n++;                                   // counts towards the 10-object limit
-		int x = self.oam[i * 4 + 1];
-		if (x >= 168) continue;                // off the right edge: never fetched
-		len += 6;
-		int tile = (x + (self.scx & 7)) >> 3;
-		if (tile_paid[tile]) continue;
-		tile_paid[tile] = true;
-		int extra = x == 0 ? 5 : 5 - ((x + self.scx) & 7);
-		if (extra > 0) len += extra;
-	}
-	if (len > without_objects && !self.double_speed) len -= OBJ_PENALTY_ADJUST;
-	return len;
+// How many dots before the pipeline's last pixel STAT leaves mode 3.
+fn int Ppu.mode3_tail(&self) {
+	int t = MODE3_TAIL;
+	if (self.r.fetched_objects && !self.double_speed) t += MODE3_OBJ_TAIL;
+	// The first line after LCD on starts drawing 5 dots early (6 on a CGB)
+	// while its mode 3 starts on time.
+	if (self.first_line) t -= self.cgb_hw ? 6 : 5;
+	return t;
 }
 
-// Mode 3 grows by this much on a line that starts with the window already
-// running (DMG WX=166; swept on Gambatte window/m2int_wxA6_*).
-const int WINDOW_CARRIED_MODE3_DOTS = 2;
-
-fn char Ppu.update_mode(&self) {
-	if (self.dot == MODE2_DOTS && self.line < VBLANK_LINE) {
-		self.mode3_len = self.mode3_length();
-		self.window_paid = false;
-		// DMG WX=166: the window carried over from the last line runs from
-		// this line's first pixel (Ppu.render_end), which costs less.
-		if (self.r.wx_triggered) {
-			self.mode3_len += WINDOW_CARRIED_MODE3_DOTS;
-			self.window_paid = true;
+// When this line's mode 3 ends: run a copy of the PPU ahead, without
+// drawing, to the dot its pipeline outputs the last pixel, with every
+// register write already on its way included. Done once the OAM scan is
+// over, and again whenever a register the renderer sees is written during
+// mode 3 (Ppu.repredict). Objects, the window, mid-line SCX/WX/WY/LCDC
+// changes all count as they really happen.
+fn void Ppu.predict_mode3(&self) {
+	self.repredict = false;
+	// A plain line (no objects, no window that could start, no write on its
+	// way): the pipeline's end only depends on SCX; no need to run it.
+	bool window_possible = self.r.wx_triggered
+		|| ((self.r_lcdc & LCDC_WIN_ENABLE) && (self.r.wy_triggered || self.wy == u8(self.line)) && self.wx <= 166);
+	if (!self.first_line && self.r.n_obj == 0 && !window_possible && self.n_writes == 0) {
+		self.pipe_end_dot = MODE2_DOTS + MODE3_DOTS + (self.scx & 7) + MODE3_TAIL;
+		self.r.fetched_objects = false;
+		return;
+	}
+	Ppu sim = *self;
+	sim.fb = {};
+	sim.cfb = {};
+	sim.predicting = true;
+	// Only what the pipeline needs, dot by dot: the register writes landing,
+	// then a pixel step (as in Ppu.tick).
+	self.pipe_end_dot = DOTS_PER_LINE;
+	while (sim.dot < DOTS_PER_LINE) {
+		sim.apply_writes();
+		if (sim.r.active) sim.render_dot();
+		sim.dot++;
+		if (!sim.r.active) {
+			self.pipe_end_dot = sim.dot;
+			break;
 		}
 	}
-	// STAT leaves mode 3 a few dots before the renderer's last pixel: a
-	// window still about to start (WX near the right edge) already counts.
-	if (self.line < VBLANK_LINE && self.dot == MODE2_DOTS + self.mode3_len && !self.window_paid && self.window_pending()) {
-		self.mode3_len += WINDOW_MODE3_DOTS;
-		self.window_paid = true;
-	}
+	self.r.fetched_objects = sim.r.fetched_objects;
+}
+
+fn char Ppu.update_mode(&self) {
+	// Until the prediction (Ppu.predict_mode3) is in, mode 3 lasts.
+	if (self.dot == MODE2_DOTS && self.line < VBLANK_LINE) self.pipe_end_dot = DOTS_PER_LINE;
 
 	char want;
 	if (self.line >= VBLANK_LINE) {
 		want = 1;
 	} else if (self.dot < MODE2_DOTS) {
 		want = 2;
-	} else if (self.dot < MODE2_DOTS + self.mode3_len) {
+	} else if (self.dot < self.pipe_end_dot - self.mode3_tail()) {
 		want = 3;
 	} else {
 		want = 0;
@@ -471,6 +484,7 @@ fn int Ppu.cgb_delay(&self, int i) {
 }
 
 fn void Ppu.write_render_reg(&self, char reg, char value) {
+	self.repredict = true;
 	char old;
 	switch (reg) {
 		case 0x40: old = self.r_lcdc;
@@ -569,6 +583,9 @@ fn void Ppu.apply(&self, RegWrite w) {
 		case 0x43: self.scx = w.value;
 		case 0x4A: self.wy = w.value;
 		case WY_CHECK: if (self.line < VBLANK_LINE) self.wy_check();
+		case LYC_LATE:
+			self.lyc = w.value;
+			self.check_lyc();
 		case 0x4B:
 			self.wx = w.value;
 			if (!self.cgb_hw) self.wx_just_changed = true;

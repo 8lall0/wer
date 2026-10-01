@@ -96,6 +96,10 @@ struct Renderer {
 	char[10] obj_y;
 	int      n_obj;
 	ObjStep  obj_step;
+	bool     fetched_objects; // an object fetch started on this line
+	bool     edge_fetched;    // the first object fetch in the last two pixels happened
+	int      prev_fetch_x;    // X of the last object fetched on this line (-1: none)
+	int      edge_skip;       // ... and how many idle dots it skips
 	bool     obj_abort;   // DMG: OBJ_EN was cleared during an object fetch
 
 	// CGB TILE_SEL glitch (SameBoy, after Matt Currie's research)
@@ -174,6 +178,10 @@ fn void Ppu.render_start(&self) {
 	r.state = TILE_T1;
 	r.obj_step = NONE;
 	r.insert_bg_pixel = false;
+	r.fetched_objects = false;
+	r.edge_fetched = false;
+	r.edge_skip = 0;
+	r.prev_fetch_x = -1;
 
 	if (self.first_line) r.n_obj = 0; // no OAM scan on the first line after LCD on
 }
@@ -229,12 +237,21 @@ fn void Ppu.render_dot(&self) {
 			char i = r.obj_index[r.n_obj - 1];
 			r.obj_tile = self.oam[i * 4 + 2];
 			r.obj_flags = self.oam[i * 4 + 3];
-			r.obj_step = OAM_IDLE;
+			// An object fetched in the last two pixels of the line costs
+			// 6 dots like any other (Mooneye intr_2_mode0_timing_sprites,
+			// X = 166/167): it skips the idle dots.
+			// (only a lone object there: with more at the same X the pipeline already matches)
+			char ox = r.obj_x[r.n_obj - 1];
+			bool alone = (r.n_obj < 2 || r.obj_x[r.n_obj - 2] != ox) && r.prev_fetch_x != (int)ox;
+			bool edge = r.pos >= WIDTH - 2 && !r.edge_fetched && alone;
+			if (edge) r.edge_fetched = true;
+			r.edge_skip = edge ? r.pos - (WIDTH - 3) : 0; // dots to skip: 1 at 158, 2 at 159
+			r.obj_step = r.edge_skip > 0 ? LOW : OAM_IDLE;
 		case OAM_IDLE:
 			r.obj_step = LOW;
 		case LOW:
 			r.last_read = r.obj_lo = self.vram_read(self.object_line_address());
-			r.obj_step = LOW_IDLE;
+			r.obj_step = r.edge_skip > 1 ? HIGH : LOW_IDLE;
 		case LOW_IDLE:
 			r.obj_step = HIGH;
 		case HIGH:
@@ -242,6 +259,7 @@ fn void Ppu.render_dot(&self) {
 			r.last_read = r.glitch_data = r.obj_hi;
 			r.obj_step = OVERLAY;
 		case OVERLAY:
+			self.note_fetch_x();
 			self.overlay_object();
 			r.obj_step = NONE;
 			// The next object at the same X starts right away.
@@ -269,7 +287,13 @@ fn bool Ppu.start_object_fetch(&self) {
 	while (r.n_obj > 0 && r.obj_x[r.n_obj - 1] < x) r.n_obj--;
 	if (r.n_obj == 0 || !self.objects_fetched() || r.obj_x[r.n_obj - 1] != x) return false;
 	r.obj_step = WAIT;
+	r.fetched_objects = true;
 	return true;
+}
+
+// Remember where the last object fetch was (Ppu.render_dot, edge objects).
+fn void Ppu.note_fetch_x(&self) {
+	self.r.prev_fetch_x = self.r.obj_x[self.r.n_obj - 1];
 }
 
 // Object fetch, first part: the background fetcher runs on until it holds
@@ -336,16 +360,6 @@ fn void Ppu.overlay_object(&self) {
 	r.n_obj--;
 }
 
-// Mode 3 grows by this much when the window starts on a line.
-const int WINDOW_MODE3_DOTS = 6;
-
-// The window will start further on in this line (WY matched, WX ahead).
-fn bool Ppu.window_pending(&self) {
-	Renderer* r = &self.r;
-	return !r.wx_triggered && r.wy_triggered && (self.r_lcdc & LCDC_WIN_ENABLE)
-	       && self.wx <= 166 && (int)self.wx - 7 > r.pos;
-}
-
 // The window starts when WY has matched this frame and WX is reached.
 // True when starting it takes an extra dot.
 fn bool Ppu.window_check(&self) {
@@ -374,10 +388,6 @@ fn bool Ppu.window_check(&self) {
 			r.state = TILE_T1;
 			r.window_fetching = true;
 			stall = self.wx == 0 && (self.scx & 7) != 0 && !self.cgb_hw;
-			if (self.mode == 3 && !self.window_paid) {
-				self.mode3_len += WINDOW_MODE3_DOTS;
-				self.window_paid = true;
-			}
 		} else if (!self.cgb_hw && self.wx == 166 && self.wx == u8(r.pos + 7)) {
 			r.window_y++;
 		}
