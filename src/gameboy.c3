@@ -173,6 +173,7 @@ fn Cartridge GameBoy.load_rom_named(&self, char[] data, String save_path) {
 
 	if (cart::mbc_of(c.type) == cart::Mbc.NONE) {
 		self.mmu.load(0, data);
+		self.mmu.has_extram = c.type == 0x08 || c.type == 0x09;
 	} else {
 		self.mmu.cart = cart::new(data, save_path);
 		// The cartridge clock has its own crystal: it keeps real time even

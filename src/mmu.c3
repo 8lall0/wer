@@ -65,15 +65,22 @@ struct Dma {
 	int    index;          // next byte, 0..DMA_LEN-1
 	int    pending;        // M-cycles until a written start takes over (0 = none)
 	ushort pending_source;
+	// A conflicting CPU write changes the byte copied this M-cycle into
+	// `alter_value`, or ANDs it with that (Mmu.dma_conflict_write).
+	bool   alter;
+	bool   alter_and;
+	char   alter_value;
 }
 
 struct Mmu {
 	char[0x8000] rom;      // 0000-7FFF fallback when there is no MBC cartridge
 	char[0x2000] extram;   // A000-BFFF fallback
+	bool         has_extram; // a cartridge without MBC but with RAM (types $08/$09); else $A000-$BFFF is open bus
 	cart::Cartridge* cart; // non-null once an MBC ROM is loaded; owns ROM+RAM
 	char[0x2000] wram;   // C000-DFFF  (+ E000-FDFF echo)
 	char[0x80]   io;     // FF00-FF7F
 	char[0x7F]   hram;   // FF80-FFFE
+	char[0x60]   extra_oam; // FEA0-FEFF on a CGB (revision C: RAM, address bits 3-4 ignored)
 	char         ie;     // FFFF
 	timer::Timer   timer;
 	ppu::Ppu       ppu;    // owns VRAM (8000-9FFF) and OAM (FE00-FE9F)
@@ -131,11 +138,14 @@ fn char Mmu.get(&self, ushort addr) {
 	}
 	if (addr < 0x8000) return self.cart ? self.cart.read(addr) : self.rom[addr];
 	if (addr < 0xA000) return *self.vram_at(addr - 0x8000);
-	if (addr < 0xC000) return self.cart ? self.cart.read(addr) : self.extram[addr - 0xA000];
+	if (addr < 0xC000) return self.cart ? self.cart.read(addr) : (self.has_extram ? self.extram[addr - 0xA000] : 0xFF);
 	if (addr < 0xE000) return *self.wram_at(addr - 0xC000);
 	if (addr < 0xFE00) return *self.wram_at(addr - 0xE000); // echo RAM
 	if (addr < 0xFEA0) return self.ppu.oam[addr - 0xFE00];
-	if (addr < 0xFF00) return 0xFF;                     // unusable
+	if (addr < 0xFF00) {
+		// Unused: $00 on a DMG; a CGB (C) has RAM here (Gambatte oamdma_*_busypushFF01).
+		return self.model == CGB ? self.extra_oam[(addr & ~0x18) - 0xFEA0] : 0;
+	}
 	if (addr >= 0xFF10 && addr <= 0xFF3F) return self.apu.read(addr);
 	if (addr < 0xFF80) return self.io_get(addr);
 	if (addr < 0xFFFF) return self.hram[addr - 0xFF80];
@@ -152,13 +162,20 @@ fn void Mmu.set(&self, ushort addr, char value) {
 	}
 	if (addr < 0xA000) { *self.vram_at(addr - 0x8000) = value; return; }
 	if (addr < 0xC000) {
-		if (self.cart) { self.cart.write(addr, value); } else { self.extram[addr - 0xA000] = value; }
+		if (self.cart) {
+			self.cart.write(addr, value);
+		} else if (self.has_extram) {
+			self.extram[addr - 0xA000] = value;
+		}
 		return;
 	}
 	if (addr < 0xE000) { *self.wram_at(addr - 0xC000) = value; return; }
 	if (addr < 0xFE00) { *self.wram_at(addr - 0xE000) = value; return; }  // echo RAM
 	if (addr < 0xFEA0) { self.ppu.oam[addr - 0xFE00] = value; return; }
-	if (addr < 0xFF00) { return; }                                    // unusable
+	if (addr < 0xFF00) {                                              // unused
+		if (self.model == CGB) self.extra_oam[(addr & ~0x18) - 0xFEA0] = value;
+		return;
+	}
 	if (addr >= 0xFF10 && addr <= 0xFF3F) {
 		self.apu.div_counter = self.timer.div;
 		self.apu.write(addr, value);
@@ -446,7 +463,8 @@ fn void Mmu.io_set(&self, ushort addr, char value) {
 
 fn void Mmu.dma_request(&self, char page) {
 	ushort src = (ushort)page << 8;
-	if (src >= 0xE000) src -= 0x2000; // DMA sees $E000-$FFFF as WRAM
+	// A DMG's DMA sees $E000-$FFFF as WRAM; a CGB's copies $FF from there.
+	if (src >= 0xE000 && self.model != CGB) src -= 0x2000;
 	self.dma.pending_source = src;
 	self.dma.pending = DMA_STARTUP;
 }
@@ -459,23 +477,51 @@ fn void Mmu.dma_step(&self) {
 		return;
 	}
 	if (!self.dma.active) return;
-	self.ppu.oam[self.dma.index] = self.get(self.dma.source + (ushort)self.dma.index);
+	char b = self.dma_byte();
+	if (self.dma.alter) {
+		b = self.dma.alter_and ? b & self.dma.alter_value : self.dma.alter_value;
+		self.dma.alter = false;
+	}
+	self.ppu.oam[self.dma.index] = b;
 	if (++self.dma.index == DMA_LEN) self.dma.active = false;
 }
 
+// The address the DMA copies from in this M-cycle, and the byte.
+fn ushort Mmu.dma_addr(&self) => self.dma.source + (ushort)self.dma.index;
+fn char Mmu.dma_byte(&self) => self.dma_addr() >= 0xE000 ? 0xFF : self.get(self.dma_addr());
+
 // True when the CPU cannot access `addr` normally: OAM, or the bus the DMA
-// is reading from. The other bus, IO, HRAM and IE stay usable.
+// is reading from. The other bus, IO, HRAM and IE stay usable. On a CGB,
+// WRAM is a bus of its own, which clashes with any DMA but one from VRAM,
+// and a DMA from $E000 up clashes with everything but VRAM (SameBoy;
+// Gambatte oamdma_src*_busy*).
 fn bool Mmu.dma_blocks(&self, ushort addr) {
 	if (!self.dma.active) return false;
 	Bus bus = bus_of(addr);
-	return bus == OAM || bus == bus_of(self.dma.source);
+	if (bus == OAM) return true;
+	if (self.model != CGB) return bus == bus_of(self.dma.source);
+	if (addr >= 0xFE00) return false;
+	ushort src = self.dma_addr();
+	if (addr == src) return false;
+	if (addr >= 0xC000) return bus_of(src) != VIDEO;
+	if (src >= 0xE000) return bus != VIDEO;
+	return bus == bus_of(src) && src < 0xC000;
+}
+
+// A CPU access to WRAM that clashes with a CGB DMA reaches the WRAM byte
+// mixing the DMA's address with its own.
+fn ushort Mmu.dma_wram_alias(&self, ushort addr) => (self.dma_addr() & 0x1000) | (addr & 0x0FFF) | 0xC000;
+
+// The DMA on the main bus of a CGB from $E000 up: those accesses go nowhere.
+fn bool Mmu.dma_cgb_open(&self, ushort addr) {
+	return self.model == CGB && self.dma_addr() >= 0xE000 && addr < 0xC000 && bus_of(addr) == EXTERNAL;
 }
 
 // CPU reads and writes to OAM/VRAM are locked at slightly different moments
 // (see Ppu.oam_locked, vram_locked, oam_write_locked; Mooneye lcdon_*_timing).
 fn bool Mmu.ppu_blocks(&self, ushort addr, bool write) {
 	if ((self.ppu.lcdc & ppu::LCDC_ENABLE) == 0) return false;
-	if (addr >= 0xFE00 && addr < 0xFEA0) {
+	if (addr >= 0xFE00 && addr < 0xFF00) {
 		return write ? self.ppu.oam_write_locked() : self.ppu.oam_locked();
 	}
 	if (addr >= 0x8000 && addr < 0xA000) {
@@ -485,10 +531,51 @@ fn bool Mmu.ppu_blocks(&self, ushort addr, bool write) {
 }
 
 // What a blocked CPU read sees: $FF for OAM, otherwise the byte the DMA is
-// reading on that bus right now (DMG bus conflict).
+// reading on that bus right now (bus conflict); on a CGB, WRAM through the
+// DMA's address, or nothing ($FF) from the main bus during a DMA from $E000 up.
 fn char Mmu.dma_conflict_read(&self, ushort addr) {
 	if (bus_of(addr) == OAM) return 0xFF;
-	return self.get(self.dma.source + (ushort)self.dma.index);
+	if (self.model == CGB) {
+		if (self.dma_cgb_open(addr)) return 0xFF;
+		ushort src = self.dma_addr();
+		if (addr >= 0xC000 && (src < 0xC000 || src >= 0xE000)) return self.get(self.dma_wram_alias(addr));
+		// Reading VRAM while the DMA does clears the byte it copies
+		// (Gambatte oamdma_src8000_busypop9FFF).
+		if (bus_of(addr) == VIDEO) {
+			self.dma.alter = true;
+			self.dma.alter_and = false;
+			self.dma.alter_value = 0;
+		}
+	}
+	return self.dma_byte();
+}
+
+// A CPU write that clashes with the DMA is lost, but the byte the DMA copies
+// in that M-cycle takes the CPU's value (on a CGB also from $E000 up), is
+// ANDed with it from a DMG's WRAM, is cleared from a CGB's VRAM. On a CGB,
+// WRAM clashes take the write through the DMA's address instead (Gambatte
+// oamdma_src*_busypush*).
+fn void Mmu.dma_conflict_write(&self, ushort addr, char value) {
+	if (bus_of(addr) == OAM) return;
+	ushort src = self.dma_addr();
+	self.dma.alter = true;
+	self.dma.alter_and = false;
+	self.dma.alter_value = value;
+	if (self.model == CGB) {
+		if (self.dma_cgb_open(addr)) return; // lost, but its byte is what the DMA copies
+		if (addr >= 0xC000 && (src < 0xC000 || src >= 0xE000)) {
+			self.dma.alter = false;
+			self.set(self.dma_wram_alias(addr), value);
+			return;
+		}
+		if (src >= 0xC000) {
+			self.dma.alter = false;   // WRAM against WRAM: just lost
+		} else if (src >= 0x8000 && src < 0xA000) {
+			self.dma.alter_value = 0;
+		}
+		return;
+	}
+	if (src >= 0xC000) self.dma.alter_and = true;
 }
 
 // SC written with start + internal clock. Nothing moves yet: bits shift on

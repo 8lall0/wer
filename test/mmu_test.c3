@@ -25,11 +25,22 @@ fn void rom_area_is_read_only() @test
 	test::eq((char)0x99, m.get(0x2001));
 }
 
-fn void unusable_region_reads_ff() @test
+// $FEA0-$FEFF: $00 on a DMG (when OAM isn't locked); a CGB (revision C)
+// stores bytes there, address bits 3-4 ignored (Gambatte oamdma_*_busypushFF01).
+fn void unused_region_after_oam() @test
 {
 	mmu::Mmu m;
-	test::eq((char)0xFF, m.get(0xFEA0));
-	test::eq((char)0xFF, m.get(0xFEFF));
+	m.set(0xFEA0, 0x12);
+	test::eq((char)0x00, m.get(0xFEA0));
+	test::eq((char)0x00, m.get(0xFEFF));
+
+	mmu::Mmu c;
+	c.model = CGB;
+	c.set(0xFEA1, 0x34);
+	test::eq((char)0x34, c.get(0xFEA1));
+	test::eq((char)0x34, c.get(0xFEB9)); // bits 3-4 ignored
+	c.set(0xFEFF, 0x56);
+	test::eq((char)0x56, c.get(0xFEE7));
 }
 
 fn void ie_register() @test

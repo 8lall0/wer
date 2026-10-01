@@ -260,7 +260,11 @@ fn char Cpu.read(&self, mmu::Mmu* mmu, ushort addr) {
 fn void Cpu.write(&self, mmu::Mmu* mmu, ushort addr, char value) {
 	self.bus_cycles++;
 	self.oam_bug(mmu, false, in_oam(addr));
-	if (!mmu.dma_blocks(addr) && !mmu.ppu_blocks(addr, true)) mmu.set(addr, value);
+	if (mmu.dma_blocks(addr)) {
+		mmu.dma_conflict_write(addr, value);
+	} else if (!mmu.ppu_blocks(addr, true)) {
+		mmu.set(addr, value);
+	}
 	self.record(WRITE, addr, value);
 	mmu.tick(1);
 }
