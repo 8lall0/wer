@@ -24,6 +24,8 @@
   "build-dir": "build",
   // Output location, relative to project file.
   "output": "build",
+  // Directory where exec scripts are looked up.
+  "script-dir": ".",
   // Architecture and OS target.
   // You can use 'c3c --list-targets' to list all valid targets.
   // "target": "windows-x64",
@@ -35,6 +37,40 @@
       // renderer and audio. Only the executable links it; `c3c test` does not.
       "linked-libraries": [ "SDL3" ],
     },
+    "macos": {
+      "name": "wer_macos",
+      "type": "executable",
+      "target": "macos-aarch64",
+      "exec": [ "./scripts/build-sdl3.sh macos" ],
+      "cc": "clang",
+      "cflags": "--target=arm64-apple-macos11.0 -isysroot deps/MacOSX.sdk",
+      "linker-search-paths": [
+        "deps/sdl3-macos-aarch64/lib"
+      ],
+      "linked-libraries": [ "SDL3" ],
+      "link-args": [
+        // __isPlatformVersionAtLeast is emitted by clang for ObjC @available() checks
+        // in SDL3's static lib. It lives in macOS libSystem at runtime; -U lets
+        // ld64.lld leave it undefined so the OS resolves it correctly on the target.
+        "-U", "___isPlatformVersionAtLeast",
+        "-framework", "Cocoa",
+        "-framework", "IOKit",
+        "-framework", "CoreAudio",
+        "-framework", "AudioToolbox",
+        "-framework", "CoreVideo",
+        "-framework", "CoreMedia",
+        "-framework", "AVFoundation",
+        "-framework", "UserNotifications",
+        "-framework", "Metal",
+        "-framework", "QuartzCore",
+        "-framework", "Security",
+        "-framework", "Carbon",
+        "-framework", "ForceFeedback",
+        "-framework", "GameController",
+        "-framework", "CoreHaptics",
+        "-framework", "UniformTypeIdentifiers"
+      ]
+    }
   },
   // Global settings.
   // CPU name, used for optimizations in the LLVM backend.
