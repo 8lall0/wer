@@ -12,5 +12,6 @@ test/mooneye/
 test/blargg/
 test/mealybug/
 test/samesuite/
+/deps
 test/gambatte/
 test/mbc3/
