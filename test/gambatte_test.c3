@@ -1,7 +1,8 @@
 module gambatte_test;
 
 import gameboy, mmu, apu;
-import std::io, std::io::file, std::os::env, std::collections::map, std::sort;
+import std::io, std::io::file, std::os::env, std::collections::map, std::collections::list, std::sort;
+import parallel;
 import std::core::test;
 
 // Gambatte's hardware tests (sinamas), checked the way Gambatte's own
@@ -179,8 +180,6 @@ const String[16 * 8] GLYPHS = {
 	".#......",
 };
 
-uint[160 * 144] px; // the screen of the check just run
-
 struct Check {
 	bool   cgb;
 	String kind;   // hex, audio, png
@@ -215,7 +214,15 @@ fn uint mix(apu::Apu* a) {
 	return (l * (((a.io[apu::NR50] >> 4) & 7) + 1)) << 16 | r * ((a.io[apu::NR50] & 7) + 1);
 }
 
-fn bool run_check(Check* c) {
+// What a check ended with: passed, and for a failing hex check the digits shown.
+struct Result {
+	bool    pass;
+	char[8] shown;
+	usz     shown_len;
+}
+
+fn bool run_check(Check* c, Result* res) {
+	uint[] px = alloc::alloc_array(tmem, uint, 160 * 144);
 	char[]? data = file::load_temp(string::tformat("%s%s", DIR, c.rom));
 	if (catch data) return false;
 	gameboy::GameBoy gb = gameboy::new(false, c.cgb ? mmu::Model.CGB : mmu::Model.DMG);
@@ -247,7 +254,10 @@ fn bool run_check(Check* c) {
 		case "audio":
 			return sound_changed == (c.expect == "1");
 		case "hex":
-			screen_rgb(&gb, &px);
+			screen_rgb(&gb, px);
+			String shown = shown_hex(px, (int)c.expect.len);
+			res.shown_len = shown.len < 8 ? shown.len : 8;
+			res.shown[:res.shown_len] = shown[:res.shown_len];
 			foreach (i, ch : c.expect) {
 				// Like testrunner.cpp: upper-cased, up to the first non-digit.
 				int d = -1;
@@ -267,7 +277,7 @@ fn bool run_check(Check* c) {
 			char[]? ref = file::load_temp(string::tformat("%s%s", DIR, c.expect));
 			if (catch ref) return false;
 			if (ref.len != 160 * 144 * 3) return false;
-			screen_rgb(&gb, &px);
+			screen_rgb(&gb, px);
 			foreach (i, p : px) {
 				uint want = (uint)ref[i * 3] << 16 | (uint)ref[i * 3 + 1] << 8 | ref[i * 3 + 2];
 				if ((p ^ want) & 0xF8F8F8) return false;
@@ -280,7 +290,7 @@ fn bool run_check(Check* c) {
 
 // The hex digits shown in the top-left corner (`?` for a tile that is none),
 // to report what a failing check displays.
-fn String shown_hex(int n) {
+fn String shown_hex(uint[] px, int n) {
 	DString out;
 	out.tinit();
 	for (int i = 0; i < n; i++) {
@@ -305,6 +315,16 @@ fn String shown_hex(int n) {
 
 fn String Check.id(&self) => string::tformat("%s %s %s", self.cgb ? "cgb" : "dmg", self.kind, self.rom);
 
+struct Batch {
+	Check[]  checks;
+	Result[] results;
+}
+
+fn void run_one(void* ctx, usz i) {
+	Batch* b = ctx;
+	b.results[i].pass = run_check(&b.checks[i], &b.results[i]);
+}
+
 fn void run_all() @test {
 	if (!@ok(env::tget_var("WER_GAMBATTE")) && !@ok(env::tget_var("WER_GAMBATTE_ONLY"))) {
 		io::printn("  (Gambatte tests skipped: set WER_GAMBATTE=1)");
@@ -324,6 +344,22 @@ fn void run_all() @test {
 	bool update = @ok(env::tget_var("WER_GAMBATTE_UPDATE"));
 	String only = env::tget_var("WER_GAMBATTE_ONLY") ?? "";
 
+	// Every check first, run on all CPUs, then the report in order.
+	List{Check} checks;
+	checks.init(mem);
+	defer checks.free();
+	foreach (line : ((String)index).tsplit("\n")) {
+		String[] f = line.tsplit(" ");
+		if (f.len != 4) continue;
+		Check c = { f[0] == "cgb", f[1], f[2], f[3] };
+		if (only.len && !c.rom.contains(only)) continue;
+		checks.push(c);
+	}
+	Result[] results = mem::new_array(Result, checks.len());
+	defer free(results.ptr);
+	Batch batch = { checks.array_view(), results };
+	parallel::run((usz)checks.len(), &run_one, &batch);
+
 	DString passed;
 	passed.init(mem);
 	defer passed.free();
@@ -335,15 +371,12 @@ fn void run_all() @test {
 	int ok;
 	int regressed;
 	int fresh;
-	foreach (line : ((String)index).tsplit("\n")) {
-		String[] f = line.tsplit(" ");
-		if (f.len != 4) continue;
-		Check c = { f[0] == "cgb", f[1], f[2], f[3] };
-		if (only.len && !c.rom.contains(only)) continue;
+	foreach (i, &c : checks) {
 		String id = c.id();
-		bool pass = run_check(&c);
+		bool pass = results[i].pass;
+		String shown = (String)results[i].shown[:results[i].shown_len];
 		total++;
-		String dir = string::tformat("%s %s", c.rom[:c.rom.index_of_char('/') ?? 0], f[0]);
+		String dir = string::tformat("%s %s", c.rom[:c.rom.index_of_char('/') ?? 0], c.cgb ? "cgb" : "dmg");
 		int[2] n = dirs[dir] ?? {};
 		n[0]++;
 		if (pass) {
@@ -353,11 +386,10 @@ fn void run_all() @test {
 			if (!baseline.has_key(id)) fresh++;
 		} else if (baseline.has_key(id)) {
 			regressed++;
-			String got = only.len && c.kind == "hex" ? string::tformat(", got %s", shown_hex((int)c.expect.len)) : "";
+			String got = only.len && c.kind == "hex" ? string::tformat(", got %s", shown) : "";
 			io::eprintfn("  REGRESSED %s (%s%s)", id, c.expect, got);
 		} else if (only.len) {
-			String got = c.kind == "hex" ? shown_hex((int)c.expect.len) : "";
-			io::eprintfn("  fail %s: want %s, got %s", id, c.expect, got);
+			io::eprintfn("  fail %s: want %s, got %s", id, c.expect, shown);
 		}
 		dirs[dir] = n;
 	}

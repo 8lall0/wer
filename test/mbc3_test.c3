@@ -1,6 +1,6 @@
 module mbc3_test;
 
-import gameboy, mmu, joypad;
+import gameboy, mmu, joypad, parallel;
 import std::io, std::io::file;
 import std::core::test;
 
@@ -44,16 +44,37 @@ fn bool? matches(String rom, String keys, int seconds, String reference) {
 	return true;
 }
 
-fn void check(String rom, String keys, int seconds, String reference) {
-	bool? ok = matches(rom, keys, seconds, reference);
-	if (catch ok) {
-		io::printfn("  (%s missing: scripts/fetch-gambatte.sh)", rom);
-		return;
-	}
-	test::@check(ok, "%s: screen differs from %s", rom, reference);
+struct Check {
+	String rom;
+	String keys;
+	int    seconds;
+	String reference;
+	bool   present;
+	bool   ok;
 }
 
-fn void rtc3test_basic() @test => check("rtc3test.gb", "a", 15, "rtc3test-basic-tests-dmg.rgb");
-fn void rtc3test_range() @test => check("rtc3test.gb", "da", 10, "rtc3test-range-tests-dmg.rgb");
-fn void rtc3test_sub_second_writes() @test => check("rtc3test.gb", "dda", 28, "rtc3test-sub-second-writes-dmg.rgb");
-fn void mbc3_tester() @test => check("mbc3-tester.gb", "", 1, "mbc3-tester-dmg.rgb");
+fn void run_job(void* ctx, usz i) {
+	Check* c = &((Check*)ctx)[i];
+	bool? ok = matches(c.rom, c.keys, c.seconds, c.reference);
+	if (catch ok) return;
+	c.present = true;
+	c.ok = ok;
+}
+
+// All four at once (the rtc3test ones run for many emulated seconds).
+fn void mbc3_tests() @test {
+	Check[4] checks = {
+		{ "rtc3test.gb", "a", 15, "rtc3test-basic-tests-dmg.rgb", false, false },
+		{ "rtc3test.gb", "da", 10, "rtc3test-range-tests-dmg.rgb", false, false },
+		{ "rtc3test.gb", "dda", 28, "rtc3test-sub-second-writes-dmg.rgb", false, false },
+		{ "mbc3-tester.gb", "", 1, "mbc3-tester-dmg.rgb", false, false },
+	};
+	parallel::run(checks.len, &run_job, &checks);
+	foreach (c : checks) {
+		if (!c.present) {
+			io::printfn("  (%s missing: scripts/fetch-gambatte.sh)", c.rom);
+			continue;
+		}
+		test::@check(c.ok, "%s: screen differs from %s", c.rom, c.reference);
+	}
+}

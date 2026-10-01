@@ -1,6 +1,6 @@
 module mooneye_test;
 
-import gameboy, cpu, mmu;
+import gameboy, cpu, mmu, parallel;
 import std::io;
 import std::io::file;
 import std::core::test;
@@ -194,8 +194,7 @@ struct Tally {
 	uint new_pass;
 }
 
-fn void run_one(Tally* t, Rom rom, mmu::Model model) {
-	Outcome o = run_rom(string::tformat("%s%s", DIR, rom.path), model);
+fn void report(Tally* t, Rom rom, mmu::Model model, Outcome o) {
 	if (o == MISSING) return;
 	t.present++;
 	String tag = model == DMG ? "" : string::tformat(" [%s]", model);
@@ -216,13 +215,31 @@ fn void run_one(Tally* t, Rom rom, mmu::Model model) {
 	}
 }
 
+struct Job {
+	Rom        rom;
+	mmu::Model model;
+	Outcome    outcome;
+}
+
+fn void run_job(void* ctx, usz i) {
+	Job* j = &((Job*)ctx)[i];
+	j.outcome = run_rom(string::tformat("%s%s", DIR, j.rom.path), j.model);
+}
+
 fn void run_all() @test
 {
+	usz n = ROMS.len + SGB_ROMS.len + SGB2_ROMS.len + CGB_ROMS.len;
+	Job[] jobs = mem::new_array(Job, (sz)n);
+	defer free(jobs.ptr);
+	usz k = 0;
+	foreach (rom : ROMS) jobs[k++] = { rom, DMG, MISSING };
+	foreach (rom : SGB_ROMS) jobs[k++] = { rom, SGB, MISSING };
+	foreach (rom : SGB2_ROMS) jobs[k++] = { rom, SGB2, MISSING };
+	foreach (rom : CGB_ROMS) jobs[k++] = { rom, CGB, MISSING };
+	parallel::run(n, &run_job, jobs.ptr);
+
 	Tally t;
-	foreach (rom : ROMS) run_one(&t, rom, DMG);
-	foreach (rom : SGB_ROMS) run_one(&t, rom, SGB);
-	foreach (rom : SGB2_ROMS) run_one(&t, rom, SGB2);
-	foreach (rom : CGB_ROMS) run_one(&t, rom, CGB);
+	foreach (&j : jobs) report(&t, j.rom, j.model, j.outcome);
 
 	if (t.present == 0) {
 		io::eprintn("  mooneye: no ROMs in test/mooneye — run scripts/fetch-mooneye.sh");

@@ -1,6 +1,6 @@
 module samesuite_test;
 
-import gameboy, mmu, cpu;
+import gameboy, mmu, cpu, parallel;
 import std::io, std::io::file;
 import std::core::test;
 
@@ -140,14 +140,21 @@ fn Outcome run_rom(String path) {
 	return TIMEOUT;
 }
 
+fn void run_job(void* ctx, usz i) {
+	((Outcome*)ctx)[i] = run_rom(ROMS[i].path);
+}
+
 fn void run_all() @test
 {
 	uint present;
 	uint passed;
 	uint regressed;
 	uint new_pass;
-	foreach (rom : ROMS) {
-		Outcome o = run_rom(rom.path);
+	Outcome[] outcomes = mem::new_array(Outcome, ROMS.len);
+	defer free(outcomes.ptr);
+	parallel::run(ROMS.len, &run_job, outcomes.ptr);
+	foreach (i, rom : ROMS) {
+		Outcome o = outcomes[i];
 		if (o == MISSING) continue;
 		present++;
 		if (o == PASS) {

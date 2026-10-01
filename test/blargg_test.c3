@@ -1,6 +1,6 @@
 module blargg_test;
 
-import gameboy, mmu;
+import gameboy, mmu, parallel;
 import std::io;
 import std::io::file;
 import std::core::test;
@@ -173,14 +173,44 @@ struct Tally {
 	uint new_pass;
 }
 
+// One ROM's result, kept after its worker's temp memory is gone (no heap:
+// the test runner's leak tracking only follows its own thread).
+struct RomResult {
+	Outcome    outcome;
+	char       code;
+	char[1024] text;
+	usz        text_len;
+}
+
+struct Batch {
+	String      dir;
+	Rom[]       roms;
+	mmu::Model  model;
+	RomResult[] results;
+}
+
+fn void run_one(void* ctx, usz i) {
+	Batch* b = ctx;
+	RomResult* r = &b.results[i];
+	String text;
+	r.outcome = run_rom(string::tformat("%s%s.gb", b.dir, b.roms[i].name), b.model, &r.code, &text);
+	r.text_len = text.len < r.text.len ? text.len : r.text.len;
+	r.text[:r.text_len] = text[:r.text_len];
+}
+
 fn void run_suite(String name, Rom[] roms, mmu::Model model)
 {
 	String dir = string::tformat("%s%s/", DIR, name);
+	RomResult[] results = mem::new_array(RomResult, roms.len);
+	defer free(results.ptr);
+	Batch batch = { dir, roms, model, results };
+	parallel::run(roms.len, &run_one, &batch);
+
 	Tally t;
-	foreach (rom : roms) {
-		char code;
-		String text;
-		Outcome o = run_rom(string::tformat("%s%s.gb", dir, rom.name), model, &code, &text);
+	foreach (i, rom : roms) {
+		Outcome o = results[i].outcome;
+		char code = results[i].code;
+		String text = (String)results[i].text[:results[i].text_len];
 		if (o == MISSING) continue;
 		t.present++;
 

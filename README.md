@@ -108,8 +108,10 @@ c3c test
 WER_GAMBATTE=1 c3c test -O2 --test-nocapture --test-filter gambatte
 ```
 
-The Gambatte suite runs only when asked (thousands of ROMs, a few minutes
-optimized); its passing checks are recorded in `test/gambatte_pass.txt`.
+The test ROM suites run on all CPU cores (`WER_THREADS=n` to change that;
+`c3c test -O2` is about four times faster than the default unoptimized
+build). The Gambatte suite runs only when asked (thousands of ROMs, under a
+minute optimized); its passing checks are recorded in `test/gambatte_pass.txt`.
 
 The test ROMs are not in the repository; each fetch script downloads its
 suite into `test/` (SameSuite is built from source and needs RGBDS). Without

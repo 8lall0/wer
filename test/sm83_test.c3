@@ -1,6 +1,6 @@
 module sm83_test;
 
-import cpu, mmu;
+import cpu, mmu, parallel;
 import std::io;
 import std::io::file;
 import std::collections::object;
@@ -200,35 +200,54 @@ fn bool run_file(String opcode, char[] flat, Result* out) {
 	return true;
 }
 
-fn void run_one(String name, char[] flat, uint* files, Result* sum) {
+struct FileResult {
+	bool   present;
 	Result r;
-	if (!run_file(name, flat, &r)) return; // no vector file
-	(*files)++;
-	sum.total += r.total;
-	sum.state_fail += r.state_fail;
-	sum.cycle_fail += r.cycle_fail;
-	sum.order_fail += r.order_fail;
+}
 
-	uint bad = r.state_fail + r.cycle_fail + r.order_fail;
-	if (bad != 0) {
-		io::eprintfn("  %-6s %d/%d  (%d state, %d cycle, %d bus order)  first fail: case %d",
-			name, r.total - bad, r.total, r.state_fail, r.cycle_fail, r.order_fail, r.first_fail);
-	}
+struct Batch {
+	String[]     names;
+	FileResult[] results;
+}
+
+// One vector file, on its own memory (parallel::run).
+fn void run_one(void* ctx, usz i) {
+	Batch* b = ctx;
+	char[] flat = mem::new_array(char, 0x10000);
+	defer free(flat.ptr);
+	b.results[i].present = run_file(b.names[i], flat, &b.results[i].r);
 }
 
 fn void run_all() @test {
-	char[] flat = mem::new_array(char, 0x10000);
-	defer free(flat.ptr);
+	String[] names = mem::new_array(String, 512);
+	defer free(names.ptr);
+	usz n = 0;
+	for (int op = 0; op < 256; op++) {
+		if (skip_opcode(op)) continue;
+		names[n++] = string::tformat("%02x", op);
+	}
+	for (int op = 0; op < 256; op++) names[n++] = string::tformat("cb %02x", op);
+
+	FileResult[] results = mem::new_array(FileResult, (sz)n);
+	defer free(results.ptr);
+	Batch batch = { names[:n], results };
+	parallel::run(n, &run_one, &batch);
 
 	uint files;
 	Result sum;
-
-	for (int op = 0; op < 256; op++) {
-		if (skip_opcode(op)) continue;
-		run_one(string::tformat("%02x", op), flat, &files, &sum);
-	}
-	for (int op = 0; op < 256; op++) {
-		run_one(string::tformat("cb %02x", op), flat, &files, &sum);
+	foreach (i, &fr : results) {
+		if (!fr.present) continue;
+		Result* r = &fr.r;
+		files++;
+		sum.total += r.total;
+		sum.state_fail += r.state_fail;
+		sum.cycle_fail += r.cycle_fail;
+		sum.order_fail += r.order_fail;
+		uint bad = r.state_fail + r.cycle_fail + r.order_fail;
+		if (bad != 0) {
+			io::eprintfn("  %-6s %d/%d  (%d state, %d cycle, %d bus order)  first fail: case %d",
+				names[i], r.total - bad, r.total, r.state_fail, r.cycle_fail, r.order_fail, r.first_fail);
+		}
 	}
 
 	if (files == 0) {

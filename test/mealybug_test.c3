@@ -1,6 +1,6 @@
 module mealybug_test;
 
-import gameboy, ppu, mmu;
+import gameboy, ppu, mmu, parallel;
 import std::io, std::io::file, std::io::path;
 import std::core::test;
 
@@ -180,15 +180,35 @@ fn void? write_pgm(String path, char[] fb) {
 
 alias Runner = fn Outcome(String, int*);
 
+struct Result {
+	Outcome outcome;
+	int     wrong;
+}
+
+struct Batch {
+	Rom[]    roms;
+	Runner   run;
+	Result[] results;
+}
+
+fn void run_job(void* ctx, usz i) {
+	Batch* b = ctx;
+	b.results[i].outcome = b.run(b.roms[i].name, &b.results[i].wrong);
+}
+
 fn void run_suite(String label, Rom[] roms, Runner run)
 {
 	uint present;
 	uint passed;
 	uint regressed;
 	uint new_pass;
-	foreach (rom : roms) {
-		int wrong;
-		Outcome o = run(rom.name, &wrong);
+	Result[] results = mem::new_array(Result, roms.len);
+	defer free(results.ptr);
+	Batch batch = { roms, run, results };
+	parallel::run(roms.len, &run_job, &batch);
+	foreach (i, rom : roms) {
+		int wrong = results[i].wrong;
+		Outcome o = results[i].outcome;
 		if (o == MISSING) continue;
 		present++;
 		if (o == PASS) {
