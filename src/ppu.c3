@@ -195,9 +195,16 @@ fn void Ppu.blank(&self) {
 // Writable STAT bits are the four interrupt enables (3-6). Turning one on
 // while its condition already holds is a rising edge of the STAT line.
 fn char Ppu.write_stat(&self, char value) {
+	char irq = 0;
+	if (!self.cgb_hw && (self.lcdc & LCDC_ENABLE)) {
+		// DMG STAT write bug: for a moment every source is enabled, so any
+		// condition that holds raises the interrupt (SameBoy writes $FF first).
+		self.stat |= 0x78;
+		irq = self.update_stat_line();
+	}
 	self.stat = (self.stat & 0x87) | (value & 0x78);
-	if ((self.lcdc & LCDC_ENABLE) == 0) return 0;
-	return self.update_stat_line();
+	if ((self.lcdc & LCDC_ENABLE) == 0) return irq;
+	return irq | self.update_stat_line();
 }
 
 // The LY=LYC flag follows a LYC write immediately, not at the next line.
@@ -418,9 +425,14 @@ fn bool Ppu.vblank_oam_pulse(&self) {
 // (Mooneye intr_1_2_timing).
 fn bool Ppu.late_oam_irq(&self) => self.lcd_on_by_cpu && self.line == 0 && !self.first_line && self.dot < 4;
 
+// The mode 2 (OAM) STAT source is a short pulse when mode 2 starts, not a
+// level for all of mode 2 (SameBoy's mode_for_interrupt): enabling it, or the
+// DMG STAT write bug, later in mode 2 raises nothing (Gambatte
+// miscmstatirq/m2statwirq_*). One M-cycle, plus the 4 dots line 0's comes late.
+const int OAM_IRQ_PULSE_DOTS = 8;
 fn char Ppu.update_stat_line(&self) {
 	bool high = ((self.stat & STAT_LYC_IE)    != 0 && (self.stat & STAT_LYC_FLAG) != 0)
-	         || ((self.stat & STAT_OAM_IE)    != 0 && ((self.mode == 2 && !self.late_oam_irq()) || self.vblank_oam_pulse()))
+	         || ((self.stat & STAT_OAM_IE)    != 0 && ((self.mode == 2 && self.dot < OAM_IRQ_PULSE_DOTS && !self.late_oam_irq()) || self.vblank_oam_pulse()))
 	         || ((self.stat & STAT_VBLANK_IE) != 0 && self.mode == 1)
 	         || ((self.stat & STAT_HBLANK_IE) != 0 && self.mode == 0);
 

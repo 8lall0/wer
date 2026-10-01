@@ -84,6 +84,7 @@ fn void lyc_interrupt() @test
 	gb.mmu.set(0xFF40, ppu::LCDC_ENABLE);
 	gb.mmu.set(0xFF45, 10);          // LYC
 	gb.mmu.set(0xFF41, ppu::STAT_LYC_IE);
+	gb.mmu.set(0xFF0F, 0x00);        // the DMG STAT write bug may already have fired
 
 	advance(&gb, 114 * 9); // LY = 9
 	test::@check((gb.mmu.get(0xFF0F) & 0x02) == 0, "no STAT int before LY==LYC");
