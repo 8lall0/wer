@@ -25,11 +25,13 @@ fn void speed_switch_with_stop() @test
 	gb.step();
 	gb.step();
 	test::eq((char)0x7F, gb.mmu.get(0xFF4D));   // armed
-	ulong before = gb.cpu.clk;
 	gb.step();                                   // STOP: switch
 	test::eq((char)0xFE, gb.mmu.get(0xFF4D));   // double speed, disarmed
-	test::@check(gb.cpu.clk - before > 2000, "the CPU pauses during the switch");
 	test::@check(gb.mmu.double_speed, "double speed on");
+	// Then the CPU stays halted for 0x20008 cycles of the new clock.
+	ulong before = gb.cpu.clk;
+	while (gb.cpu.halted) gb.step();
+	test::eq((ulong)(0x20008 / 4), gb.cpu.clk - before);
 }
 
 fn void double_speed_ppu_keeps_real_time() @test

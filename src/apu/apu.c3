@@ -430,7 +430,13 @@ fn void Apu.run(&self, int cycles) {
 
 // One M-cycle's worth (or more) of time: `t` T-cycles at the real-time rate,
 // with the DIV events that happened in it (see timer::TickResult).
-fn void Apu.tick(&self, uint t, uint div_events, uint div_secondary = 0, bool div_write = false) {
+// `frozen`: the APU stands still for this time (the halt after a CGB speed
+// switch), only the output keeps going.
+fn void Apu.tick(&self, uint t, uint div_events, uint div_secondary = 0, bool div_write = false, bool frozen = false) {
+	if (frozen) {
+		self.output(t);
+		return;
+	}
 	if (self.pending_envelope_tick) self.delayed_envelope_tick();
 	if (div_write) {
 		self.during_div_write = true;
@@ -441,7 +447,11 @@ fn void Apu.tick(&self, uint t, uint div_events, uint div_secondary = 0, bool di
 	for (uint i = 0; i < div_secondary; i++) self.div_secondary_event();
 
 	if (self.power) self.run((int)t / 2);
+	self.output(t);
+}
 
+// Output samples for `t` T-cycles of the current state.
+fn void Apu.output(&self, uint t) {
 	self.sample_acc += (ulong)t * self.out_rate;
 	while (self.sample_acc >= self.hz()) {
 		self.sample_acc -= self.hz();

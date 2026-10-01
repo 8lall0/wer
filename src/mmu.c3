@@ -110,6 +110,10 @@ struct Mmu {
 	bool   vdma_hblank; // an HBlank DMA is running
 	char   vdma_ff55;   // $FF55 read value when no HBlank DMA runs
 	int    vdma_stall;  // M-cycles the CPU is held off the bus (Cpu.step)
+	bool   irq_early;   // the PPU raised an interrupt early enough in the last tick
+	bool   apu_frozen;  // the APU stands still (the halt after a CGB speed switch, Cpu.stop)
+	int    ppu_freeze;  // dots the PPU stands still (right after a CGB speed switch)
+	int    timer_hold;  // M-cycles DIV is held at 0 (STOP with IME off)
 	sgb::Sgb* sgb;      // non-null in SGB mode (heap, freed by GameBoy.destroy)
 
 	Dma dma;
@@ -207,11 +211,13 @@ fn void Mmu.vdma_start(&self, char value) {
 	self.vdma_hblank = true;
 	// With the LCD off there are no HBlanks to wait for, and started during
 	// HBlank it doesn't wait for the next one: one block goes now.
-	bool in_hblank = self.ppu.mode == 0 && self.ppu.line < ppu::VBLANK_LINE && !self.ppu.r.active;
-	if ((self.ppu.lcdc & ppu::LCDC_ENABLE) == 0 || in_hblank) self.vdma_hblank_step();
+	if ((self.ppu.lcdc & ppu::LCDC_ENABLE) == 0 || self.in_hblank()) self.vdma_hblank_step();
 }
 
 // One HBlank DMA block (at the start of an HBlank on a visible line).
+// True during mode 0 of a visible line, after the last pixel.
+fn bool Mmu.in_hblank(&self) => self.ppu.mode == 0 && self.ppu.line < ppu::VBLANK_LINE && !self.ppu.r.active;
+
 fn void Mmu.vdma_hblank_step(&self) {
 	if (!self.vdma_hblank) return;
 	self.vdma_block();
@@ -541,6 +547,10 @@ fn void Mmu.set_double_speed(&self, bool on) {
 	self.key1 = 0;
 }
 
+// Dots the PPU stands still right after a CGB speed switch: none going to
+// double speed, 6 going back (Gambatte speedchange*, swept; SameBoy has a
+// similar short freeze).
+const int[2] SWITCH_PPU_FREEZE = { 0, 6 }; // to double, to normal
 fn void Mmu.tick(&self, char mcycles) {
 	uint t = (uint)mcycles * 4;
 	// In double speed an M-cycle is half as long: the timer, serial port and
@@ -550,11 +560,32 @@ fn void Mmu.tick(&self, char mcycles) {
 
 	for (char i = 0; i < mcycles; i++) self.dma_step();
 
-	timer::TickResult tr = self.timer.tick(t);
+	timer::TickResult tr;
+	if (self.timer_hold > 0) {
+		self.timer_hold--;
+	} else {
+		tr = self.timer.tick(t);
+	}
 	for (uint i = 0; i < tr.serial_edges; i++) self.serial_shift();
 	if (tr.timer_irq) self.io[IF_REG - 0xFF00] |= 0x04; // Timer interrupt
 
-	char pirq = self.ppu.tick(rt);
+	uint dots = rt;
+	if (self.ppu_freeze > 0) {
+		uint skip = self.ppu_freeze < (int)dots ? (uint)self.ppu_freeze : dots;
+		self.ppu_freeze -= (int)skip;
+		dots -= skip;
+	}
+	char pirq = dots ? self.ppu.tick(dots) : 0;
+	// A halted CPU notices a PPU interrupt raised in this M-cycle at once,
+	// one M-cycle sooner than the timer's (Cpu.service_interrupt): on a DMG
+	// always; on a CGB in normal speed when it came in the first half of the
+	// M-cycle or was the mode 2 one (Gambatte halt/*_scx2..5, noime_m2irq,
+	// lycirq_m2stat), in double speed never (halt/*_ds_*).
+	if (self.model != CGB) {
+		self.irq_early = pirq != 0;
+	} else {
+		self.irq_early = pirq != 0 && !self.double_speed && (self.ppu.irq_dot < 2 || self.ppu.irq_m2);
+	}
 	if (self.ppu.hblank_start) {
 		self.ppu.hblank_start = false;
 		if (self.cgb_mode) self.vdma_hblank_step();
@@ -563,7 +594,7 @@ fn void Mmu.tick(&self, char mcycles) {
 	if (self.sgb && (pirq & ppu::INT_VBLANK)) self.sgb.capture_transfer(&self.ppu);
 	self.request_irq(pirq);
 
-	self.apu.tick(rt, tr.apu_steps, tr.apu_rises, tr.apu_div_write);
+	self.apu.tick(rt, tr.apu_steps, tr.apu_rises, tr.apu_div_write, self.apu_frozen);
 
 	if (self.cart && self.cart.has_rtc) self.cart.rtc.tick(rt);
 }

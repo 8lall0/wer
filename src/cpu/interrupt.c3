@@ -28,7 +28,20 @@ fn bool Cpu.service_interrupt(&self, mmu::Mmu *mmu) {
 	char pending = (char)(mmu.get(IE_ADDR) & mmu.get(IF_ADDR) & INT_MASK);
 	if (pending == 0) return false;
 
-	self.halted = false;
+	// Waking from HALT takes one more M-cycle before the CPU carries on or
+	// dispatches (Gambatte tima tests; SameBoy), unless the interrupt came
+	// early enough in its M-cycle to be seen at once (Mmu.irq_early: the
+	// PPU's; Mooneye intr_2_*, di_timing; Gambatte halt) and HALT didn't only
+	// just start.
+	if (self.halted) {
+		bool seen_early = !self.just_halted && mmu.irq_early;
+		self.halted = false;
+		self.just_halted = false;
+		self.speed_switch_halt = 0;
+		mmu.apu_frozen = false;
+		if (!seen_early) self.idle(mmu);
+		if (!self.ime) return !seen_early;
+	}
 	// TODO: STOP is only released by joypad.
 
 	if (!self.ime) return false;
@@ -80,5 +93,6 @@ fn void Cpu.halt(&self, mmu::Mmu *mmu) {
 		self.halt_bug = true;
 	} else {
 		self.halted = true;
+		self.just_halted = true;
 	}
 }

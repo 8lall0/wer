@@ -118,6 +118,8 @@ struct Cpu {
 	bool stopped;
 	// HALT bug: the next opcode fetch must not advance PC (it is read twice).
 	bool halt_bug;
+	bool just_halted; // the first M-cycle in HALT (samples interrupts like a CGB)
+	int  speed_switch_halt; // M-cycles left of the halt after a speed switch
 	// The 16-bit incrementer puts its value on the address bus in the next
 	// bus cycle (DMG OAM corruption bug, see Mmu.oam_bug).
 	bool   idu_on;

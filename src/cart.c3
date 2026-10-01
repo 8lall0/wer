@@ -243,7 +243,8 @@ fn void Cartridge.write_control(&self, ushort addr, char value) {
 			switch {
 				case addr < 0x2000: self.ram_enabled = (value & 0x0F) == 0x0A;
 				case addr < 0x4000:
-					uint b = value & 0x7F;
+					// 7 bits (2 MiB); MBC30, on bigger cartridges, has all 8.
+					uint b = value & (self.rom.len > 0x200000 ? 0xFF : 0x7F);
 					self.rom_bank = b == 0 ? 1 : b;
 				case addr < 0x6000: self.ram_bank = value; // 0-3 = RAM, 8-C = RTC
 				default: if (self.has_rtc) self.rtc.write_latch(value);

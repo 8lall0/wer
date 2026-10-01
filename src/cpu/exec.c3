@@ -41,6 +41,11 @@ fn char Cpu.step(&self, mmu::Mmu *mmu) {
 	if (!self.service_interrupt(mmu)) {
 		if (self.halted || self.stopped) {
 			self.idle(mmu);
+			self.just_halted = false;
+			if (self.speed_switch_halt > 0 && --self.speed_switch_halt == 0) {
+				self.halted = false;
+				mmu.apu_frozen = false;
+			}
 		} else {
 			self.execute_one(mmu);
 		}

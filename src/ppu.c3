@@ -40,6 +40,9 @@ const char INT_VBLANK = 0x01;
 const char INT_STAT   = 0x02;
 
 struct Ppu {
+	int  irq_dot;        // tick(): the dot of the call that raised the first IRQ, or -1
+	bool irq_m2;         // ... and it was the mode 2 STAT interrupt
+	bool stat_m2;        // update_stat_line(): the rise came from mode 2 alone
 	char[0x2000] vram;
 	char*        vram1;  // CGB: VRAM bank 1 (heap), null otherwise
 	char[0xA0]   oam;
@@ -217,6 +220,7 @@ fn char Ppu.tick(&self, uint tcycles) {
 	}
 
 	char irq = 0;
+	self.irq_dot = -1;
 	for (uint i = 0; i < tcycles; i++) {
 		self.apply_writes();
 		// Mode 3 drawing for this dot (before the counters move on).
@@ -243,8 +247,12 @@ fn char Ppu.tick(&self, uint tcycles) {
 			if (self.line < VBLANK_LINE) self.wy_check();
 			self.check_lyc();
 		}
-		irq |= self.update_mode();
-		irq |= self.update_stat_line();
+		char now = self.update_mode() | self.update_stat_line();
+		if (now && self.irq_dot < 0) {
+			self.irq_dot = (int)i;
+			self.irq_m2 = self.stat_m2;
+		}
+		irq |= now;
 	}
 	return irq;
 }
@@ -374,6 +382,9 @@ fn char Ppu.update_stat_line(&self) {
 
 	bool rising = high && !self.stat_line;   // was low, is high now
 	self.stat_line = high;                   // remember for the next call
+	// Raised by the mode 2 (OAM) condition alone (see Mmu.tick).
+	self.stat_m2 = rising && (self.stat & STAT_OAM_IE) != 0 && self.mode == 2
+	               && !((self.stat & STAT_LYC_IE) != 0 && (self.stat & STAT_LYC_FLAG) != 0);
 	return rising ? INT_STAT : 0;
 }
 
