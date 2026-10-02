@@ -46,9 +46,11 @@ fn char Cpu.step(&self, mmu::Mmu *mmu) {
 	if (!self.service_interrupt(mmu)) {
 		if (self.halted || self.stopped) {
 			mmu.cpu_halted = self.halted;
+			bool first = self.just_halted;
 			self.idle(mmu);
 			mmu.cpu_halted = false;
 			self.just_halted = false;
+			self.halt_first_ran = first;
 			if (self.speed_switch_halt > 0 && --self.speed_switch_halt == 0) {
 				self.halted = false;
 				mmu.hdma_unhalt();

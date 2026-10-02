@@ -33,12 +33,14 @@ fn bool Cpu.service_interrupt(&self, mmu::Mmu *mmu) {
 	// dispatches (Gambatte tima tests; SameBoy), unless the interrupt came
 	// early enough in its M-cycle to be seen at once (Mmu.irq_early: the
 	// PPU's; Mooneye intr_2_*, di_timing; Gambatte halt) and HALT didn't only
-	// just start.
+	// just start: a DMG's HALT lasts 2 M-cycles at least, so an interrupt in
+	// the first is taken after the second (Gambatte CPU 0x76: 4 + 4 * !cgb).
 	if (self.halted) {
-		bool seen_early = !self.just_halted && mmu.irq_early;
+		bool seen_early = !self.just_halted && !self.halt_first_ran && mmu.irq_early;
 		self.halted = false;
 		mmu.hdma_unhalt();
 		self.just_halted = false;
+		self.halt_first_ran = false;
 		self.speed_switch_halt = 0;
 		if (!seen_early) self.idle(mmu);
 		// An HBlank DMA that came due meanwhile goes before the dispatch.
@@ -101,7 +103,10 @@ fn bool Cpu.service_interrupt(&self, mmu::Mmu *mmu) {
 }
 
 fn void Cpu.halt(&self, mmu::Mmu *mmu) {
-	if (!self.ime && self.interrupt_pending(mmu)) {
+	if (self.interrupt_pending(mmu)) {
+		// An interrupt already pending: no HALT, the HALT bug. With IME on
+		// the interrupt is taken at once and returns to the HALT, which then
+		// runs again (Gambatte CPU 0x76: pendingIrqs; halt/late_m0int_*).
 		self.halt_bug = true;
 	} else {
 		self.halted = true;
