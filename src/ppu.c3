@@ -436,7 +436,12 @@ fn void Ppu.write_render_reg(&self, char reg, char value) {
 	if (reg == 0x40) self.schedule(WE_LINE, value, dmg ? WE_DELAY[0] : (self.double_speed ? WE_DELAY[2] : WE_DELAY[1]));
 	switch (reg) {
 		case 0x42: self.schedule(reg, value, dmg ? 6 : self.cgb_delay(1));
-		case 0x43: self.schedule(reg, value, dmg ? 6 : self.cgb_delay(2));
+		case 0x43:
+			int d = dmg ? 6 : self.cgb_delay(2);
+			// The first line after LCD on draws early: SCX reaches its
+			// fine-scroll discard sooner (Gambatte enable_display/ly0_late_scx7*).
+			if (self.first_line) d -= self.cgb_hw ? 6 : 5;
+			self.schedule(reg, value, d < 0 ? 0 : d);
 		case 0x4A:
 			// Gambatte: the line checks see the new WY 1 cycle later (2 on a
 			// CGB), the check at the WX match 2 (CGB: 6, 5 in double speed).
