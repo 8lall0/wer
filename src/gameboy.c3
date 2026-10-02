@@ -107,6 +107,12 @@ fn GameBoy new(bool boot = true, mmu::Model model = DMG) {
 		gb.mmu.set(0xFF25, 0xF3);   // NR51: panning
 		// The DMG and CGB boot ROMs play the chime; the SGB's leaves channel 1 off.
 		gb.mmu.apu.active[apu::SQ1] = !model.is_sgb();
+		// Where the chime leaves channel 1's duty cycle: frequency $7C1, and
+		// the step and the 2 MHz ticks to the next one (Gambatte
+		// setPostBiosState; sound/ch1_duty*_pattern_pos*, ch1_init_pos_*).
+		gb.mmu.apu.sq[0].sample_length = 0x7C1;
+		gb.mmu.apu.sq[0].current_sample_index = model == CGB ? 6 : 3;
+		gb.mmu.apu.sq[0].sample_countdown = model == CGB ? 37 * 2 - 1 : 69 * 2 - 1;
 	}
 	return gb;
 }
@@ -170,6 +176,10 @@ fn Cartridge GameBoy.load_rom_named(&self, char[] data, String save_path) {
 		self.mmu.enter_compat_mode();
 		self.cpu = cpu::init_cgb_dmg();
 		ppu::set_grey_palettes(&self.mmu.ppu);
+	} else if (self.mmu.model == CGB && !self.mmu.boot_active) {
+		// A CGB game skips the boot ROM's palette pick: DIV is further back
+		// (Gambatte setPostBiosState; div/start_inc).
+		self.mmu.timer.div = 0x1EA0;
 	}
 	c.header_ok = header_checksum_ok(data);
 

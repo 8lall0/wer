@@ -216,7 +216,12 @@ fn void Apu.write_nrx4(&self, int i, int reg, char value) {
 		} else {
 			int extra_delay = 0;
 			if (self.cgb) {
-				if (!s.just_reloaded && (value & 4) == 0 && (((s.sample_countdown - 1 - s.delay) / 2) & 0x400) == 0) {
+				// A duty step due on the very next tick has already happened
+				// for the restart (Gambatte DutyUnit::nr4Change updates the
+				// position up to the write). SameBoy steps here almost always:
+				// later CGB revisions, not the CGB-C (sound/ch1_init_pos_*,
+				// *_pos6_to_pos7_timing_*).
+				if (s.sample_countdown == 0) {
 					s.current_sample_index = (s.current_sample_index + 1) & 7;
 					s.sample_surpressed = false;
 				} else if (s.sample_length == 0x7FF && old_sample_length != 0x7FF && s.sample_surpressed) {
