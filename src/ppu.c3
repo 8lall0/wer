@@ -341,11 +341,18 @@ const int MODE3_TAIL = 5;
 // intr_2_mode0_timing_sprites sees the line end that much sooner (CGB double
 // speed, sampling every 2 dots, does not: Gambatte sprites/*_ds).
 const int MODE3_OBJ_TAIL = 3;
+// A line where the window starts leaves mode 3 a dot later than its pipeline
+// alone says (Gambatte window/m2int_wx*_m3stat, *_scx2*), except with objects
+// fetched in double speed, or at the right edge (m0enable/enable_wxA6_*spxA7).
+const int WINDOW_TAIL = 1;
 
 // How many dots before the pipeline's last pixel STAT leaves mode 3.
 fn int Ppu.mode3_tail(&self) {
 	int t = MODE3_TAIL;
 	if (self.r.fetched_objects && !self.double_speed) t += MODE3_OBJ_TAIL;
+	if (self.r.started_window && !(self.r.fetched_objects && (self.double_speed || self.r.edge_window))) {
+		t -= WINDOW_TAIL;
+	}
 	// The first line after LCD on starts drawing 5 dots early (6 on a CGB)
 	// while its mode 3 starts on time.
 	if (self.first_line) t -= self.cgb_hw ? 6 : 5;
@@ -367,6 +374,7 @@ fn void Ppu.predict_mode3(&self) {
 	if (!self.first_line && self.r.n_obj == 0 && !window_possible && self.n_writes == 0) {
 		self.pipe_end_dot = MODE2_DOTS + MODE3_DOTS + (self.scx & 7) + MODE3_TAIL;
 		self.r.fetched_objects = false;
+		self.r.started_window = false;
 		return;
 	}
 	Ppu sim = *self;
@@ -386,6 +394,8 @@ fn void Ppu.predict_mode3(&self) {
 		}
 	}
 	self.r.fetched_objects = sim.r.fetched_objects;
+	self.r.started_window = sim.r.started_window;
+	self.r.edge_window = sim.r.edge_window;
 }
 
 fn char Ppu.update_mode(&self) {

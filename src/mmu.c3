@@ -90,6 +90,8 @@ struct Mmu {
 
 	bool   serial_active; // internal-clock transfer in progress
 	int    serial_bits;   // bits shifted so far (0..8)
+	int    serial_left;   // T-cycles (DIV counts) until the transfer ends, 0: none
+	bool   serial_fast;   // CGB fast clock (SC bit 1)
 	bool   serial_echo;   // when true, print each transferred byte to stderr
 	// The first bytes sent over serial (test ROMs report results there).
 	char[1024] serial_log;
@@ -320,9 +322,16 @@ fn void Mmu.oam_bug_read_idu(&self, int row) {
 	self.oam_bug_read(row);
 }
 
-// CGB palette RAM is out of the CPU's reach while the PPU draws (mode 3).
+// CGB palette RAM is out of the CPU's reach while the PPU draws: mode 3 and
+// a few dots more, until the pipeline is done with it (Gambatte cgbpal_m3).
+const int PALETTE_LOCK_EXTRA = 5;
+const int PALETTE_LOCK_EXTRA_DS = 4;
 fn bool Mmu.palette_locked(&self) {
-	return (self.ppu.lcdc & ppu::LCDC_ENABLE) != 0 && self.ppu.mode == 3;
+	if ((self.ppu.lcdc & ppu::LCDC_ENABLE) == 0) return false;
+	ppu::Ppu* p = &self.ppu;
+	if (p.line >= ppu::VBLANK_LINE || p.mode == 2 || p.mode == 1) return false;
+	int extra = p.double_speed ? PALETTE_LOCK_EXTRA_DS : PALETTE_LOCK_EXTRA;
+	return p.dot >= ppu::MODE2_DOTS && p.dot < p.pipe_end_dot - p.mode3_tail() + extra;
 }
 
 // Video RAM byte at `off` from $8000 in the bank the CPU sees (VBK).
@@ -381,7 +390,7 @@ fn char Mmu.io_get(&self, ushort addr) {
 		case 0xFF4B:   return self.ppu.cpu_view(0x4B, self.ppu.wx);
 		case 0xFF01:   // SB: all 8 bits
 		case DMA_REG:  return self.io[addr - 0xFF00];
-		case 0xFF02:   return self.io[0x02] | 0x7E;             // SC: only bits 7 and 0 exist
+		case 0xFF02:   return self.io[0x02] | (self.cgb_mode ? 0x7C : 0x7E); // SC: bits 7, 0 (and 1 in CGB mode)
 		case IF_REG:   return self.io[IF_REG - 0xFF00] | 0xE0;  // IF: bits 5-7 unused
 		default:       return 0xFF;                             // unmapped
 	}
@@ -433,10 +442,25 @@ fn void Mmu.io_set(&self, ushort addr, char value) {
 			if (self.sgb) self.sgb.write_p1(value); // SGB command packets / multiplayer
 			self.joypad.write(value);
 		case 0xFF01:   self.io[0x01] = value; // SB
-		case 0xFF02:   // SC: bit 7 = start, bit 0 = internal clock
-			self.io[0x02] = value;
-			if ((value & 0x81) == 0x81) self.serial_start();
-		case DIV_REG:  self.timer.write_div();
+		case 0xFF02:   // SC: bit 7 = start, bit 0 = internal clock, CGB bit 1 = fast clock
+			self.io[0x02] = self.cgb_mode ? value & 0x83 : value & 0x81;
+			// Anything but start + internal clock stops a transfer (with an
+			// external clock and no cable, nothing ever shifts it).
+			if ((value & 0x81) == 0x81) {
+				self.serial_start();
+			} else {
+				self.serial_active = false;
+				self.serial_left = 0;
+			}
+		case DIV_REG:
+			// A DIV reset moves a transfer's end to DIV's new phase (Gambatte).
+			if (self.serial_left > 0) {
+				int r = self.serial_left;
+				int a = (int)self.serial_align();
+				r += (-r & (a - 1)) - 2 * (-r & (a / 2));
+				self.serial_left = r > 0 ? r : 1;
+			}
+			self.timer.write_div();
 		case TIMA_REG: self.timer.write_tima(value);
 		case TMA_REG:  self.timer.write_tma(value);
 		case TAC_REG:  self.timer.write_tac(value);
@@ -582,13 +606,30 @@ fn void Mmu.dma_conflict_write(&self, ushort addr, char value) {
 	if (src >= 0xC000) self.dma.alter_and = true;
 }
 
-// SC written with start + internal clock. Nothing moves yet: bits shift on
-// the serial clock edges (Timer SERIAL_BIT), 8 of them per transfer.
+// SC written with start + internal clock. Nothing moves yet: the bits shift
+// in as the serial clock runs (Mmu.serial_tick).
 fn void Mmu.serial_start(&self) {
 	if (self.serial_echo) io::eprintf("%c", self.io[0x01]); // the byte being sent
 	if (self.serial_log_len < self.serial_log.len) self.serial_log[self.serial_log_len++] = self.io[0x01];
 	self.serial_active = true;
 	self.serial_bits = 0;
+	// A bit every 512 T-cycles of the DIV count (every 16 with the CGB's fast
+	// clock, SC bit 1), the last one 8 periods after the count's last
+	// multiple of 256 (8) (Gambatte).
+	self.serial_fast = (self.io[0x02] & 0x02) != 0;
+	self.serial_left = self.serial_period() * 8 - (int)(self.timer.div & (self.serial_align() - 1));
+}
+
+fn int Mmu.serial_period(&self) => self.serial_fast ? 16 : 512;
+fn uint Mmu.serial_align(&self) => self.serial_fast ? 8 : 256;
+
+// The serial clock moving on by `t` T-cycles: the bits due by now.
+fn void Mmu.serial_tick(&self, uint t) {
+	self.serial_left -= (int)t;
+	int p = self.serial_period();
+	int due = self.serial_left <= 0 ? 8 : 8 - (self.serial_left + p - 1) / p;
+	while (self.serial_active && self.serial_bits < due) self.serial_shift();
+	if (!self.serial_active) self.serial_left = 0;
 }
 
 // One serial clock edge: SB shifts left, taking in 1 (no cable connected).
@@ -657,8 +698,8 @@ fn void Mmu.tick(&self, char mcycles) {
 		self.timer_hold--;
 	} else {
 		tr = self.timer.tick(t);
+		if (self.serial_left > 0) self.serial_tick(t);
 	}
-	for (uint i = 0; i < tr.serial_edges; i++) self.serial_shift();
 	if (tr.timer_irq) self.io[IF_REG - 0xFF00] |= 0x04; // Timer interrupt
 
 	uint dots = rt;

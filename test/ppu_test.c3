@@ -304,7 +304,7 @@ fn void mode3_length_follows_the_pipeline() @test
 	int plain = mode0_dot(on, 0, 0xFF, {});
 	test::eq(ppu::MODE2_DOTS + ppu::MODE3_DOTS, plain);
 	test::eq(plain + 3, mode0_dot(on, 0x0B, 0xFF, {}));           // SCX % 8 = 3
-	test::eq(plain + 6, mode0_dot(on | ppu::LCDC_WIN_ENABLE, 0, 7, {})); // the window
+	test::eq(plain + 6 + ppu::WINDOW_TAIL, mode0_dot(on | ppu::LCDC_WIN_ENABLE, 0, 7, {})); // the window
 	char obj = on | ppu::LCDC_OBJ_ENABLE;
 	int one = mode0_dot(obj, 0, 0xFF, { 0 });                     // X = 0: 11 dots
 	test::eq(plain + 11 - ppu::MODE3_OBJ_TAIL, one);

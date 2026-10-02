@@ -97,6 +97,9 @@ struct Renderer {
 	int      n_obj;
 	ObjStep  obj_step;
 	bool     fetched_objects; // an object fetch started on this line
+	bool     started_window;  // the window started on this line
+	bool     edge_window;     // ... at its last pixel
+	bool     prev_win_en;     // LCDC's window enable in the previous dot
 	bool     edge_fetched;    // the first object fetch in the last two pixels happened
 	int      prev_fetch_x;    // X of the last object fetched on this line (-1: none)
 	int      edge_skip;       // ... and how many idle dots it skips
@@ -179,6 +182,9 @@ fn void Ppu.render_start(&self) {
 	r.obj_step = NONE;
 	r.insert_bg_pixel = false;
 	r.fetched_objects = false;
+	r.started_window = false;
+	r.edge_window = false;
+	r.prev_win_en = (self.r_lcdc & LCDC_WIN_ENABLE) != 0;
 	r.edge_fetched = false;
 	r.edge_skip = 0;
 	r.prev_fetch_x = -1;
@@ -202,6 +208,9 @@ fn bool Ppu.objects_fetched(&self) => (self.r_lcdc & LCDC_OBJ_ENABLE) != 0 || se
 // One dot of mode 3.
 fn void Ppu.render_dot(&self) {
 	Renderer* r = &self.r;
+	// CGB: the window switched off while its first tile is being fetched
+	// doesn't lengthen mode 3 (Gambatte window/late_disable*).
+	if (self.cgb_hw && r.window_fetching && (self.r_lcdc & LCDC_WIN_ENABLE) == 0) r.started_window = false;
 	if (r.obj_abort) {
 		// The object being fetched is dropped from this dot on (it stays in
 		// the list, but with objects off nothing fetches it).
@@ -365,7 +374,13 @@ fn void Ppu.overlay_object(&self) {
 fn bool Ppu.window_check(&self) {
 	bool stall = false;
 	Renderer* r = &self.r;
-	if (!r.wx_triggered && r.wy_triggered && (self.r_lcdc & LCDC_WIN_ENABLE)) {
+	bool win_en = (self.r_lcdc & LCDC_WIN_ENABLE) != 0;
+	bool was_en = r.prev_win_en;
+	r.prev_win_en = win_en;
+	// CGB double speed: a window enable starts the window from the next dot
+	// on (Gambatte window/late_reenable_ds).
+	if (self.cgb_hw && self.double_speed && !was_en) win_en = false;
+	if (!r.wx_triggered && r.wy_triggered && win_en) {
 		bool start = false;
 		if (self.wx == 0) {
 			start = r.pos == -7 || (r.pos == -16 && (self.scx & 7) != 0) || (r.pos >= -15 && r.pos <= -8);
@@ -385,6 +400,8 @@ fn bool Ppu.window_check(&self) {
 			r.window_tile_x = 0;
 			r.bg.clear();
 			r.wx_triggered = true;
+			r.started_window = true;
+			r.edge_window = r.pos >= WIDTH - 1;
 			r.state = TILE_T1;
 			r.window_fetching = true;
 			stall = self.wx == 0 && (self.scx & 7) != 0 && !self.cgb_hw;

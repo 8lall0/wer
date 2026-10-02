@@ -177,8 +177,8 @@ fn void oam_dma_from_vram_leaves_external_bus_free() @test
 	test::eq((char)0xFF, m.dma_conflict_read(0xFE00));
 }
 
-// Internal-clock serial transfer: 8 bits, one per falling edge of counter
-// bit 8 (every 512 T-cycles), aligned to DIV rather than to the SC write.
+// Internal-clock serial transfer: 8 bits, one per 512 T-cycles, aligned to
+// the DIV count (its last multiple of 256) rather than to the SC write.
 fn void serial_transfer_takes_eight_clock_edges() @test
 {
 	mmu::Mmu m;                        // DIV counter starts at 0

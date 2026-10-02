@@ -280,12 +280,30 @@ fn bool run_check(Check* c, Result* res) {
 			screen_rgb(&gb, px);
 			foreach (i, p : px) {
 				uint want = (uint)ref[i * 3] << 16 | (uint)ref[i * 3 + 1] << 8 | ref[i * 3 + 2];
-				if ((p ^ want) & 0xF8F8F8) return false;
+				if ((p ^ want) & 0xF8F8F8) {
+					dump_screen(c, px);
+					return false;
+				}
 			}
 			return true;
 		default:
 			return false;
 	}
+}
+
+// WER_GAMBATTE_DUMP=<dir>: a failing screenshot check saves what we show
+// there, as raw RGB like the references (<rom path with / as _>.rgb).
+fn void dump_screen(Check* c, uint[] px) {
+	String? dir = env::tget_var("WER_GAMBATTE_DUMP");
+	if (catch dir) return;
+	char[] rgb = alloc::alloc_array(tmem, char, 160 * 144 * 3);
+	foreach (i, p : px) {
+		rgb[i * 3] = (char)(p >> 16);
+		rgb[i * 3 + 1] = (char)(p >> 8);
+		rgb[i * 3 + 2] = (char)p;
+	}
+	String name = string::tformat("%s/%s.rgb", dir, c.rom.treplace("/", "_"));
+	(void)file::save(name, rgb);
 }
 
 // The hex digits shown in the top-left corner (`?` for a tile that is none),
