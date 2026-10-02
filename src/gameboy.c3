@@ -68,13 +68,16 @@ fn GameBoy new(bool boot = true, mmu::Model model = DMG) {
 		gb.mmu.set(0xFF48, 0xFF); // OBP0
 		gb.mmu.set(0xFF49, 0xFF); // OBP1
 		gb.mmu.set(0xFF40, 0x91); // LCDC: on, BG on, tile data $8000
-		// The boot ROM turned the LCD on long ago: normal line 0, not the
-		// special first line after LCD-on.
+		// The boot ROM turned the LCD on long ago, and hands over in VBlank:
+		// a CGB at line 144 dot 164, a DMG at line 153 dot 396 (Gambatte
+		// setPostBiosState; display_startstate).
 		gb.mmu.ppu.first_line = false;
-		gb.mmu.ppu.dot = 0;
-		gb.mmu.ppu.line = 0;
-		gb.mmu.ppu.mode = 2;
-		gb.mmu.ppu.stat = (gb.mmu.ppu.stat & 0xFC) | 2;
+		gb.mmu.ppu.line = model == CGB ? 144 : 153;
+		gb.mmu.ppu.dot = model == CGB ? 164 : 396;
+		gb.mmu.ppu.ly = model == CGB ? 144 : 0;
+		gb.mmu.ppu.mode = 1;
+		gb.mmu.ppu.stat = (gb.mmu.ppu.stat & 0xFC) | 1;
+		gb.mmu.ppu.irq_reschedule(true);
 		// DMG post-boot DIV counter (Pan Docs); the SGB boot ROMs run longer,
 		// the SGB2's 4 M-cycles less (values found with Mooneye boot_div-S /
 		// boot_div2-S).

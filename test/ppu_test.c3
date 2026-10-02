@@ -7,6 +7,11 @@ fn void advance(gameboy::GameBoy* gb, int mcycles) {
 	for (int i = 0; i < mcycles; i++) gb.mmu.tick(1);
 }
 
+// A DMG starts at line 153 dot 396: run on to the top of the frame.
+fn void to_frame_start(gameboy::GameBoy* gb) {
+	advance(gb, (456 - 396) / 4);
+}
+
 // ---------------------------------------------------------------------------
 // Register routing through the MMU
 // ---------------------------------------------------------------------------
@@ -45,6 +50,7 @@ fn void mode_and_ly_progression() @test
 	gameboy::GameBoy gb = gameboy::new(false);
 	defer gb.destroy();
 	gb.mmu.set(0xFF40, ppu::LCDC_ENABLE);
+	to_frame_start(&gb);
 
 	test::eq((char)2, (char)(gb.mmu.get(0xFF41) & 3)); // line 0 starts in OAM scan
 
@@ -68,6 +74,7 @@ fn void vblank_interrupt_fires_once_per_frame() @test
 	gameboy::GameBoy gb = gameboy::new(false);
 	defer gb.destroy();
 	gb.mmu.set(0xFF40, ppu::LCDC_ENABLE);
+	to_frame_start(&gb);
 	gb.mmu.set(0xFF0F, 0x00); // clear the VBlank flag left pending after boot
 
 	advance(&gb, 114 * 143); // just before line 144
@@ -82,6 +89,7 @@ fn void lyc_interrupt() @test
 	gameboy::GameBoy gb = gameboy::new(false);
 	defer gb.destroy();
 	gb.mmu.set(0xFF40, ppu::LCDC_ENABLE);
+	to_frame_start(&gb);
 	gb.mmu.set(0xFF45, 10);          // LYC
 	gb.mmu.set(0xFF41, ppu::STAT_LYC_IE);
 	gb.mmu.set(0xFF0F, 0x00);        // the DMG STAT write bug may already have fired

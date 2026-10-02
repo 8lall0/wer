@@ -132,7 +132,7 @@ fn void hblank_dma_one_block_per_hblank() @test
 	char last = gb.mmu.ppu.mode;
 	while (hblanks < 1) {
 		gb.step();
-		if (gb.mmu.ppu.mode == 0 && last != 0) hblanks++;
+		if (gb.mmu.ppu.mode == 0 && last == 3) hblanks++;
 		last = gb.mmu.ppu.mode;
 	}
 	for (int i = 0; i < 4; i++) gb.step();

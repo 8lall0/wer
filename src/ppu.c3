@@ -191,6 +191,9 @@ fn char Ppu.write_lcdc(&self, char value) {
 		self.we_lcdc = value;
 		self.render_frame_start();
 		self.first_line = true;
+		// Until line 0 is predicted, its mode 0 interrupt is a plain line's
+		// (not whatever line drew last, if any did).
+		self.m0_irq_pred = MODE2_DOTS + MODE3_DOTS + (self.scx & 7) + PLAIN_PIPE_EXTRA - M0_IRQ_BEFORE_END;
 		self.lcd_on_cc = self.cc;
 		self.irq_reschedule(true);
 		// LY=LYC turns true at once with LYC 0.

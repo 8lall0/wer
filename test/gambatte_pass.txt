@@ -121,6 +121,17 @@ cgb hex cgbpal_m3/cgbpal_write_m3start_lcdoffset1_2_cgb04c_out00.gbc
 dmg hex display_startstate/irq_dmg08_cgb04c_outE1.gbc
 cgb hex display_startstate/irq_dmg08_cgb04c_outE1.gbc
 dmg hex display_startstate/ly_dmg08_out00_cgb04c_out90.gbc
+cgb hex display_startstate/ly_dmg08_out00_cgb04c_out90.gbc
+cgb hex display_startstate/stat_1_cgb04c_out87.gbc
+dmg hex display_startstate/stat_1_dmg08_out85.gb
+cgb hex display_startstate/stat_2_cgb04c_out84.gbc
+dmg hex display_startstate/stat_2_dmg08_out84.gb
+cgb hex display_startstate/stat_scx2_1_cgb04c_out87.gbc
+cgb hex display_startstate/stat_scx2_2_cgb04c_out84.gbc
+cgb hex display_startstate/stat_scx3_1_cgb04c_out87.gbc
+cgb hex display_startstate/stat_scx3_2_cgb04c_out84.gbc
+cgb hex display_startstate/stat_scx5_1_cgb04c_out87.gbc
+cgb hex display_startstate/stat_scx5_2_cgb04c_out84.gbc
 dmg hex div/start_inc_1_dmg08_outAB.gb
 dmg hex div/start_inc_2_dmg08_outAC.gb
 cgb hex div/start_stop1_inc_1_cgb04c_out00.gbc
@@ -618,6 +629,7 @@ cgb hex halt/noime_m2irq_m0stat_1_dmg08_cgb04c_out0.gbc
 dmg hex halt/noime_m2irq_m0stat_2_dmg08_cgb04c_out2.gbc
 cgb hex halt/noime_m2irq_m0stat_2_dmg08_cgb04c_out2.gbc
 cgb hex irq_precedence/hdma_vs_m0_scx1_cgb04c_out1234.gbc
+cgb hex irq_precedence/hdma_vs_m0_scx2_cgb04c_out0183.gbc
 cgb hex irq_precedence/hdma_vs_m0_scx2_halt_cgb04c_out1234.gbc
 cgb hex irq_precedence/hdma_vs_m0_scx3_cgb04c_out1234.gbc
 dmg hex irq_precedence/if_and_ie_0_if_1_dmg08_cgb04c_outE4.gbc
@@ -3201,6 +3213,8 @@ dmg hex serial/start_wait_read_if_1_dmg08_cgb04c_outE0.gbc
 cgb hex serial/start_wait_read_if_1_dmg08_cgb04c_outE0.gbc
 dmg hex serial/start_wait_read_if_2_dmg08_cgb04c_outE8.gbc
 cgb hex serial/start_wait_read_if_2_dmg08_cgb04c_outE8.gbc
+cgb hex serial/start_wait_read_if_ds_1_cgb04c_outE0.gbc
+cgb hex serial/start_wait_read_if_ds_2_cgb04c_outE8.gbc
 dmg hex serial/start_wait_read_sb_1_dmg08_cgb04c_out7F.gbc
 cgb hex serial/start_wait_read_sb_1_dmg08_cgb04c_out7F.gbc
 dmg hex serial/start_wait_read_sb_2_dmg08_cgb04c_outFF.gbc
@@ -4206,6 +4220,8 @@ dmg hex tima/tc00_irq_1_dmg08_cgb04c_outE0.gbc
 cgb hex tima/tc00_irq_1_dmg08_cgb04c_outE0.gbc
 dmg hex tima/tc00_irq_2_dmg08_cgb04c_outE4.gbc
 cgb hex tima/tc00_irq_2_dmg08_cgb04c_outE4.gbc
+cgb hex tima/tc00_irq_ds_1_cgb04c_outE0.gbc
+cgb hex tima/tc00_irq_ds_2_cgb04c_outE4.gbc
 dmg hex tima/tc00_irq_ifw_1_dmg08_cgb04c_outE4.gbc
 cgb hex tima/tc00_irq_ifw_1_dmg08_cgb04c_outE4.gbc
 dmg hex tima/tc00_irq_ifw_2_dmg08_cgb04c_outE0.gbc
