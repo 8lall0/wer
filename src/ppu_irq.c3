@@ -70,8 +70,11 @@ fn ulong Ppu.lyc_schedule(&self, char stat, char lyc) {
 	return self.next_frame_cycle(fc);
 }
 
-// This line's mode 0 interrupt: a dot after STAT reads mode 0.
-fn int Ppu.m0_irq_dot(&self) => self.m0_irq_pred - self.r.abort_dots + (self.first_line ? (self.cgb_hw ? 6 : 5) : 0);
+// This line's mode 0 interrupt: a dot after STAT reads mode 0. On the first
+// line after LCD on (drawn 5 dots early, 6 on a CGB) it comes 2 dots later
+// still than that (Gambatte enable_display/ly0_m0irq_*, frame0_m0irq_count_*).
+const int[2] FIRST_LINE_M0_IRQ = { 7, 8 };
+fn int Ppu.m0_irq_dot(&self) => self.m0_irq_pred - self.r.abort_dots + (self.first_line ? FIRST_LINE_M0_IRQ[self.cgb_hw ? 1 : 0] : 0);
 
 fn bool Ppu.m0_pending(&self) => self.line < VBLANK_LINE && self.dot < self.m0_irq_dot();
 
