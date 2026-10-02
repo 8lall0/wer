@@ -121,7 +121,7 @@ const char TILE_SEL_CLEARED    = 0x05; // CGB: latch the last bitplane read (see
 const char LCDC_DMG   = 0x01; // DMG LCDC write: mixed old/new value for a dot (see apply)
 const char LCDC_PART  = 0x04; // LCDC write where the bits in `keep` land later
 const int[3] WYD = { 2, 3, 2 };
-const int[2] WE_DELAY = { 0, 2 };
+const int[3] WE_DELAY = { 0, 3, 2 }; // DMG, CGB, CGB double speed (window/late_enable_afterVblank*)
 const int[3] WY2D = { 9, 13, 9 };
 const char WY2        = 0x08;
 const char WE_LINE    = 0x09; // LCDC as the window line checks see it (Gambatte p.lcdc) // WY as the WX-time window check sees it (Gambatte wy2)
@@ -433,7 +433,7 @@ fn void Ppu.write_render_reg(&self, char reg, char value) {
 	}
 	old = self.cpu_view(reg, old);
 	bool dmg = !self.cgb_hw;
-	if (reg == 0x40) self.schedule(WE_LINE, value, dmg ? WE_DELAY[0] : WE_DELAY[1]);
+	if (reg == 0x40) self.schedule(WE_LINE, value, dmg ? WE_DELAY[0] : (self.double_speed ? WE_DELAY[2] : WE_DELAY[1]));
 	switch (reg) {
 		case 0x42: self.schedule(reg, value, dmg ? 6 : self.cgb_delay(1));
 		case 0x43: self.schedule(reg, value, dmg ? 6 : self.cgb_delay(2));

@@ -4657,6 +4657,7 @@ cgb hex window/late_disable_wx0f_2_dmg08_cgb04c_out3.gbc
 dmg hex window/late_enable_afterVblank_1_dmg08_cgb04c_out3.gbc
 cgb hex window/late_enable_afterVblank_1_dmg08_cgb04c_out3.gbc
 dmg hex window/late_enable_afterVblank_2_dmg08_out3_cgb04c_out0.gbc
+cgb hex window/late_enable_afterVblank_2_dmg08_out3_cgb04c_out0.gbc
 dmg hex window/late_enable_afterVblank_3_dmg08_cgb04c_out0.gbc
 cgb hex window/late_enable_afterVblank_3_dmg08_cgb04c_out0.gbc
 cgb hex window/late_enable_afterVblank_ds_1_cgb04c_out3.gbc
@@ -4889,6 +4890,7 @@ cgb hex window/reenable_ds_cgb04c_out3.gbc
 dmg hex window/arg/late_enable_afterVblank_3_dmg08_cgb04c_out3.gbc
 cgb hex window/arg/late_enable_afterVblank_3_dmg08_cgb04c_out3.gbc
 dmg hex window/arg/late_enable_afterVblank_4_dmg08_out3_cgb04c_out0.gbc
+cgb hex window/arg/late_enable_afterVblank_4_dmg08_out3_cgb04c_out0.gbc
 dmg hex window/arg/late_enable_afterVblank_5_dmg08_cgb04c_out0.gbc
 cgb hex window/arg/late_enable_afterVblank_5_dmg08_cgb04c_out0.gbc
 dmg hex window/arg/late_scx_late_wy_FFto4_ly4_wx00_1_dmg08_cgb04c_out3.gbc
