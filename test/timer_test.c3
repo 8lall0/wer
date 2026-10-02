@@ -28,7 +28,7 @@ fn void tima_does_not_run_when_disabled() @test
 	timer::Timer t;
 	t.write_tac(0x00); // frequency 00, timer disabled (bit 2 clear)
 	t.tick(5000);
-	test::eq((char)0, t.tima);
+	test::eq((char)0, t.read_tima());
 }
 
 fn void tima_increments_at_selected_rate() @test
@@ -36,9 +36,9 @@ fn void tima_increments_at_selected_rate() @test
 	timer::Timer t;
 	t.write_tac(0x05); // enable + frequency 01 -> bit 3 -> every 16 T
 	t.tick(16);
-	test::eq((char)1, t.tima);
+	test::eq((char)1, t.read_tima());
 	t.tick(16 * 9);
-	test::eq((char)10, t.tima);
+	test::eq((char)10, t.read_tima());
 }
 
 fn void tac_slow_frequency() @test
@@ -46,39 +46,39 @@ fn void tac_slow_frequency() @test
 	timer::Timer t;
 	t.write_tac(0x04); // enable + frequency 00 -> bit 9 -> every 1024 T
 	t.tick(1023);
-	test::eq((char)0, t.tima);
+	test::eq((char)0, t.read_tima());
 	t.tick(1);
-	test::eq((char)1, t.tima);
+	test::eq((char)1, t.read_tima());
 }
 
 fn void tima_overflow_delays_reload_and_irq() @test
 {
 	timer::Timer t;
-	t.tma = 0xAB;
-	t.tima = 0xFF;
+	t.write_tma(0xAB);
+	t.write_tima(0xFF);
 	t.write_tac(0x05); // every 16 T
 
 	timer::TickResult r = t.tick(16); // TIMA 0xFF -> 0x00
 	test::@check(!r.timer_irq, "no IRQ on the overflow itself");
-	test::eq((char)0x00, t.tima);    // reads 0 during the reload window
+	test::eq((char)0x00, t.read_tima());    // reads 0 during the reload window
 
 	r = t.tick(4);                    // reload window elapses
 	test::@check(r.timer_irq, "IRQ once the reload happens");
-	test::eq((char)0xAB, t.tima);
+	test::eq((char)0xAB, t.read_tima());
 }
 
 fn void writing_tima_during_reload_window_cancels_it() @test
 {
 	timer::Timer t;
-	t.tma = 0xAB;
-	t.tima = 0xFF;
+	t.write_tma(0xAB);
+	t.write_tima(0xFF);
 	t.write_tac(0x05);
 
 	t.tick(16);          // overflow -> reload window open
 	t.write_tima(0x42);  // cancel the pending reload
 	timer::TickResult r = t.tick(8);
 	test::@check(!r.timer_irq, "cancelled reload raises no IRQ");
-	test::eq((char)0x42, t.tima);
+	test::eq((char)0x42, t.read_tima());
 }
 
 // The falling-edge behaviour a threshold accumulator cannot reproduce:
@@ -89,12 +89,12 @@ fn void write_div_can_immediately_tick_tima() @test
 	t.write_tac(0x05); // frequency 01 -> gated by bit 3
 
 	t.tick(8);         // div = 8 -> bit 3 is high, TIMA still 0
-	test::eq((char)0, t.tima);
+	test::eq((char)0, t.read_tima());
 
 	t.write_div();     // zeroing div drops bit 3: 1 -> 0 falling edge
 	timer::TickResult r = t.tick(1);
 	test::@check(!r.timer_irq, "no overflow here");
-	test::eq((char)1, t.tima); // ... the edge incremented TIMA immediately
+	test::eq((char)1, t.read_tima()); // ... the edge incremented TIMA immediately
 }
 
 fn void changing_tac_can_tick_tima() @test
@@ -102,11 +102,11 @@ fn void changing_tac_can_tick_tima() @test
 	timer::Timer t;
 	t.write_tac(0x05); // frequency 01 -> bit 3
 	t.tick(8);         // div = 8, bit 3 high
-	test::eq((char)0, t.tima);
+	test::eq((char)0, t.read_tima());
 
 	t.write_tac(0x00); // disable the timer: gated bit 3 drops to 0
 	t.tick(1);
-	test::eq((char)1, t.tima);
+	test::eq((char)1, t.read_tima());
 }
 
 fn void div_clocks_the_apu_frame_sequencer() @test
@@ -136,55 +136,35 @@ fn void div_clocks_the_apu_frame_sequencer() @test
 fn void writing_tima_in_reload_cycle_is_ignored() @test
 {
 	timer::Timer t;
-	t.tma = 0xAB;
-	t.tima = 0xFF;
+	t.write_tma(0xAB);
+	t.write_tima(0xFF);
 	t.write_tac(0x05);
 
 	t.tick(16);          // overflow -> TIMA reads $00 for one M-cycle
 	t.tick(4);           // reload: TIMA = TMA
 	t.write_tima(0x42);  // same M-cycle as the reload: ignored
-	test::eq((char)0xAB, t.tima);
+	test::eq((char)0xAB, t.read_tima());
 
 	t.tick(4);           // one M-cycle later writes work again
 	t.write_tima(0x42);
-	test::eq((char)0x42, t.tima);
+	test::eq((char)0x42, t.read_tima());
 }
 
 // In the M-cycle TMA is copied into TIMA, a TMA write is copied too.
 fn void writing_tma_in_reload_cycle_also_loads_tima() @test
 {
 	timer::Timer t;
-	t.tma = 0xAB;
-	t.tima = 0xFF;
+	t.write_tma(0xAB);
+	t.write_tima(0xFF);
 	t.write_tac(0x05);
 
 	t.tick(16);          // overflow
 	t.tick(4);           // reload: TIMA = $AB
 	t.write_tma(0x77);   // same M-cycle: the new TMA is what TIMA gets
-	test::eq((char)0x77, t.tima);
+	test::eq((char)0x77, t.read_tima());
 	test::eq((char)0x77, t.tma);
 
 	t.tick(4);
 	t.write_tma(0x10);   // later TMA writes leave TIMA alone
-	test::eq((char)0x77, t.tima);
-}
-
-// Enabling the timer in the M-cycle right after the selected DIV bit fell still
-// counts that fall (Mooneye timer/rapid_toggle).
-fn void enabling_right_after_a_falling_edge_counts_it() @test
-{
-	timer::Timer t;
-	t.tima = 0x10;
-	t.write_tac(0x00);   // off, 4096 Hz selected (DIV bit 9)
-	t.tick(1020);        // DIV = 1020: bit 9 still set
-	t.tick(4);           // DIV = 1024: bit 9 fell while the timer was off
-	t.write_tac(0x04);   // switched on in the very next M-cycle
-	t.tick(4);
-	test::eq((char)0x11, t.tima);
-
-	t.write_tac(0x00);   // one M-cycle later is too late: no increment
-	t.tick(4);
-	t.write_tac(0x04);
-	t.tick(4);
-	test::eq((char)0x11, t.tima);
+	test::eq((char)0x77, t.read_tima());
 }

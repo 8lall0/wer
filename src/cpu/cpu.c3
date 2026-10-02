@@ -1,6 +1,7 @@
 module cpu;
 
 import mmu;
+import std::io;
 import std::core::env;
 
 // The HiLoReg union below aliases two `char` fields over a `ushort` and relies
@@ -241,6 +242,10 @@ fn void Cpu.oam_bug(&self, mmu::Mmu* mmu, bool read, bool write) @inline {
 	if (read || write || idu) mmu.oam_bug(read, write || idu);
 }
 
+// Debugging: print every IO access with the PPU's line and dot (the format of
+// the instrumented Gambatte used to compare timings).
+bool io_trace;
+
 fn char Cpu.read(&self, mmu::Mmu* mmu, ushort addr) {
 	self.bus_cycles++;
 	self.oam_bug(mmu, in_oam(addr), false);
@@ -253,6 +258,7 @@ fn char Cpu.read(&self, mmu::Mmu* mmu, ushort addr) {
 		output = mmu.get(addr);
 	}
 	self.record(READ, addr, output);
+	if (io_trace && addr >= 0xFF00 && addr < 0xFF80) io::eprintfn("R %02X=%02X ly %d lc %d", addr & 0xFF, output, mmu.ppu.line, mmu.ppu.dot);
 	mmu.tick(1);
 	return output;
 }
@@ -266,6 +272,7 @@ fn void Cpu.write(&self, mmu::Mmu* mmu, ushort addr, char value) {
 		mmu.set(addr, value);
 	}
 	self.record(WRITE, addr, value);
+	if (io_trace && addr >= 0xFF00 && addr < 0xFF80) io::eprintfn("W %02X=%02X ly %d lc %d", addr & 0xFF, value, mmu.ppu.line, mmu.ppu.dot);
 	mmu.tick(1);
 }
 

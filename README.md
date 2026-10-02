@@ -40,7 +40,7 @@ the common hardware test suites check; results below.
 | Blargg `dmg_sound`, `cgb_sound` | 12/12, 12/12 |
 | Blargg `oam_bug` | 7/8 (`7-timing_effect` writes past its own text buffer, on SameBoy too) |
 | [SameSuite](https://github.com/LIJI32/SameSuite) | 65/78 (the rest target specific CGB revisions, or give SameBoy's results) |
-| [Gambatte test suite](https://github.com/pokemon-speedrunning/gambatte-core) | 4339/5225 (83%) |
+| [Gambatte test suite](https://github.com/pokemon-speedrunning/gambatte-core) | 4970/5225 (95%) |
 | [rtc3test](https://github.com/aaaaaa123456789/rtc3test), [MBC3 Tester](https://github.com/EricKirschenmann/MBC3-Tester-gb) | pass |
 | [SingleStepTests sm83](https://github.com/SingleStepTests/sm83) | every case, including bus timing |
 

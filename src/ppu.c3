@@ -1,4 +1,5 @@
 module ppu;
+import std::io;
 
 const int WIDTH  = 160;
 const int HEIGHT = 144;
@@ -37,8 +38,6 @@ const char INT_STAT   = 0x02;
 
 struct Ppu {
 	int  irq_dot;        // tick(): the dot of the call that raised the first IRQ, or -1
-	bool irq_m2;         // ... and it was the mode 2 STAT interrupt
-	bool stat_m2;        // update_stat_line(): the rise came from mode 2 alone
 	char[0x2000] vram;
 	char*        vram1;  // CGB: VRAM bank 1 (heap), null otherwise
 	char[0xA0]   oam;
@@ -60,6 +59,8 @@ struct Ppu {
 	char obp0;
 	char obp1;
 	char wy;
+	char wy2;   // WY for the late check at the WX match (Ppu.window_check)
+	char we_lcdc; // LCDC for the window line checks (Ppu.window_line_checks)
 	char wx;
 
 	// CGB colour palettes: 8 BG + 8 OBJ palettes of 4 colours, each colour
@@ -74,26 +75,30 @@ struct Ppu {
 	int  dot;          // 0..455 within the current line
 	char mode;         // 0 HBlank, 1 VBlank, 2 OAM, 3 drawing
 	bool frame_ready;  // set when VBlank begins; cleared by the consumer
-	bool stat_line;    // OR of the enabled STAT sources (see update_stat_line)
 	bool first_line;
 	int  line;         // line being processed (LY runs LY_EARLY_DOTS ahead of it)
 	bool predicting;   // a dry-run copy (Ppu.predict_mode3): no pixels, no prediction of its own
 	bool repredict;    // a renderer write landed during mode 3: predict again
 	int  pipe_end_dot; // the dot the pipeline outputs its last pixel this line (predicted)
+	int  m0_irq_pred;  // ... and the mode 0 interrupt's dot (Ppu.m0_irq_dot)
 	bool double_speed; // CGB double speed (set by the Mmu)
-	bool hblank_start; // a visible line's last pixel is out (CGB HDMA); cleared by the Mmu
+	bool hblank_start; // HBlank DMA time on a visible line (CGB HDMA); cleared by the Mmu
 
 	// Mode 3 drawing (ppu_fifo.c3), and what it sees of the registers: SCY,
 	// SCX, WY, WX and the palettes change a few dots after the CPU writes
 	// them (Ppu.write_render_reg), LCDC through r_lcdc since its enable bit
 	// must act at once.
 	Renderer r;
+	Renderer win_save;     // the renderer as the window started (CGB abort, see render_dot)
+	bool     win_abortable;
 	char     r_lcdc;
 	bool     wx_just_changed;
 	bool     sgb_hw;       // Super Game Boy: slightly different write timing
-	bool     lcd_on_by_cpu; // the LCD was last switched on by a CPU write (see late_oam_irq)
 	RegWrite[8] writes;
 	int      n_writes;
+	ulong    lcd_on_cc;     // when the LCD was last switched on
+	ulong    cc;            // Gambatte's cycle count: +1 per dot, +2 in double speed (ppu_irq.c3)
+	StatIrq  si;
 }
 
 // Dot of a visible line at which mode 3 drawing starts fetching (a variable
@@ -115,8 +120,11 @@ const char TILE_SEL_GLITCH_OFF = 0x03;
 const char TILE_SEL_CLEARED    = 0x05; // CGB: latch the last bitplane read (see ppu_fifo)
 const char LCDC_DMG   = 0x01; // DMG LCDC write: mixed old/new value for a dot (see apply)
 const char LCDC_PART  = 0x04; // LCDC write where the bits in `keep` land later
-const char WY_CHECK   = 0x06; // compare WY with LY after a WY write (see WY_CHECK_DELAY)
-const char LYC_LATE   = 0x07; // CGB: a LYC write reaching the comparator
+const int[3] WYD = { 2, 3, 2 };
+const int[2] WE_DELAY = { 0, 2 };
+const int[3] WY2D = { 9, 13, 9 };
+const char WY2        = 0x08;
+const char WE_LINE    = 0x09; // LCDC as the window line checks see it (Gambatte p.lcdc) // WY as the WX-time window check sees it (Gambatte wy2)
 
 // CGB tile attributes (VRAM bank 1, same address as the tile index).
 const char ATTR_PALETTE  = 0x07;
@@ -163,23 +171,36 @@ fn char shade(char palette, char index) {
 	return (palette >> (index * 2)) & 3;
 }
 
-fn void Ppu.write_lcdc(&self, char value) {
+fn char Ppu.write_lcdc(&self, char value) {
 	bool was_on = (self.lcdc & LCDC_ENABLE) != 0;
+	char irq = 0;
+	if (was_on && (value & LCDC_ENABLE) == 0) {
+		// The LY=LYC flag freezes as it was (Gambatte).
+		self.stat = (self.stat & 0xF8) | (self.lyc_flag() ? STAT_LYC_FLAG : 0);
+	}
 	self.lcdc = value;
 	if (!was_on && (value & LCDC_ENABLE) != 0) {
+		bool flag_was = (self.stat & STAT_LYC_FLAG) != 0;
 		self.dot = LCDON_START_DOT;
 		self.ly = 0;
 		self.line = 0;
 		self.mode = 0;
-		self.stat = self.stat & 0xFC;
+		self.stat = self.stat & 0xF8;
 		self.frame_ready = false;
 		self.r_lcdc = value;
+		self.we_lcdc = value;
 		self.render_frame_start();
-		self.lcd_on_by_cpu = true;
 		self.first_line = true;
-		self.check_lyc();
+		self.lcd_on_cc = self.cc;
+		self.irq_reschedule(true);
+		// LY=LYC turns true at once with LYC 0.
+		if ((self.si.stat & STAT_LYC_IE) && self.lyc == 0 && !flag_was) irq = INT_STAT;
 	}
-	if (was_on && (value & LCDC_ENABLE) == 0) self.blank();
+	if (was_on && (value & LCDC_ENABLE) == 0) {
+		self.irq_lcd_off();
+		self.blank();
+	}
+	return irq;
 }
 
 // With the LCD off the screen shows no picture: white (the lightest shade).
@@ -188,35 +209,7 @@ fn void Ppu.blank(&self) {
 	foreach (&px : self.cfb) *px = 0x7FFF;
 }
 
-// Writable STAT bits are the four interrupt enables (3-6). Turning one on
-// while its condition already holds is a rising edge of the STAT line.
-fn char Ppu.write_stat(&self, char value) {
-	char irq = 0;
-	if (!self.cgb_hw && (self.lcdc & LCDC_ENABLE)) {
-		// DMG STAT write bug: for a moment every source is enabled, so any
-		// condition that holds raises the interrupt (SameBoy writes $FF first).
-		self.stat |= 0x78;
-		irq = self.update_stat_line();
-	}
-	self.stat = (self.stat & 0x87) | (value & 0x78);
-	if ((self.lcdc & LCDC_ENABLE) == 0) return irq;
-	return irq | self.update_stat_line();
-}
 
-// The LY=LYC flag follows a LYC write immediately, not at the next line.
-// With the LCD off the comparison clock is stopped: the flag keeps its last
-// value until the LCD is turned on again (Mooneye stat_lyc_onoff).
-fn char Ppu.write_lyc(&self, char value) {
-	// A CGB's LYC write reaches the comparator a dot later (SameBoy WRITE_CPU).
-	if (self.cgb_hw && (self.lcdc & LCDC_ENABLE)) {
-		self.schedule(LYC_LATE, value, 1);
-		return 0;
-	}
-	self.lyc = value;
-	if ((self.lcdc & LCDC_ENABLE) == 0) return 0;
-	self.check_lyc();
-	return self.update_stat_line();
-}
 
 fn char Ppu.tick(&self, uint tcycles) {
 	if ((self.lcdc & LCDC_ENABLE) == 0) {
@@ -227,8 +220,6 @@ fn char Ppu.tick(&self, uint tcycles) {
 		self.mode = 0;
 		self.stat &= 0xFC;
 		self.r.active = false;
-		// stat_line and the LY=LYC flag stay frozen while the LCD is off, so
-		// turning it back on only raises an IRQ if the line really goes 0 -> 1.
 		return 0;
 	}
 
@@ -237,6 +228,7 @@ fn char Ppu.tick(&self, uint tcycles) {
 	for (uint i = 0; i < tcycles; i++) {
 		if (self.repredict && self.r.active && !self.predicting) self.predict_mode3();
 		self.apply_writes();
+		self.window_line_checks();
 		// Mode 3 drawing for this dot (before the counters move on).
 		if (self.line < VBLANK_LINE) {
 			int scan = self.oam_scan_index();
@@ -253,106 +245,56 @@ fn char Ppu.tick(&self, uint tcycles) {
 			if (self.r.active) self.render_dot();
 		}
 		self.dot++;
+		self.cc += self.spd();
 		if (self.dot == DOTS_PER_LINE - LY_EARLY_DOTS) {
 			self.ly = (char)((self.line + 1) % TOTAL_LINES);
-			self.check_lyc();
 		}
 		if (self.dot >= DOTS_PER_LINE) {
 			self.first_line = false;
 			self.dot = 0;
 			if (self.r.active) self.render_end(); // never happens with sane timing
 			self.line = (self.line + 1) % TOTAL_LINES;
-			if (self.line == 0) self.render_frame_start();
-			if (self.line < VBLANK_LINE) self.wy_check();
+			if (self.line == 0) self.render_frame_start(true);
 			// Line 153 reads LY 0 almost all along (2 dots later in double speed).
 			if (self.line == TOTAL_LINES - 1 && !self.double_speed) self.ly = 0;
-			self.check_lyc();
-		} else if (self.line == TOTAL_LINES - 1 && self.dot <= LINE153_LYC0_DOT) {
-			if (self.dot == 2) self.ly = 0;
-			self.check_lyc();
+		} else if (self.line == TOTAL_LINES - 1 && self.dot == 2) {
+			self.ly = 0;
 		}
-		char now = self.update_mode() | self.update_stat_line();
-		if (now && self.irq_dot < 0) {
-			self.irq_dot = (int)i;
-			self.irq_m2 = self.stat_m2;
-		}
+		// HBlank DMA: at Gambatte's mode 0 time, 2 cycles after STAT reads 0
+		// (the block is copied at the next instruction boundary, Cpu.step).
+		if (self.line < VBLANK_LINE && !self.predicting && self.dot > MODE3_START_DOT
+			&& self.dot == self.m0_stat_dot() + (self.double_speed ? 1 : 2)) self.hblank_start = true;
+		char now = self.update_mode() | self.irq_events();
+		if (now && self.irq_dot < 0) self.irq_dot = (int)i;
 		irq |= now;
 	}
 	return irq;
 }
 
-// True while the CPU can't use OAM: modes 2 and 3, and already during the
-// LY_EARLY_DOTS before a visible line starts (its OAM scan begins with the
-// LY change, while STAT still reads mode 0).
-fn bool Ppu.oam_locked(&self) {
-	if (self.mode >= 2) return true;
-	int next = (self.line + 1) % TOTAL_LINES;
-	return self.dot >= DOTS_PER_LINE - LY_EARLY_DOTS && next < VBLANK_LINE;
-}
 
-// True while the CPU can't use VRAM: mode 3, and already the last
-// LY_EARLY_DOTS of mode 2 (drawing grabs VRAM before STAT reads mode 3).
-fn bool Ppu.vram_locked(&self) {
-	if (self.mode == 3) return true;
-	return self.mode == 2 && self.dot >= MODE2_DOTS - LY_EARLY_DOTS;
-}
 
-// CPU writes to OAM are blocked in modes 2 and 3, except during the last
-// LY_EARLY_DOTS of mode 2 (the hand-over to drawing), when they get through.
-fn bool Ppu.oam_write_locked(&self) {
-	if (self.mode == 3) return true;
-	return self.mode == 2 && self.dot < MODE2_DOTS - LY_EARLY_DOTS;
-}
 
-// Keep the LY=LYC flag (STAT bit 2) in sync. Interrupts come from update_stat_line.
-// While LY has already moved on but the line hasn't (the last LY_EARLY_DOTS
-// dots), the comparator sees no line at all: the flag reads 0.
-// Line 153 (SameBoy, DMG / CGB C): LY reads 0 from the start of the line,
-// but LY=LYC compares with 153 for 2 dots, with nothing for 4, then with 0.
-// In CGB double speed LY reads 153 for 2 dots, and the compare stays 153
-// until it turns 0.
-const int LINE153_LYC0_DOT = 6;
 
-// The LY value LY=LYC compares with right now, or -1 for none.
-fn int Ppu.ly_compare(&self) {
-	if (self.dot >= DOTS_PER_LINE - LY_EARLY_DOTS) return -1; // LY settling
-	if (self.line == TOTAL_LINES - 1) {
-		if (self.dot < 2 || (self.double_speed && self.dot < LINE153_LYC0_DOT)) return TOTAL_LINES - 1;
-		if (self.dot < LINE153_LYC0_DOT) return -1;
-		return 0;
-	}
-	return self.ly;
-}
 
-fn void Ppu.check_lyc(&self) {
-	if (self.ly_compare() == (int)self.lyc) {
-		self.stat |= STAT_LYC_FLAG;
-	} else {
-		self.stat &= (char)~STAT_LYC_FLAG;
-	}
-}
-
-// STAT leaves mode 3 this many dots before the pipeline outputs its last
-// pixel (Mooneye intr_2_mode0_timing; on a plain line, the Pan Docs 172 +
-// SCX % 8 dots).
-const int MODE3_TAIL = 5;
-// ... and this many more on a line where objects were fetched, in normal
-// speed: the whole-M-cycle STAT sampling of Mooneye
-// intr_2_mode0_timing_sprites sees the line end that much sooner (CGB double
-// speed, sampling every 2 dots, does not: Gambatte sprites/*_ds).
-const int MODE3_OBJ_TAIL = 3;
-// A line where the window starts leaves mode 3 a dot later than its pipeline
-// alone says (Gambatte window/m2int_wx*_m3stat, *_scx2*), except with objects
-// fetched in double speed, or at the right edge (m0enable/enable_wxA6_*spxA7).
-const int WINDOW_TAIL = 1;
+// A plain line's pipeline outputs its last pixel this many dots after the
+// Pan Docs' 80 + 172 + SCX % 8.
+const int PLAIN_PIPE_EXTRA = 5;
+// STAT reads mode 0 this many dots before the pipeline outputs its last pixel
+// (Gambatte: from dot 249 on a plain line). Objects and the window need
+// nothing more: the pipeline already matches Gambatte's mode 0 times.
+const int MODE3_TAIL = 8;
+// The mode 0 interrupt comes when Gambatte's pixel counter reaches 166:
+// this many dots before the pipeline's end if nothing stalls it after pixel
+// 158 (a window or objects at the right edge only delay STAT's mode 0).
+const int M0_IRQ_BEFORE_END = 7;
 
 // How many dots before the pipeline's last pixel STAT leaves mode 3.
 fn int Ppu.mode3_tail(&self) {
 	int t = MODE3_TAIL;
-	if (self.r.fetched_objects && !self.double_speed) t += MODE3_OBJ_TAIL;
-	if (self.r.started_window && !(self.r.fetched_objects && (self.double_speed || self.r.edge_window))) {
-		t -= WINDOW_TAIL;
-	}
+	t -= self.r.abort_dots;
+	// Gambatte: STAT reads mode 3 until 2 cycles before mode 0 - a dot in
+	// double speed.
+	if (self.double_speed) t -= 1;
 	// The first line after LCD on starts drawing 5 dots early (6 on a CGB)
 	// while its mode 3 starts on time.
 	if (self.first_line) t -= self.cgb_hw ? 6 : 5;
@@ -370,11 +312,11 @@ fn void Ppu.predict_mode3(&self) {
 	// A plain line (no objects, no window that could start, no write on its
 	// way): the pipeline's end only depends on SCX; no need to run it.
 	bool window_possible = self.r.wx_triggered
-		|| ((self.r_lcdc & LCDC_WIN_ENABLE) && (self.r.wy_triggered || self.wy == u8(self.line)) && self.wx <= 166);
+		|| ((self.r_lcdc & LCDC_WIN_ENABLE) && (self.r.wy_triggered || self.wy2 == u8(self.line) || self.wy == u8(self.line + 1)) && self.wx <= 166);
 	if (!self.first_line && self.r.n_obj == 0 && !window_possible && self.n_writes == 0) {
-		self.pipe_end_dot = MODE2_DOTS + MODE3_DOTS + (self.scx & 7) + MODE3_TAIL;
-		self.r.fetched_objects = false;
-		self.r.started_window = false;
+		self.pipe_end_dot = MODE2_DOTS + MODE3_DOTS + (self.scx & 7) + PLAIN_PIPE_EXTRA;
+		self.m0_irq_pred = self.pipe_end_dot - M0_IRQ_BEFORE_END;
+		self.r.abort_dots = 0;
 		return;
 	}
 	Ppu sim = *self;
@@ -393,19 +335,38 @@ fn void Ppu.predict_mode3(&self) {
 			break;
 		}
 	}
-	self.r.fetched_objects = sim.r.fetched_objects;
-	self.r.started_window = sim.r.started_window;
-	self.r.edge_window = sim.r.edge_window;
+	self.r.abort_dots = sim.r.abort_dots;
+	self.m0_irq_pred = sim.r.x158_dot >= 0 ? sim.r.x158_dot + 2 - M0_IRQ_BEFORE_END : self.pipe_end_dot - M0_IRQ_BEFORE_END;
 }
 
+// STAT's mode, as Gambatte's LCD::getStat has it (in dots of the line, LY
+// counting from its change at dot 0): VBlank from dot 454 of line 143 to dot
+// 451 of line 153; mode 2 from dot 453 of the line before to dot 76; mode 3
+// from dot 77 until the pipeline's end (Ppu.mode3_tail).
+// Debugging: print the dot each line's mode 0 starts (cpu::io_trace format).
+bool trace_m0;
+
+const int MODE3_START_DOT = 77;
+const int MODE2_START_DOT = 453;
+const int VBLANK_START_DOT = 454;      // of line 143
+const int VBLANK_END_DOT = 452;        // of line 153
 fn char Ppu.update_mode(&self) {
 	// Until the prediction (Ppu.predict_mode3) is in, mode 3 lasts.
-	if (self.dot == MODE2_DOTS && self.line < VBLANK_LINE) self.pipe_end_dot = DOTS_PER_LINE;
+	if (self.dot == MODE3_START_DOT && self.line < VBLANK_LINE) {
+		self.pipe_end_dot = DOTS_PER_LINE;
+		self.m0_irq_pred = DOTS_PER_LINE;
+	}
 
 	char want;
-	if (self.line >= VBLANK_LINE) {
+	int vblank_end = VBLANK_END_DOT + (self.double_speed ? 1 : 0);
+	if ((self.line >= VBLANK_LINE && self.line < TOTAL_LINES - 1)
+		|| (self.line == VBLANK_LINE - 1 && self.dot >= VBLANK_START_DOT)
+		|| (self.line == TOTAL_LINES - 1 && self.dot < vblank_end)) {
 		want = 1;
-	} else if (self.dot < MODE2_DOTS) {
+	} else if ((self.line == VBLANK_LINE - 1 && self.dot >= VBLANK_START_DOT - 1)
+		|| (self.line == TOTAL_LINES - 1 && self.dot < MODE2_START_DOT)) {
+		want = 0;
+	} else if (self.dot < MODE3_START_DOT || self.dot >= MODE2_START_DOT) {
 		want = 2;
 	} else if (self.dot < self.pipe_end_dot - self.mode3_tail()) {
 		want = 3;
@@ -417,6 +378,7 @@ fn char Ppu.update_mode(&self) {
 		want = 0;
 	}
 	if (want == self.mode) return 0;
+	if (trace_m0 && !self.predicting && want == 0 && self.mode == 3) io::eprintfn("M0 ly %d lc %d", self.line, self.dot);
 	self.mode = want;
 	self.stat = (self.stat & 0xFC) | want;
 
@@ -428,44 +390,6 @@ fn char Ppu.update_mode(&self) {
 	return irq;
 }
 
-// The four STAT sources are OR'ed into one line; the STAT interrupt fires only
-// on its rising edge. A source turning on while the line is already high
-// raises nothing ("STAT blocking").
-// DMG quirk: when VBlank starts at line 144 the mode-2 (OAM) source is briefly
-// active too, so with STAT bit 5 set a STAT IRQ fires together with VBlank
-// (Mooneye vblank_stat_intr). On a CGB the pulse comes one M-cycle earlier,
-// as soon as LY reads 144 (vblank_stat_intr-C).
-fn bool Ppu.vblank_oam_pulse(&self) {
-	if (self.cgb_hw) return self.line == VBLANK_LINE - 1 && self.dot >= DOTS_PER_LINE - LY_EARLY_DOTS;
-	return self.line == VBLANK_LINE && self.dot < LY_EARLY_DOTS;
-}
-
-// The mode 2 STAT interrupt of line 0 comes a T-cycle later than on the
-// other lines (SameBoy: "except on line 0"). Whether the CPU sees that as an
-// M-cycle later depends on where in the CPU's M-cycle the PPU's dots fall,
-// which we don't model: it does after the LCD was switched on by the CPU
-// (Mealybug tests compensate for it), not with the phase the boot ROM leaves
-// (Mooneye intr_1_2_timing).
-fn bool Ppu.late_oam_irq(&self) => self.lcd_on_by_cpu && self.line == 0 && !self.first_line && self.dot < 4;
-
-// The mode 2 (OAM) STAT source is a short pulse when mode 2 starts, not a
-// level for all of mode 2 (SameBoy's mode_for_interrupt): enabling it, or the
-// DMG STAT write bug, later in mode 2 raises nothing (Gambatte
-// miscmstatirq/m2statwirq_*). One M-cycle, plus the 4 dots line 0's comes late.
-const int OAM_IRQ_PULSE_DOTS = 8;
-fn char Ppu.update_stat_line(&self) {
-	bool high = ((self.stat & STAT_LYC_IE)    != 0 && (self.stat & STAT_LYC_FLAG) != 0)
-	         || ((self.stat & STAT_OAM_IE)    != 0 && ((self.mode == 2 && self.dot < OAM_IRQ_PULSE_DOTS && !self.late_oam_irq()) || self.vblank_oam_pulse()))
-	         || ((self.stat & STAT_VBLANK_IE) != 0 && self.mode == 1)
-	         || ((self.stat & STAT_HBLANK_IE) != 0 && self.mode == 0);
-
-	bool rising = high && !self.stat_line;   // was low, is high now
-	self.stat_line = high;                   // remember for the next call
-	// Raised by the mode 2 (OAM) condition alone (see Mmu.tick).
-	self.stat_m2 = rising && (self.stat & STAT_OAM_IE) != 0 && self.mode == 2
-	               && !((self.stat & STAT_LYC_IE) != 0 && (self.stat & STAT_LYC_FLAG) != 0);
-	return rising ? INT_STAT : 0;
-}
 
 // A CPU write to SCY, SCX, WY, WX, BGP, OBP0/1 or LCDC as the renderer sees
 // it, with each register's delay: SameBoy's write-conflict tables, except
@@ -476,16 +400,14 @@ fn char Ppu.update_stat_line(&self) {
 // LCDC reaches the renderer through r_lcdc.
 // CGB write delays (LCDC, SCY, SCX, WX, TILE_SEL glitch dot): SameBoy's,
 // swept on the Mealybug tests.
-int[5] cgb_delay = { 4, 4, 4, 5, 4 };
+int[5] cgb_delay = { 8, 8, 8, 9, 8 };
 // In double speed the CPU's writes reach the renderer earlier in dots: one
-// dot for all of these, SCX two more (swept on Gambatte *_ds, scx_during_m3).
+// dot for all of these (swept on Gambatte *_ds, scx_during_m3).
 const int DS_DELAY_SHIFT = 1;
-const int DS_SCX_EXTRA_SHIFT = 2;
 // A WY write reaches the renderer on the next dot (line starts compare with
 // it from then on), and is compared with LY by itself this many dots after the
 // write (swept on Gambatte window/*late_wy*; SameBoy schedules that check on
 // an 8-cycle boundary after the write).
-const int[2] WY_CHECK_DELAY = { 7, 11 }; // DMG, CGB
 
 // CGB write delay `i` (cgb_delay), shorter in double speed.
 fn int Ppu.cgb_delay(&self, int i) {
@@ -508,25 +430,28 @@ fn void Ppu.write_render_reg(&self, char reg, char value) {
 	}
 	old = self.cpu_view(reg, old);
 	bool dmg = !self.cgb_hw;
+	if (reg == 0x40) self.schedule(WE_LINE, value, dmg ? WE_DELAY[0] : WE_DELAY[1]);
 	switch (reg) {
-		case 0x42: self.schedule(reg, value, dmg ? 2 : self.cgb_delay(1));
-		case 0x43: self.schedule(reg, value, dmg ? 2 : self.cgb_delay(2) - (self.double_speed ? DS_SCX_EXTRA_SHIFT : 0));
+		case 0x42: self.schedule(reg, value, dmg ? 6 : self.cgb_delay(1));
+		case 0x43: self.schedule(reg, value, dmg ? 6 : self.cgb_delay(2));
 		case 0x4A:
-			self.schedule(reg, value, 1);
-			self.schedule(WY_CHECK, 0, WY_CHECK_DELAY[dmg ? 0 : 1]);
+			// Gambatte: the line checks see the new WY 1 cycle later (2 on a
+			// CGB), the check at the WX match 2 (CGB: 6, 5 in double speed).
+			self.schedule(reg, value, dmg ? WYD[0] : (self.double_speed ? WYD[2] : WYD[1]));
+			self.schedule(WY2, value, dmg ? WY2D[0] : (self.double_speed ? WY2D[2] : WY2D[1]));
 		case 0x4B:
-			self.schedule(reg, value, dmg ? 4 : self.cgb_delay(3));
-			if (dmg) self.schedule(WX_SETTLED, 0, 5);
+			self.schedule(reg, value, dmg ? 8 : self.cgb_delay(3));
+			if (dmg) self.schedule(WX_SETTLED, 0, 9);
 		case 0x47:
 		case 0x48:
 		case 0x49:
 			// DMG: for one dot the palette reads as old | new.
-			if (dmg && !self.sgb_hw) self.schedule(reg, old | value, 2);
-			self.schedule(reg, value, 3);
+			if (dmg && !self.sgb_hw) self.schedule(reg, old | value, 6);
+			self.schedule(reg, value, 7);
 		case 0x40:
 			if (dmg && !self.sgb_hw) {
-				self.queue({ .reg = LCDC_DMG, .value = value, .old = old, .delay = 2 });
-				self.schedule(reg, value, 3);
+				self.queue({ .reg = LCDC_DMG, .value = value, .old = old, .delay = 6 });
+				self.schedule(reg, value, 7);
 			} else if (!dmg && ((old ^ value) & LCDC_TILE_DATA)) {
 				// CGB: changing TILE_SEL disturbs a bitplane read in that dot.
 				self.schedule(reg, value, self.cgb_delay(0));
@@ -592,10 +517,8 @@ fn void Ppu.apply(&self, RegWrite w) {
 		case 0x42: self.scy = w.value;
 		case 0x43: self.scx = w.value;
 		case 0x4A: self.wy = w.value;
-		case WY_CHECK: if (self.line < VBLANK_LINE) self.wy_check();
-		case LYC_LATE:
-			self.lyc = w.value;
-			self.check_lyc();
+		case WY2: self.wy2 = w.value;
+		case WE_LINE: self.we_lcdc = w.value;
 		case 0x4B:
 			self.wx = w.value;
 			if (!self.cgb_hw) self.wx_just_changed = true;
@@ -604,8 +527,6 @@ fn void Ppu.apply(&self, RegWrite w) {
 		case 0x49: self.obp1 = w.value;
 		case 0x40:
 			self.r_lcdc = (self.r_lcdc & LCDC_ENABLE) | (w.value & 0x7F);
-			// Enabling the window re-checks WY (SameBoy: after an LCDC write).
-			if (self.line < VBLANK_LINE) self.wy_check();
 		case LCDC_PART:
 			self.r_lcdc = (self.r_lcdc & LCDC_ENABLE) | (((w.value & ~w.keep) | (w.old & w.keep)) & 0x7F);
 		case LCDC_DMG:

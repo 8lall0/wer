@@ -96,14 +96,10 @@ struct Renderer {
 	char[10] obj_y;
 	int      n_obj;
 	ObjStep  obj_step;
-	bool     fetched_objects; // an object fetch started on this line
-	bool     started_window;  // the window started on this line
-	bool     edge_window;     // ... at its last pixel
 	bool     prev_win_en;     // LCDC's window enable in the previous dot
-	bool     edge_fetched;    // the first object fetch in the last two pixels happened
-	int      prev_fetch_x;    // X of the last object fetched on this line (-1: none)
-	int      edge_skip;       // ... and how many idle dots it skips
 	bool     obj_abort;   // DMG: OBJ_EN was cleared during an object fetch
+	int      abort_dots;  // ... the dots of fetches cut short that way
+	int      x158_dot;    // the dot pixel 158 went out (Gambatte's xpos 166: the mode 0 interrupt)
 
 	// CGB TILE_SEL glitch (SameBoy, after Matt Currie's research)
 	bool     tile_sel_glitch;  // TILE_SEL is being cleared in this dot
@@ -157,10 +153,12 @@ fn void Ppu.oam_scan(&self, int i) {
 	r.n_obj++;
 }
 
-// The OAM entry mode 2 checks at this dot, or -1 (a DMG looks at entry i at
-// dot 6 + 2i, a CGB 2 dots earlier; SameBoy's timing).
+// The OAM entry mode 2 checks at this dot, or -1.
+// The dot mode 2 checks OAM entry 0 (then one entry every 2 dots); swept
+// on Gambatte's sprite tests after the timing port.
+const int[2] SCAN_FIRST = { 4, 6 }; // DMG, CGB
 fn int Ppu.oam_scan_index(&self) {
-	int first = self.cgb_hw ? 4 : 6;
+	int first = self.cgb_hw ? SCAN_FIRST[1] : SCAN_FIRST[0];
 	if (self.first_line || self.dot < first || self.dot > first + 78 || (self.dot - first) & 1) return -1;
 	return (self.dot - first) / 2;
 }
@@ -169,6 +167,8 @@ fn int Ppu.oam_scan_index(&self) {
 // during mode 2).
 fn void Ppu.render_start(&self) {
 	Renderer* r = &self.r;
+	self.win_abortable = false;
+	r.x158_dot = -1;
 	r.active = true;
 	r.pos = -16;
 	r.lcd_x = 0;
@@ -181,13 +181,8 @@ fn void Ppu.render_start(&self) {
 	r.state = TILE_T1;
 	r.obj_step = NONE;
 	r.insert_bg_pixel = false;
-	r.fetched_objects = false;
-	r.started_window = false;
-	r.edge_window = false;
+	r.abort_dots = 0;
 	r.prev_win_en = (self.r_lcdc & LCDC_WIN_ENABLE) != 0;
-	r.edge_fetched = false;
-	r.edge_skip = 0;
-	r.prev_fetch_x = -1;
 
 	if (self.first_line) r.n_obj = 0; // no OAM scan on the first line after LCD on
 }
@@ -208,14 +203,23 @@ fn bool Ppu.objects_fetched(&self) => (self.r_lcdc & LCDC_OBJ_ENABLE) != 0 || se
 // One dot of mode 3.
 fn void Ppu.render_dot(&self) {
 	Renderer* r = &self.r;
-	// CGB: the window switched off while its first tile is being fetched
-	// doesn't lengthen mode 3 (Gambatte window/late_disable*).
-	if (self.cgb_hw && r.window_fetching && (self.r_lcdc & LCDC_WIN_ENABLE) == 0) r.started_window = false;
+	if (self.win_abortable) {
+		if (!r.window_fetching) {
+			self.win_abortable = false;
+		} else if ((self.r_lcdc & LCDC_WIN_ENABLE) == 0) {
+			*r = self.win_save;
+			r.prev_win_en = false;
+			self.win_abortable = false;
+		}
+	}
 	if (r.obj_abort) {
 		// The object being fetched is dropped from this dot on (it stays in
 		// the list, but with objects off nothing fetches it).
 		r.obj_abort = false;
 		if (r.obj_step != NONE && r.obj_step != WIN_STALL) {
+			// Once its OAM read has begun, STAT still waits for the rest of
+			// the fetch, though the pixels go on (Gambatte sprites/*late_disable*).
+			if (r.obj_step >= OAM) r.abort_dots += (int)ObjStep.OVERLAY - (int)r.obj_step;
 			r.obj_step = NONE;
 			self.pixel_and_fetch();
 			return;
@@ -246,21 +250,12 @@ fn void Ppu.render_dot(&self) {
 			char i = r.obj_index[r.n_obj - 1];
 			r.obj_tile = self.oam[i * 4 + 2];
 			r.obj_flags = self.oam[i * 4 + 3];
-			// An object fetched in the last two pixels of the line costs
-			// 6 dots like any other (Mooneye intr_2_mode0_timing_sprites,
-			// X = 166/167): it skips the idle dots.
-			// (only a lone object there: with more at the same X the pipeline already matches)
-			char ox = r.obj_x[r.n_obj - 1];
-			bool alone = (r.n_obj < 2 || r.obj_x[r.n_obj - 2] != ox) && r.prev_fetch_x != (int)ox;
-			bool edge = r.pos >= WIDTH - 2 && !r.edge_fetched && alone;
-			if (edge) r.edge_fetched = true;
-			r.edge_skip = edge ? r.pos - (WIDTH - 3) : 0; // dots to skip: 1 at 158, 2 at 159
-			r.obj_step = r.edge_skip > 0 ? LOW : OAM_IDLE;
+			r.obj_step = OAM_IDLE;
 		case OAM_IDLE:
 			r.obj_step = LOW;
 		case LOW:
 			r.last_read = r.obj_lo = self.vram_read(self.object_line_address());
-			r.obj_step = r.edge_skip > 1 ? HIGH : LOW_IDLE;
+			r.obj_step = LOW_IDLE;
 		case LOW_IDLE:
 			r.obj_step = HIGH;
 		case HIGH:
@@ -268,7 +263,6 @@ fn void Ppu.render_dot(&self) {
 			r.last_read = r.glitch_data = r.obj_hi;
 			r.obj_step = OVERLAY;
 		case OVERLAY:
-			self.note_fetch_x();
 			self.overlay_object();
 			r.obj_step = NONE;
 			// The next object at the same X starts right away.
@@ -296,14 +290,9 @@ fn bool Ppu.start_object_fetch(&self) {
 	while (r.n_obj > 0 && r.obj_x[r.n_obj - 1] < x) r.n_obj--;
 	if (r.n_obj == 0 || !self.objects_fetched() || r.obj_x[r.n_obj - 1] != x) return false;
 	r.obj_step = WAIT;
-	r.fetched_objects = true;
 	return true;
 }
 
-// Remember where the last object fetch was (Ppu.render_dot, edge objects).
-fn void Ppu.note_fetch_x(&self) {
-	self.r.prev_fetch_x = self.r.obj_x[self.r.n_obj - 1];
-}
 
 // Object fetch, first part: the background fetcher runs on until it holds
 // a whole tile and the FIFO isn't empty, then one more dot.
@@ -380,7 +369,8 @@ fn bool Ppu.window_check(&self) {
 	// CGB double speed: a window enable starts the window from the next dot
 	// on (Gambatte window/late_reenable_ds).
 	if (self.cgb_hw && self.double_speed && !was_en) win_en = false;
-	if (!r.wx_triggered && r.wy_triggered && win_en) {
+	bool wy_ok = r.wy_triggered || self.wy2 == u8(self.line);
+	if (!r.wx_triggered && wy_ok && win_en) {
 		bool start = false;
 		if (self.wx == 0) {
 			start = r.pos == -7 || (r.pos == -16 && (self.scx & 7) != 0) || (r.pos >= -15 && r.pos <= -8);
@@ -397,11 +387,15 @@ fn bool Ppu.window_check(&self) {
 		}
 		if (start) {
 			r.window_y++;
+			// CGB: if WIN_EN goes off before the window's first pixel, the
+			// background carries on from here (Gambatte StartWindowDraw).
+			if (self.cgb_hw) {
+				self.win_save = *r;
+				self.win_abortable = true;
+			}
 			r.window_tile_x = 0;
 			r.bg.clear();
 			r.wx_triggered = true;
-			r.started_window = true;
-			r.edge_window = r.pos >= WIDTH - 1;
 			r.state = TILE_T1;
 			r.window_fetching = true;
 			stall = self.wx == 0 && (self.scx & 7) != 0 && !self.cgb_hw;
@@ -424,7 +418,7 @@ fn bool Ppu.window_check(&self) {
 fn void Ppu.update_wx_glitch(&self) {
 	Renderer* r = &self.r;
 	if (!self.cgb_hw) return;
-	if ((self.r_lcdc & LCDC_WIN_ENABLE) == 0 || !r.wy_triggered) {
+	if ((self.r_lcdc & LCDC_WIN_ENABLE) == 0 || !(r.wy_triggered || self.wy2 == u8(self.line))) {
 		r.cgb_wx_glitch = false;
 		return;
 	}
@@ -636,6 +630,7 @@ fn void Ppu.render_pixel(&self) {
 			}
 		}
 	}
+	if (r.pos == WIDTH - 2) r.x158_dot = self.dot;
 	r.pos++;
 	r.lcd_x++;
 }
@@ -645,9 +640,6 @@ fn void Ppu.render_pixel(&self) {
 fn void Ppu.render_end(&self) {
 	Renderer* r = &self.r;
 	r.active = false;
-	// HBlank starts for VRAM DMA only once the last pixel is out: an HDMA
-	// block copied earlier could change tile data still being fetched.
-	self.hblank_start = true;
 	while (r.lcd_x < WIDTH) {
 		int at = self.line * WIDTH + r.lcd_x;
 		if (r.lcd_x > 0) {
@@ -666,6 +658,20 @@ fn void Ppu.render_end(&self) {
 	}
 }
 
+// Gambatte: the window turns on for the frame at cycle 450 of a line when WY
+// is that line, at 454 when WY is the next one (lines 0-142), and on line 0 at
+// cycle 1 (CGB 2) when WY is 0.
+fn void Ppu.window_line_checks(&self) {
+	if ((self.lcdc & LCDC_ENABLE) == 0) return;
+	bool en = (self.we_lcdc & LCDC_WIN_ENABLE) != 0;
+	if (self.line == 0 && self.dot == (self.cgb_hw ? 2 : 1)) {
+		self.r.wy_triggered = en && self.wy == 0;
+	} else if (self.line < VBLANK_LINE - 1) {
+		if (self.dot == 450 && en && self.wy == u8(self.line)) self.r.wy_triggered = true;
+		if (self.dot == 454 && en && self.wy == u8(self.line + 1)) self.r.wy_triggered = true;
+	}
+}
+
 // WY is compared with LY when a line starts (and when WY is written).
 fn void Ppu.wy_check(&self) {
 	if ((self.lcdc & LCDC_ENABLE) == 0) return;
@@ -673,8 +679,11 @@ fn void Ppu.wy_check(&self) {
 }
 
 // A new frame: the window waits for WY again.
-fn void Ppu.render_frame_start(&self) {
+// A DMG window started at WX 166 on line 143 carries over the VBlank into
+// line 0 (Gambatte: winDrawState survives), unless the LCD was switched off.
+fn void Ppu.render_frame_start(&self, bool keep_carry = false) {
+	bool carry = keep_carry && self.r.wx_triggered && !self.cgb_hw;
 	self.r.wy_triggered = false;
-	self.r.window_y = -1;
-	self.r.wx_triggered = false;
+	self.r.window_y = carry ? 0 : -1;
+	self.r.wx_triggered = carry;
 }

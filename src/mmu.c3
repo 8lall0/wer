@@ -118,11 +118,15 @@ struct Mmu {
 	char   vdma_left;   // blocks left - 1 (what $FF55 bits 0-6 read)
 	bool   vdma_hblank; // an HBlank DMA is running
 	char   vdma_ff55;   // $FF55 read value when no HBlank DMA runs
+	bool   cpu_halted;  // the CPU is in HALT (Cpu.step)
+	int    timer_hold;  // M-cycles the timer stands still (CGB speed switch, Cpu.stop)
+	bool   hdma_due;    // an HBlank DMA block goes at the next instruction boundary (Cpu.step)
+	char   halt_hdma;   // HDMA state as HALT began: 0 low, 1 in HBlank, 2 a block was due (Gambatte)
 	int    vdma_stall;  // M-cycles the CPU is held off the bus (Cpu.step)
+	char   ack_bit;     // the interrupt just acknowledged: dropped if raised again within a cycle or two
+	bool   if_written;  // the CPU wrote IF: it overrides what the PPU raises in the next dot (Gambatte)
 	bool   irq_early;   // the PPU raised an interrupt early enough in the last tick
-	bool   apu_frozen;  // the APU stands still (the halt after a CGB speed switch, Cpu.stop)
 	int    ppu_freeze;  // dots the PPU stands still (right after a CGB speed switch)
-	int    timer_hold;  // M-cycles DIV is held at 0 (STOP with IME off)
 	sgb::Sgb* sgb;      // non-null in SGB mode (heap, freed by GameBoy.destroy)
 
 	Dma dma;
@@ -198,9 +202,9 @@ fn char* Mmu.wram_at(&self, ushort off) {
 
 // M-cycles the CPU waits per 16-byte VRAM DMA block: the copy takes the same
 // real time in both speeds.
-// A general purpose VRAM DMA holds the CPU this much longer than its blocks
-// (Gambatte dma/gdma_cycles_*).
-const int GDMA_OVERHEAD = 1;
+// Each VRAM DMA run (a whole general purpose one, or one HBlank block) holds
+// the CPU this much longer than its blocks (Gambatte Memory::dma: + 4 cycles).
+const int VDMA_OVERHEAD = 1;
 fn int Mmu.vdma_block_mcycles(&self) => self.double_speed ? 16 : 8;
 
 // Copy one 16-byte block, advancing source and destination.
@@ -227,23 +231,55 @@ fn void Mmu.vdma_start(&self, char value) {
 	if ((value & 0x80) == 0) {
 		// General purpose: everything now, the CPU waits for all of it.
 		for (int n = self.vdma_left; n >= 0; n--) self.vdma_block();
-		self.vdma_stall += GDMA_OVERHEAD;
+		self.vdma_stall += VDMA_OVERHEAD;
 		self.vdma_ff55 = 0xFF;
 		return;
 	}
 	self.vdma_hblank = true;
 	// With the LCD off there are no HBlanks to wait for, and started during
 	// HBlank it doesn't wait for the next one: one block goes now.
-	if ((self.ppu.lcdc & ppu::LCDC_ENABLE) == 0 || self.in_hblank()) self.vdma_hblank_step();
+	if ((self.ppu.lcdc & ppu::LCDC_ENABLE) == 0 || self.in_hblank()) self.hdma_due = true;
+}
+
+// Gambatte isHdmaPeriod(now): a visible line from its mode 0 time to 3 cycles
+// before LY changes.
+fn bool Mmu.hdma_period(&self) {
+	ppu::Ppu* p = &self.ppu;
+	if ((p.lcdc & ppu::LCDC_ENABLE) == 0 || p.line >= ppu::VBLANK_LINE || p.first_line) return false;
+	bool ds = p.double_speed;
+	return p.dot > ppu::MODE3_START_DOT && p.dot >= p.m0_stat_dot() + (ds ? 1 : 2) && p.dot < 453;
+}
+
+// HALT begins: a due HBlank DMA block waits for the wake-up (Gambatte Memory::halt).
+fn void Mmu.hdma_halt(&self) {
+	if (!self.cgb_mode) return;
+	self.halt_hdma = (self.vdma_hblank && self.hdma_period()) ? 1 : 0;
+	if (self.hdma_due) self.halt_hdma = 2;
+	self.hdma_due = false;
+}
+
+// The CPU wakes: the block it held back, or one for an HBlank HALT slept into.
+fn void Mmu.hdma_unhalt(&self) {
+	if (!self.cgb_mode) return;
+	if ((self.vdma_hblank && self.hdma_period() && self.halt_hdma == 0) || self.halt_hdma == 2) self.hdma_due = true;
+	self.halt_hdma = 0;
 }
 
 // One HBlank DMA block (at the start of an HBlank on a visible line).
-// True during mode 0 of a visible line, after the last pixel.
-fn bool Mmu.in_hblank(&self) => self.ppu.mode == 0 && self.ppu.line < ppu::VBLANK_LINE && !self.ppu.r.active;
+// True in a visible line's HBlank as an HDMA enable sees it.
+fn bool Mmu.in_hblank(&self) {
+	// Gambatte isHdmaPeriod(cc + 4): from 2 cycles before STAT reads mode 0
+	// until 7 cycles before LY changes.
+	ppu::Ppu* p = &self.ppu;
+	if (p.line >= ppu::VBLANK_LINE || p.first_line) return false;
+	bool ds = p.double_speed;
+	return p.dot > ppu::MODE3_START_DOT && p.dot >= p.m0_stat_dot() - (ds ? 1 : 2) && p.dot < (ds ? 451 : 449);
+}
 
 fn void Mmu.vdma_hblank_step(&self) {
 	if (!self.vdma_hblank) return;
 	self.vdma_block();
+	self.vdma_stall += VDMA_OVERHEAD;
 	if (self.vdma_left == 0) {
 		self.vdma_hblank = false;
 		self.vdma_ff55 = 0xFF;
@@ -322,17 +358,7 @@ fn void Mmu.oam_bug_read_idu(&self, int row) {
 	self.oam_bug_read(row);
 }
 
-// CGB palette RAM is out of the CPU's reach while the PPU draws: mode 3 and
-// a few dots more, until the pipeline is done with it (Gambatte cgbpal_m3).
-const int PALETTE_LOCK_EXTRA = 5;
-const int PALETTE_LOCK_EXTRA_DS = 4;
-fn bool Mmu.palette_locked(&self) {
-	if ((self.ppu.lcdc & ppu::LCDC_ENABLE) == 0) return false;
-	ppu::Ppu* p = &self.ppu;
-	if (p.line >= ppu::VBLANK_LINE || p.mode == 2 || p.mode == 1) return false;
-	int extra = p.double_speed ? PALETTE_LOCK_EXTRA_DS : PALETTE_LOCK_EXTRA;
-	return p.dot >= ppu::MODE2_DOTS && p.dot < p.pipe_end_dot - p.mode3_tail() + extra;
-}
+fn bool Mmu.palette_locked(&self) => self.ppu.palette_locked();
 
 // Video RAM byte at `off` from $8000 in the bank the CPU sees (VBK).
 fn char* Mmu.vram_at(&self, ushort off) {
@@ -374,11 +400,11 @@ fn char Mmu.io_get(&self, ushort addr) {
 	switch (addr) {
 		case 0xFF00:   return self.p1_read();
 		case DIV_REG:  return self.timer.div_reg();
-		case TIMA_REG: return self.timer.tima;
+		case TIMA_REG: return self.timer.read_tima();
 		case TMA_REG:  return self.timer.tma;
 		case TAC_REG:  return (char)(self.timer.tac | 0xF8);
 		case 0xFF40:   return self.ppu.lcdc;
-		case 0xFF41:   return (char)(self.ppu.stat | 0x80);
+		case 0xFF41:   return (char)((self.ppu.stat & ~ppu::STAT_LYC_FLAG) | (self.ppu.lyc_flag() ? ppu::STAT_LYC_FLAG : 0) | 0x80);
 		case 0xFF42:   return self.ppu.cpu_view(0x42, self.ppu.scy);
 		case 0xFF43:   return self.ppu.cpu_view(0x43, self.ppu.scx);
 		case 0xFF44:   return self.ppu.ly;
@@ -466,11 +492,14 @@ fn void Mmu.io_set(&self, ushort addr, char value) {
 		case TAC_REG:  self.timer.write_tac(value);
 		case 0xFF40:
 			self.ppu.write_render_reg(0x40, value);
-			self.ppu.write_lcdc(value);
+			self.request_irq(self.ppu.write_lcdc(value));
 		case 0xFF41:   self.request_irq(self.ppu.write_stat(value));
 		case 0xFF42:   self.ppu.write_render_reg(0x42, value);
 		case 0xFF43:   self.ppu.write_render_reg(0x43, value);
 		case 0xFF44:   break; // LY is read-only
+		case IF_REG:
+			self.io[IF_REG - 0xFF00] = value;
+			self.if_written = true;
 		case 0xFF45:   self.request_irq(self.ppu.write_lyc(value));
 		case DMA_REG:  self.io[DMA_REG - 0xFF00] = value; self.dma_request(value);
 		case 0xFF47:   self.ppu.write_render_reg(0x47, value);
@@ -498,6 +527,8 @@ fn void Mmu.dma_request(&self, char page) {
 }
 
 fn void Mmu.dma_step(&self) {
+	// Gambatte: a halted CPU's OAM DMA stands still (Memory::updateOamDma).
+	if (self.cpu_halted) return;
 	if (self.dma.pending > 0 && --self.dma.pending == 0) {
 		self.dma.active = true;
 		self.dma.source = self.dma.pending_source;
@@ -550,10 +581,10 @@ fn bool Mmu.dma_cgb_open(&self, ushort addr) {
 fn bool Mmu.ppu_blocks(&self, ushort addr, bool write) {
 	if ((self.ppu.lcdc & ppu::LCDC_ENABLE) == 0) return false;
 	if (addr >= 0xFE00 && addr < 0xFF00) {
-		return write ? self.ppu.oam_write_locked() : self.ppu.oam_locked();
+		return write ? self.ppu.oam_write_locked() : self.ppu.oam_read_locked();
 	}
 	if (addr >= 0x8000 && addr < 0xA000) {
-		return write ? self.ppu.mode == 3 : self.ppu.vram_locked();
+		return write ? self.ppu.vram_write_locked() : self.ppu.vram_read_locked();
 	}
 	return false;
 }
@@ -677,13 +708,14 @@ fn void Mmu.set_double_speed(&self, bool on) {
 	self.timer.double_speed = on;
 	self.apu.double_speed = on;
 	self.ppu.double_speed = on;
+	if (self.ppu.lcdc & ppu::LCDC_ENABLE) self.ppu.irq_reschedule(false);
 	self.key1 = 0;
 }
 
 // Dots the PPU stands still right after a CGB speed switch: none going to
 // double speed, 6 going back (Gambatte speedchange*, swept; SameBoy has a
 // similar short freeze).
-const int[2] SWITCH_PPU_FREEZE = { 0, 6 }; // to double, to normal
+const int[2] SWITCH_PPU_FREEZE = { 0, 1 }; // to double, to normal
 fn void Mmu.tick(&self, char mcycles) {
 	uint t = (uint)mcycles * 4;
 	// In double speed an M-cycle is half as long: the timer, serial port and
@@ -700,6 +732,9 @@ fn void Mmu.tick(&self, char mcycles) {
 		tr = self.timer.tick(t);
 		if (self.serial_left > 0) self.serial_tick(t);
 	}
+	// An IF write also overrides a timer interrupt in the next 1-2 cycles.
+	if (tr.timer_irq && (self.ack_bit & 0x04) && tr.irq_before_end + 2 + (self.model == CGB ? 1 : 0) >= t) tr.timer_irq = false;
+	if (tr.timer_irq && self.if_written && tr.irq_before_end + 1 + (self.double_speed ? 1 : 0) >= t) tr.timer_irq = false;
 	if (tr.timer_irq) self.io[IF_REG - 0xFF00] |= 0x04; // Timer interrupt
 
 	uint dots = rt;
@@ -709,25 +744,26 @@ fn void Mmu.tick(&self, char mcycles) {
 		dots -= skip;
 	}
 	char pirq = dots ? self.ppu.tick(dots) : 0;
-	// A halted CPU notices a PPU interrupt raised in this M-cycle at once,
-	// one M-cycle sooner than the timer's (Cpu.service_interrupt): on a DMG
-	// always; on a CGB in normal speed when it came in the first half of the
-	// M-cycle or was the mode 2 one (Gambatte halt/*_scx2..5, noime_m2irq,
-	// lycirq_m2stat), in double speed never (halt/*_ds_*).
-	if (self.model != CGB) {
-		self.irq_early = pirq != 0;
-	} else {
-		self.irq_early = pirq != 0 && !self.double_speed && (self.ppu.irq_dot < 2 || self.ppu.irq_m2);
-	}
+	// An IF write lands a cycle after the CPU's access (Gambatte: interrupts
+	// up to then are overwritten).
+	if (self.if_written && self.ppu.irq_dot == 0) pirq = 0;
+	if ((pirq & self.ack_bit) && (self.ppu.irq_dot + 1) * (self.double_speed ? 2 : 1) <= 2) pirq &= ~self.ack_bit;
+	self.if_written = false;
+	self.ack_bit = 0;
+	// A halted CPU wakes at the first M-cycle boundary after an interrupt,
+	// plus one more M-cycle (Cpu.service_interrupt) - except on a DMG when
+	// the interrupt came at least 2 T-cycles before that boundary (Gambatte
+	// Memory::event, intevent_interrupts).
+	self.irq_early = self.model != CGB && ((pirq != 0 && self.ppu.irq_dot < 2) || (tr.timer_irq && tr.irq_before_end >= 2));
 	if (self.ppu.hblank_start) {
 		self.ppu.hblank_start = false;
-		if (self.cgb_mode) self.vdma_hblank_step();
+		if (self.cgb_mode && self.vdma_hblank) self.hdma_due = true;
 	}
 	// An SGB reads *_TRN data out of the frame that has just been shown.
 	if (self.sgb && (pirq & ppu::INT_VBLANK)) self.sgb.capture_transfer(&self.ppu);
 	self.request_irq(pirq);
 
-	self.apu.tick(rt, tr.apu_steps, tr.apu_rises, tr.apu_div_write, self.apu_frozen);
+	self.apu.tick(rt, tr.apu_steps, tr.apu_rises, tr.apu_div_write, false);
 
 	if (self.cart && self.cart.has_rtc) self.cart.rtc.tick(rt);
 }

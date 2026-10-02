@@ -285,8 +285,10 @@ fn int mode0_dot(char lcdc, char scx, char wx, char[] objects_x) {
 	ppu::Ppu p;
 	p.lcdc = lcdc;
 	p.r_lcdc = lcdc;
+	p.we_lcdc = lcdc;
 	p.scx = scx;
 	p.wy = 20;        // the window (if on) starts on this line
+	p.wy2 = 20;
 	p.wx = wx;
 	foreach (i, x : objects_x) {
 		p.oam[i * 4] = 20 + 16;
@@ -302,12 +304,12 @@ fn void mode3_length_follows_the_pipeline() @test
 {
 	char on = ppu::LCDC_ENABLE | ppu::LCDC_BG_ENABLE;
 	int plain = mode0_dot(on, 0, 0xFF, {});
-	test::eq(ppu::MODE2_DOTS + ppu::MODE3_DOTS, plain);
+	test::eq(249, plain);                                         // Gambatte: STAT reads mode 0 from dot 249
 	test::eq(plain + 3, mode0_dot(on, 0x0B, 0xFF, {}));           // SCX % 8 = 3
-	test::eq(plain + 6 + ppu::WINDOW_TAIL, mode0_dot(on | ppu::LCDC_WIN_ENABLE, 0, 7, {})); // the window
+	test::eq(plain + 6, mode0_dot(on | ppu::LCDC_WIN_ENABLE, 0, 7, {})); // the window
 	char obj = on | ppu::LCDC_OBJ_ENABLE;
 	int one = mode0_dot(obj, 0, 0xFF, { 0 });                     // X = 0: 11 dots
-	test::eq(plain + 11 - ppu::MODE3_OBJ_TAIL, one);
+	test::eq(plain + 11, one);
 	test::eq(one + 6, mode0_dot(obj, 0, 0xFF, { 0, 0 }));          // a second one: +6
 	test::eq(one + 6, mode0_dot(obj, 0, 0xFF, { 0, 0, 168 }));     // off the right edge: free
 }

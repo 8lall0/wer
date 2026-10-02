@@ -1,6 +1,6 @@
 module cgb_test;
 
-import gameboy, mmu;
+import gameboy, mmu, cpu;
 import std::core::test;
 
 // A 32 KiB CGB-only ROM with `code` at $0100.
@@ -28,10 +28,10 @@ fn void speed_switch_with_stop() @test
 	gb.step();                                   // STOP: switch
 	test::eq((char)0xFE, gb.mmu.get(0xFF4D));   // double speed, disarmed
 	test::@check(gb.mmu.double_speed, "double speed on");
-	// Then the CPU stays halted for 0x20008 cycles of the new clock.
+	// Then the CPU stays halted (Gambatte: until 0x20004 cycles after STOP).
 	ulong before = gb.cpu.clk;
 	while (gb.cpu.halted) gb.step();
-	test::eq((ulong)(0x20008 / 4), gb.cpu.clk - before);
+	test::eq((ulong)cpu::SWITCH_HALT[0], gb.cpu.clk - before);
 }
 
 fn void double_speed_ppu_keeps_real_time() @test
@@ -107,7 +107,7 @@ fn void general_purpose_dma_copies_everything() @test
 	for (int i = 0; i < 48; i++) test::eq((char)(0x00 + i), gb.mmu.ppu.vram1[0x200 + i]);
 	test::eq((char)0x00, gb.mmu.ppu.vram1[0x230]); // stops after 3 blocks
 	test::eq((char)0xFF, gb.mmu.get(0xFF55));
-	test::eq(24 + mmu::GDMA_OVERHEAD, gb.mmu.vdma_stall); // 8 M-cycles per block, plus the start
+	test::eq(24 + mmu::VDMA_OVERHEAD, gb.mmu.vdma_stall); // 8 M-cycles per block, plus the start
 
 	ulong before = gb.cpu.clk;
 	gb.step();

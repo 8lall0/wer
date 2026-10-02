@@ -30,7 +30,12 @@ fn char Cpu.execute_one(&self, mmu::Mmu *mmu) {
 // Run one step: service a pending interrupt, idle one cycle while halted /
 // stopped, or fetch+execute one instruction. Returns the M-cycles consumed.
 fn char Cpu.step(&self, mmu::Mmu *mmu) {
-	// A VRAM DMA copy (Mmu.vdma_*) holds the CPU off the bus while it runs.
+	// An HBlank DMA block is copied between instructions (Gambatte: a DMA
+	// event), and holds the CPU off the bus while it runs.
+	if (mmu.hdma_due) {
+		mmu.hdma_due = false;
+		mmu.vdma_hblank_step();
+	}
 	if (mmu.vdma_stall > 0) {
 		int n = mmu.vdma_stall;
 		mmu.vdma_stall = 0;
@@ -40,11 +45,13 @@ fn char Cpu.step(&self, mmu::Mmu *mmu) {
 	self.bus_cycles = 0;
 	if (!self.service_interrupt(mmu)) {
 		if (self.halted || self.stopped) {
+			mmu.cpu_halted = self.halted;
 			self.idle(mmu);
+			mmu.cpu_halted = false;
 			self.just_halted = false;
 			if (self.speed_switch_halt > 0 && --self.speed_switch_halt == 0) {
 				self.halted = false;
-				mmu.apu_frozen = false;
+				mmu.hdma_unhalt();
 			}
 		} else {
 			self.execute_one(mmu);

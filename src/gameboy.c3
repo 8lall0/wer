@@ -71,7 +71,6 @@ fn GameBoy new(bool boot = true, mmu::Model model = DMG) {
 		// The boot ROM turned the LCD on long ago: normal line 0, not the
 		// special first line after LCD-on.
 		gb.mmu.ppu.first_line = false;
-		gb.mmu.ppu.lcd_on_by_cpu = false; // switched on by the boot ROM, long ago
 		gb.mmu.ppu.dot = 0;
 		gb.mmu.ppu.line = 0;
 		gb.mmu.ppu.mode = 2;
