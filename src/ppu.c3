@@ -45,6 +45,7 @@ struct Ppu {
 	// meanwhile the object scan reads $FF (Gambatte startOamDma).
 	ulong        oam_dma_from;
 	ulong        oam_dma_until;
+	char[0xA0]   oam_pre_dma; // OAM as the DMA found it (for entries the scan read before)
 	char[] fb;
 	// CGB mode: the picture as RGB555 colours (heap), and the switch between
 	// the DMG and CGB renderers (Mmu.cgb_mode's copy).

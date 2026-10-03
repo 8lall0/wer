@@ -615,7 +615,9 @@ fn void Mmu.dma_step(&self) {
 	if (self.cpu_halted) return;
 	if (self.dma.pending > 0 && --self.dma.pending == 0) {
 		self.dma.active = true;
-		self.ppu.oam_dma_from = self.ppu.cc;
+		// Gambatte's start and end times: an M-cycle on from here.
+		self.ppu.oam_dma_from = self.ppu.cc + 4;
+		self.ppu.oam_pre_dma = self.ppu.oam;
 		self.ppu.oam_dma_until = ppu::NEVER;
 		self.dma.source = self.dma.pending_source;
 		self.dma.index = 0;
@@ -637,7 +639,7 @@ fn void Mmu.dma_step(&self) {
 			if ((src & 0xFF) < DMA_LEN) self.ppu.oam[src & 0xFF] = b;
 			if (++self.dma.index == DMA_LEN) {
 				self.dma.active = false;
-				self.ppu.oam_dma_until = self.ppu.cc;
+				self.ppu.oam_dma_until = self.ppu.cc + 4;
 			}
 			return;
 		}
@@ -659,7 +661,7 @@ fn void Mmu.dma_step(&self) {
 	self.ppu.oam[self.dma.index] = b;
 	if (++self.dma.index == DMA_LEN) {
 		self.dma.active = false;
-		self.ppu.oam_dma_until = self.ppu.cc;
+		self.ppu.oam_dma_until = self.ppu.cc + 4;
 	}
 }
 

@@ -135,8 +135,10 @@ fn void Ppu.oam_scan(&self, int i) {
 	if (r.n_obj == 10) return;
 	int height = (self.r_lcdc & LCDC_OBJ_SIZE) ? 16 : 8;
 	bool dma = self.oam_dma_hides();
-	char y = dma ? 0xFF : self.oam[i * 4];
-	char x = dma ? 0xFF : self.oam[i * 4 + 1];
+	// An entry read before the DMA started has the old contents.
+	char* oam = self.oam_read_before_dma() ? &self.oam_pre_dma : &self.oam;
+	char y = dma ? 0xFF : oam[i * 4];
+	char x = dma ? 0xFF : oam[i * 4 + 1];
 	int top = (int)y - 16;
 	r.scan_tall_only = 0;
 	if (self.line < top || self.line >= top + height) {
@@ -174,16 +176,19 @@ fn void Ppu.scan_add(&self, int i, char y, char x) {
 }
 
 // While an OAM DMA owns OAM the scan reads $FF (Gambatte startOamDma: the
-// entries read from then on come from a $FF buffer). Gambatte reads its
-// entries ahead of the scan here, so the DMA's start and end are compared
-// with the time this many dots back (DMG, CGB; swept on Gambatte
-// oamdma/late_sp*, where entry 0's start is still off: late_sp00x_2).
-const int[2] SCAN_DMA_START_LAG = { 7, 9 };
-const int[2] SCAN_DMA_END_LAG = { 9, 9 };
+// entries read from then on come from a $FF buffer). Gambatte reads entry k
+// at line cycle 2k, ahead of the scan here: an entry is hidden if the DMA
+// started before that and hadn't ended (OamReader::update; oamdma/late_sp*).
+fn bool Ppu.oam_read_before_dma(&self) {
+	int first = self.cgb_hw ? SCAN_FIRST[1] : SCAN_FIRST[0];
+	ulong t = self.cc - (ulong)first * self.spd();
+	return t <= self.oam_dma_from && self.oam_dma_from <= self.cc;
+}
+
 fn bool Ppu.oam_dma_hides(&self) {
-	int c = self.cgb_hw ? 1 : 0;
-	return self.cc - (ulong)SCAN_DMA_START_LAG[c] * self.spd() >= self.oam_dma_from
-		&& self.cc - (ulong)SCAN_DMA_END_LAG[c] * self.spd() < self.oam_dma_until;
+	int first = self.cgb_hw ? SCAN_FIRST[1] : SCAN_FIRST[0];
+	ulong t = self.cc - (ulong)first * self.spd();
+	return self.oam_dma_from < t && t <= self.oam_dma_until;
 }
 
 // The OAM entry mode 2 checks at this dot, or -1.
