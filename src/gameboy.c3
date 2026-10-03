@@ -118,6 +118,12 @@ fn GameBoy new(bool boot = true, mmu::Model model = DMG) {
 	return gb;
 }
 
+// A CGB's revision where it matters (the APU): E (later CGBs, SameBoy's
+// model) or C (the default).
+fn void GameBoy.set_cgb_revision_e(&self, bool e) {
+	self.mmu.apu.cgb_e = e;
+}
+
 fn void GameBoy.destroy(&self) {
 	if (self.mmu.cart) {
 		self.mmu.cart.save();

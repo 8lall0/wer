@@ -72,7 +72,9 @@ struct Apu {
 	bool during_div_write;
 
 	// Set by the MMU.
-	bool   cgb;          // CGB hardware (either mode): CGB-E behaviour
+	bool   cgb;          // CGB hardware (either mode)
+	char   env_triggered; // channels (bits 0-2: SQ1, SQ2, NOI) started in this M-cycle
+	bool   cgb_e;        // CGB revision E (SameBoy's model), else C (Gambatte's test hardware)
 	bool   double_speed;
 	ushort div_counter;  // the timer's 16-bit counter, for power-on
 
@@ -103,6 +105,9 @@ fn void Apu.set_ring(&self, short[] buf) {
 }
 
 fn bool Apu.dmg(&self) => !self.cgb;
+// SameBoy's model <= CGB_C: a DMG, or a CGB-C.
+fn bool Apu.le_c(&self) => !self.cgb || !self.cgb_e;
+fn bool Apu.is_cgb_e(&self) => self.cgb && self.cgb_e;
 
 // Clears the channel state like a power cycle does (not the registers).
 fn void Apu.clear_state(&self) {
@@ -111,6 +116,7 @@ fn void Apu.clear_state(&self) {
 	self.power = keep.power;
 	self.io = keep.io;
 	self.cgb = keep.cgb;
+	self.cgb_e = keep.cgb_e;
 	self.double_speed = keep.double_speed;
 	self.div_counter = keep.div_counter;
 	self.sample_acc = keep.sample_acc;
@@ -246,13 +252,16 @@ fn void Apu.div_event(&self) {
 	}
 
 	if ((self.div_divider & 7) == 7) {
+		// A channel started in this same M-cycle counts from after this step
+		// (Gambatte EnvelopeUnit::nr4Init: (cc + 2) in step 0 gets a period
+		// more; sound/ch2_init_reset_env_counter_timing_*).
 		for (int i = 0; i < 2; i++) {
-			if (!self.sq[i].env.clock) self.sq[i].volume_countdown = (self.sq[i].volume_countdown - 1) & 7;
+			if (!self.sq[i].env.clock && !(self.env_triggered & (1 << i))) self.sq[i].volume_countdown = (self.sq[i].volume_countdown - 1) & 7;
 		}
-		if (!self.noise.env.clock) self.noise.volume_countdown = (self.noise.volume_countdown - 1) & 7;
+		if (!self.noise.env.clock && !(self.env_triggered & 4)) self.noise.volume_countdown = (self.noise.volume_countdown - 1) & 7;
 	}
 
-	if (self.double_speed && self.cgb) {
+	if (self.double_speed && self.is_cgb_e()) {
 		self.pending_envelope_tick = true;
 	} else {
 		for (int i = 0; i < 2; i++) {
@@ -448,6 +457,7 @@ fn void Apu.tick(&self, uint t, uint div_events, uint div_secondary = 0, bool di
 
 	if (self.power) self.run((int)t / 2);
 	self.output(t);
+	self.env_triggered = 0;
 }
 
 // Output samples for `t` T-cycles of the current state.

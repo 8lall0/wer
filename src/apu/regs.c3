@@ -78,7 +78,7 @@ fn void Apu.write(&self, ushort addr, char value) {
 
 		case 0xFF10:
 			if (self.sweep_calc_countdown || self.sweep_calc_reload_timer) self.nr10_write_glitch(value);
-			bool old_negate = (self.io[NR10] & 8) != 0 || !self.cgb;
+			bool old_negate = (self.io[NR10] & 8) != 0 || self.le_c();
 			self.io[NR10] = value;
 			// Leaving negate mode after a calculation made in it stops the channel.
 			if (self.shadow_sweep_length + self.ch1_completed_addend + (old_negate ? 1 : 0) > 0x7FF && (value & 8) == 0) {
@@ -99,7 +99,7 @@ fn void Apu.write(&self, ushort addr, char value) {
 				self.io[reg] = value; // DAC off
 				self.stop(i);
 			} else if (self.active[i]) {
-				nrx2_glitch(!self.cgb, &self.sq[i].current_volume, value, self.io[reg],
+				nrx2_glitch(self.le_c(), &self.sq[i].current_volume, value, self.io[reg],
 				            &self.sq[i].volume_countdown, &self.sq[i].env);
 				self.update_square_sample(i);
 			}
@@ -145,7 +145,7 @@ fn void Apu.write(&self, ushort addr, char value) {
 				self.stop(NOI);
 				self.noise_counter_active = false;
 			} else if (self.active[NOI]) {
-				nrx2_glitch(!self.cgb, &self.noise.current_volume, value, self.io[reg],
+				nrx2_glitch(self.le_c(), &self.noise.current_volume, value, self.io[reg],
 				            &self.noise.volume_countdown, &self.noise.env);
 				self.samples[NOI] = self.noise.current_lfsr_sample ? (char)self.noise.current_volume : 0;
 			}
@@ -186,7 +186,7 @@ fn void Apu.write_nrx4(&self, int i, int reg, char value) {
 	// A frequency change from >= $700 to < $700 right before a step: the
 	// countdown should use the old length but the sample must not change.
 	if ((value & 0x80) == 0 && self.active[i] && (old_nrx4 & 7) == 7 && (value & 7) != 7) {
-		if (self.cgb || (s.sample_countdown & 1)) {
+		if (self.is_cgb_e() || (s.sample_countdown & 1)) {
 			if (s.did_tick && s.sample_countdown >> 1 == (s.sample_length ^ 0x7FF)) {
 				s.current_sample_index = (s.current_sample_index - 1) & 7;
 				s.sample_surpressed = false;
@@ -205,7 +205,7 @@ fn void Apu.write_nrx4(&self, int i, int reg, char value) {
 		s.did_tick = false;
 		bool force_unsurpressed = false;
 		if (!self.active[i]) {
-			if (self.cgb) {
+			if (self.is_cgb_e()) {
 				if ((value & 4) == 0 && (((s.sample_countdown - s.delay) / 2) & 0x400) == 0) {
 					s.current_sample_index = (s.current_sample_index + 1) & 7;
 					force_unsurpressed = true;
@@ -215,17 +215,22 @@ fn void Apu.write_nrx4(&self, int i, int reg, char value) {
 			s.sample_countdown = (s.sample_length ^ 0x7FF) * 2 + s.delay;
 		} else {
 			int extra_delay = 0;
-			if (self.cgb) {
-				// A duty step due on the very next tick has already happened
-				// for the restart (Gambatte DutyUnit::nr4Change updates the
-				// position up to the write). SameBoy steps here almost always:
-				// later CGB revisions, not the CGB-C (sound/ch1_init_pos_*,
-				// *_pos6_to_pos7_timing_*).
-				if (s.sample_countdown == 0) {
+			if (self.is_cgb_e()) {
+				// SameBoy (CGB-E): the duty steps on a restart almost always.
+				if (!s.just_reloaded && (value & 4) == 0 && (((s.sample_countdown - 1 - s.delay) / 2) & 0x400) == 0) {
 					s.current_sample_index = (s.current_sample_index + 1) & 7;
 					s.sample_surpressed = false;
 				} else if (s.sample_length == 0x7FF && old_sample_length != 0x7FF && s.sample_surpressed) {
 					extra_delay += 2;
+				}
+			} else if (self.cgb) {
+				// CGB-C: only a duty step due on the very next tick has
+				// already happened for the restart (Gambatte DutyUnit::
+				// nr4Change updates the position up to the write;
+				// sound/ch1_init_pos_*, *_pos6_to_pos7_timing_*).
+				if (s.sample_countdown == 0) {
+					s.current_sample_index = (s.current_sample_index + 1) & 7;
+					s.sample_surpressed = false;
 				}
 			}
 			// Restarting a playing channel starts 2 ticks earlier.
@@ -237,6 +242,7 @@ fn void Apu.write_nrx4(&self, int i, int reg, char value) {
 		// The new volume applies at once to the sample already playing.
 		if (self.active[i]) self.update_square_sample(i);
 		s.volume_countdown = nrx2 & 7;
+		self.env_triggered |= (char)(1 << i);
 
 		if ((nrx2 & 0xF8) != 0 && !self.active[i]) {
 			self.active[i] = true;
@@ -257,7 +263,7 @@ fn void Apu.write_nrx4(&self, int i, int reg, char value) {
 				// Sweep bug: with a shift, the overflow check also runs on trigger.
 				self.sweep_calc_countdown = nr10 & 7;
 				bool odd = (self.lf_div ^ (self.double_speed ? 0 : 1)) != 0;
-				self.sweep_calc_reload_timer = odd && !self.cgb ? 3 : 2;
+				self.sweep_calc_reload_timer = odd && self.le_c() ? 3 : 2;
 				self.unshifted_sweep = false;
 				if (!was_active) self.sweep_calc_reload_timer++;
 				self.sweep_addend = s.sample_length >> (nr10 & 7);
@@ -319,6 +325,7 @@ fn void Apu.write_nr44(&self, char value) {
 			n.current_volume = nr42 >> 4;
 			n.current_lfsr_sample = false;
 			n.volume_countdown = nr42 & 7;
+			self.env_triggered |= 4;
 			n.did_step_counter = (n.alignment & 3) == 2;
 			if (nr42 & 0xF8) {
 				self.active[NOI] = true;
@@ -345,8 +352,12 @@ fn void Apu.prepare_noise_start(&self) {
 	bool active = self.active[NOI];
 	bool instant_step = false;
 	bool div_1_glitch = false;
+	// SameBoy's quirks of a CGB-C in double speed.
+	bool c_ds = self.cgb && !self.cgb_e && self.double_speed;
 
 	if (divisor > 1 && n.counter_countdown == 1) {
+		n.counter = (n.counter + 1) & 0x3FFF;
+	} else if (divisor > 1 && n.counter_countdown == 2 && active && c_ds) {
 		n.counter = (n.counter + 1) & 0x3FFF;
 	} else if (n.counter_countdown == 2 && (n.alignment & 3) == 0 && active) {
 		if (divisor == 0) {
@@ -364,7 +375,7 @@ fn void Apu.prepare_noise_start(&self) {
 	int cd = divisor == 0 ? 6 : divisor * 4 + 6;
 	if (n.alignment & 1) {
 		if (!divisor) {
-			if (!self.cgb) {
+			if (self.le_c()) {
 				cd++;
 			} else if (was_background_counting) {
 				cd--;
@@ -383,12 +394,14 @@ fn void Apu.prepare_noise_start(&self) {
 		}
 	} else if (divisor) {
 		if (n.alignment & 2) {
-			cd -= 2;
-		} else if (divisor > 1) {
+			cd += c_ds && divisor == 1 ? 2 : -2;
+		} else if (divisor > 1 && !c_ds) {
 			cd -= 4;
 		} else if (divisor == 1 && active && (nr43 & 0xF0) == 0) {
 			cd -= 4;
 		}
+	} else if (c_ds) {
+		cd += 2;
 	}
 
 	// Background counting glitches
@@ -401,6 +414,7 @@ fn void Apu.prepare_noise_start(&self) {
 			cd -= 4;
 		}
 	}
+	if (!divisor && c_ds && was_background_counting && !active) cd--;
 	if (div_1_glitch) cd -= 4;
 	n.counter_countdown = cd & 0xFF;
 
@@ -413,10 +427,10 @@ fn void Apu.write_nr43_reg(&self, char value) {
 	if (n.countdown_reloaded) {
 		int divisor = (value & 0x07) << 2;
 		if (!divisor) divisor = 2;
-		int[4] adj = self.cgb ? { 2, 1, 0, 3 } : { 2, 1, 4, 3 };
+		int[4] adj = self.is_cgb_e() ? { 2, 1, 0, 3 } : { 2, 1, 4, 3 };
 		n.counter_countdown = divisor + (divisor == 2 ? 0 : adj[n.alignment & 3]);
 	}
-	if (!self.cgb) {
+	if (self.le_c()) {
 		if (n.countdown_reloaded) {
 			char nr43 = self.io[NR43];
 			bool old_bit = ((n.counter >> (nr43 >> 4)) & 1) != 0;
@@ -446,7 +460,7 @@ fn void Apu.nr43_write(&self, char new) {
 	if ((old & 0xF0) == (new & 0xF0)) return;
 
 	int effective = n.counter;
-	if (!self.cgb && n.countdown_reloaded) effective |= (effective - 1) & 0x3FFF;
+	if (self.le_c() && n.countdown_reloaded) effective |= (effective - 1) & 0x3FFF;
 	bool old_bit = ((effective >> (old >> 4)) & 1) != 0;
 	char glitch_value = (old & 0x7F) | (new & 0x80);
 	bool glitch_bit = ((effective >> (glitch_value >> 4)) & 1) != 0;
@@ -454,7 +468,7 @@ fn void Apu.nr43_write(&self, char new) {
 
 	if (old_bit == new_bit && new_bit != glitch_bit) {
 		if (new_bit) {
-			if (!self.cgb) return;
+			if (self.le_c()) return;
 			// Category 1
 			if ((new & 0x80) == 0) {
 				self.step_lfsr();
@@ -488,7 +502,7 @@ fn void Apu.nr43_write(&self, char new) {
 			return;
 		}
 		// Category 2
-		if (!self.cgb) {
+		if (self.le_c()) {
 			self.step_lfsr();
 			return;
 		}
@@ -526,7 +540,7 @@ fn void Apu.nr43_write(&self, char new) {
 				self.step_lfsr();
 		}
 	} else if (!old_bit && new_bit) {
-		if (!self.cgb) {
+		if (self.le_c()) {
 			bool previous_narrow = n.narrow;
 			n.narrow = true;
 			self.step_lfsr();
@@ -539,7 +553,7 @@ fn void Apu.nr43_write(&self, char new) {
 		} else {
 			self.step_lfsr();
 		}
-	} else if (!self.cgb) {
+	} else if (self.le_c()) {
 		if ((new & 0xF0) <= 0x20 && !glitch_bit && !new_bit && !old_bit && (effective & 8)) {
 			self.step_lfsr();
 		}
@@ -547,13 +561,25 @@ fn void Apu.nr43_write(&self, char new) {
 	n.lfsr &= 0x7FFF;
 }
 
+const char[8] SWEEP_CORRUPTION = { 7, 7, 5, 7, 3, 3, 5, 7 };
+
 fn void Apu.nr10_write_glitch(&self, char value) {
-	if (!self.cgb) {
-		// DMG (and CGB up to C) in single speed
-		if (self.sweep_calc_reload_timer == 1 && !self.lf_div) return;
-		if (self.sweep_calc_reload_timer > 1) return;
+	if (self.le_c()) {
+		// DMG and CGB up to C (the double speed cases are a CGB-C's)
+		bool ds = self.double_speed;
+		if (self.sweep_calc_reload_timer == 1 && !self.lf_div) {
+			// SameBoy: corruption as two of its CGB-Cs show it.
+			if (ds) self.sweep_calc_countdown = SWEEP_CORRUPTION[self.sweep_calc_countdown & 7];
+			return;
+		}
+		if (self.sweep_calc_reload_timer > 1) {
+			if (ds) self.sweep_calc_countdown = value & 7;
+			return;
+		}
 		if (self.sweep_calc_countdown) {
-			bool zombie_step = (self.io[NR10] & 7) == 0 && self.lf_div != 0;
+			bool zombie_step = (self.io[NR10] & 7) == 0
+				? (self.lf_div != 0) != ds
+				: ds && self.sweep_calc_countdown == 1;
 			if (zombie_step) {
 				self.sweep_calc_countdown--;
 				if (self.sweep_calc_countdown <= 1) {

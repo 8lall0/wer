@@ -106,6 +106,7 @@ fn void envelope_decreases_volume() @test
 	a.write(0xFF12, 0x83); // vol 8, decrease, period 3
 	a.write(0xFF14, 0x80); // trigger
 	test::eq(8, a.sq[0].current_volume);
+	a.tick(4, 0); // the trigger's M-cycle ends
 
 	// The envelope steps every 8 frame sequencer steps (64 Hz) times the
 	// period; each step is a falling then a rising edge of the DIV bit.
