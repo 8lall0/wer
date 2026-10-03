@@ -67,6 +67,7 @@ fn Pixel* Fifo.at(&self, int i) => &self.px[(self.head + i) & 7];
 
 struct Renderer {
 	bool active;        // mode 3 drawing in progress on this line
+	char fetch_y;       // CGB-D/E: the fetcher Y latched with the tile number
 	int  pos;           // position in line, -16 .. 160 (see above)
 	int  lcd_x;         // next screen column written
 	Fifo bg;
@@ -475,6 +476,8 @@ fn void Ppu.advance_fetcher(&self) {
 			ushort map = 0x1800;
 			if (r.wx_triggered ? (self.r_lcdc & LCDC_WIN_MAP) != 0 : (self.r_lcdc & LCDC_BG_MAP) != 0) map = 0x1C00;
 			char y = self.fetcher_y();
+			// A CGB-D/E keeps this Y for the tile's data too (SameBoy).
+			r.fetch_y = y;
 			char x;
 			if (r.wx_triggered) {
 				x = r.window_tile_x;
@@ -551,10 +554,10 @@ fn char Ppu.tile_sel_glitch_data(&self, bool* used) {
 }
 
 // Tile data address for the current tile and fetcher Y (TILE_SEL and SCY
-// are read again for each bitplane).
+// are read again for each bitplane; on a CGB-D/E only TILE_SEL).
 fn ushort Ppu.tile_data_address(&self) {
 	Renderer* r = &self.r;
-	char y = self.fetcher_y();
+	char y = self.after_c() ? r.fetch_y : self.fetcher_y();
 	r.last_tileset = (self.r_lcdc & LCDC_TILE_DATA) != 0;
 	int a = (self.r_lcdc & LCDC_TILE_DATA) ? (int)r.tile * 16 : (int)(ichar)r.tile * 16 + 0x1000;
 	if (r.attr & ATTR_BANK) a += 0x2000;

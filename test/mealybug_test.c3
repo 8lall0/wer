@@ -92,6 +92,31 @@ const Rom[*] CGB_ROMS = {
 	{ "m3_wx_4_change_sprites", true  },
 };
 
+// Expected on a CPU CGB D, where Mealybug has a screenshot for one (not
+// the "not currently available" placeholders of the WX change tests).
+const Rom[*] CGB_D_ROMS = {
+	{ "m2_win_en_toggle", true  },
+	{ "m3_bgp_change", true  },
+	{ "m3_bgp_change_sprites", true  },
+	{ "m3_lcdc_bg_en_change", true  },
+	{ "m3_lcdc_bg_map_change", true  },
+	{ "m3_lcdc_obj_en_change", true  },
+	{ "m3_lcdc_obj_en_change_variant", true  },
+	{ "m3_lcdc_obj_size_change", true  },
+	{ "m3_lcdc_obj_size_change_scx", true  },
+	{ "m3_lcdc_tile_sel_change", true  },
+	{ "m3_lcdc_tile_sel_win_change", true  },
+	{ "m3_lcdc_win_en_change_multiple", true  },
+	{ "m3_lcdc_win_map_change", true  },
+	{ "m3_obp0_change", true  },
+	{ "m3_scx_high_5_bits", true  },
+	{ "m3_scx_low_3_bits", true  },
+	{ "m3_scy_change", true  },
+	{ "m3_window_timing", true  },
+	{ "m3_window_timing_wx_0", true  },
+	{ "m3_wx_4_change_sprites", true  },
+};
+
 enum Outcome : char {
 	MISSING,
 	PASS,
@@ -127,16 +152,21 @@ fn Outcome run_dmg(String name, int* wrong) {
 	return TIMEOUT;
 }
 
-// Runs one ROM on a CGB, through the boot ROM; compares the RGB frame.
-fn Outcome run_cgb(String name, int* wrong) {
+fn Outcome run_cgb(String name, int* wrong) => run_cgb_rev(name, wrong, "cgb", C);
+fn Outcome run_cgb_d(String name, int* wrong) => run_cgb_rev(name, wrong, "cgb_d", D);
+
+// Runs one ROM on a CGB of revision `rev`, through the boot ROM; compares
+// the RGB frame with the screenshot in `dir`.
+fn Outcome run_cgb_rev(String name, int* wrong, String dir, mmu::CgbRevision rev) {
 	char[]? rom = file::load_temp(string::tformat("%sroms/%s.gb", DIR, name));
-	char[]? ref = file::load_temp(string::tformat("%scgb/%s.ppm", DIR, name));
+	char[]? ref = file::load_temp(string::tformat("%s%s/%s.ppm", DIR, dir, name));
 	if (catch rom, ref) return MISSING;
 	if (ref.len < PIXELS * 3) return MISSING;
 	char[] want = ref[ref.len - PIXELS * 3..];
 
 	gameboy::GameBoy gb = gameboy::new(true, CGB);
 	defer gb.destroy();
+	gb.set_cgb_revision(rev);
 	gb.load_rom(rom);
 
 	ulong limit = gb.cpu.clk + TIMEOUT * 2;
@@ -149,7 +179,7 @@ fn Outcome run_cgb(String name, int* wrong) {
 				if (rgb[i * 3:3] != want[i * 3:3]) (*wrong)++;
 			}
 			if (*wrong == 0) return PASS;
-			(void)write_ppm(string::tformat("%sout/%s-cgb.ppm", DIR, name), rgb[:PIXELS * 3]);
+			(void)write_ppm(string::tformat("%sout/%s-%s.ppm", DIR, name, dir), rgb[:PIXELS * 3]);
 			return FAIL;
 		}
 		gb.step();
@@ -236,4 +266,5 @@ fn void run_all() @test
 {
 	run_suite("mealybug dmg", &DMG_ROMS, &run_dmg);
 	run_suite("mealybug cgb", &CGB_ROMS, &run_cgb);
+	run_suite("mealybug cgb-d", &CGB_D_ROMS, &run_cgb_d);
 }
