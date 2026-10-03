@@ -68,10 +68,14 @@ fn GameBoy new(bool boot = true, mmu::Model model = DMG) {
 		// The only register the SGB2 boot ROM leaves differently.
 		if (model == SGB2) gb.cpu.af.hi = 0xFF;
 		gb.mmu.set(0xFF47, 0xFC); // BGP
-		gb.mmu.set(0xFF48, 0xFF); // OBP0
-		gb.mmu.set(0xFF49, 0xFF); // OBP1
+		// OBP0/OBP1: $FF on a DMG; a CGB's boot ROM never writes them, they
+		// stay $00 (SameBoy; Mooneye wilbertpol boot_hwio-C).
+		gb.mmu.set(0xFF48, model == CGB ? 0x00 : 0xFF);
+		gb.mmu.set(0xFF49, model == CGB ? 0x00 : 0xFF);
 		gb.mmu.set(0xFF40, 0x91); // LCDC: on, BG on, tile data $8000
-		gb.mmu.io[0x46] = 0xFF;   // DMA reads $FF (Pan Docs; gbmicrotest poweron_dma_000), no transfer
+		// DMA reads $FF on a DMG (gbmicrotest poweron_dma_000), $00 on a CGB
+		// (Mooneye wilbertpol boot_hwio-C); no transfer.
+		gb.mmu.io[0x46] = model == CGB ? 0x00 : 0xFF;
 		// The boot ROM turned the LCD on long ago, and hands over in VBlank:
 		// a CGB at line 144 dot 164, a DMG at line 153 dot 396 (Gambatte
 		// setPostBiosState; display_startstate).
