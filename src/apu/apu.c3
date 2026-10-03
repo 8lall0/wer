@@ -77,6 +77,14 @@ struct Apu {
 	// counts as before it (envelope: SQ1, SQ2, NOI; sweep; Gambatte nr4Init).
 	int[3] env_grace;
 	int    sweep_grace;
+	// The 2 MHz clock as Gambatte derives it from the CPU's (PSG::
+	// generateSamples): CPU cycles, the last cycle counted, and the count,
+	// which DIV writes and power-on realign (PSG::divReset, PSG::reset).
+	ulong  gcc;
+	ulong  glu;
+	ulong  gspu;
+	int    clock_hold;
+	bool   clock_ds;      // the 2 MHz clock's view of double speed (it switches at its own time)
 	bool   cgb_e;        // CGB revision E (SameBoy's model), else C (Gambatte's test hardware)
 	bool   double_speed;
 	ushort div_counter;  // the timer's 16-bit counter, for power-on
@@ -120,6 +128,10 @@ fn void Apu.clear_state(&self) {
 	self.io = keep.io;
 	self.cgb = keep.cgb;
 	self.cgb_e = keep.cgb_e;
+	self.gcc = keep.gcc;
+	self.glu = keep.glu;
+	self.gspu = keep.gspu;
+	self.clock_ds = keep.clock_ds;
 	self.double_speed = keep.double_speed;
 	self.div_counter = keep.div_counter;
 	self.sample_acc = keep.sample_acc;
@@ -448,11 +460,68 @@ fn void Apu.run(&self, int cycles) {
 	if (start_ch4) self.write(0xFF23, self.io[NR44] | 0x80);
 }
 
+// M-cycles pass: the 2 MHz ticks they give.
+fn int Apu.clock(&self, int mcycles) {
+	if (self.clock_hold > 0) {
+		// Like the timer, the 2 MHz clock doesn't see the M-cycle before a
+		// switch back to normal speed (Gambatte counts the halt from the STOP).
+		self.clock_hold--;
+		return 0;
+	}
+	self.gcc += (ulong)mcycles * 4;
+	int shift = self.clock_ds ? 2 : 1;
+	ulong n = (self.gcc - self.glu) >> shift;
+	self.glu += n << shift;
+	self.gspu += n;
+	return (int)n;
+}
+
+// A DIV write realigns the count with the frame sequencer (PSG::divReset).
+fn void Apu.clock_div_reset(&self) {
+	ulong off = self.double_speed ? (self.glu & 1) : 0;
+	ulong cc = self.gspu + off;
+	self.gspu = (cc & ~(ulong)0xFFF) + 2 * (cc & 0x800) - off;
+}
+
+// Power-on (PSG::reset).
+fn void Apu.clock_power_on(&self) {
+	bool ds = self.double_speed;
+	ulong off = ds ? (self.glu & 1) : 0;
+	ulong cc = self.gspu + off;
+	ulong nds = ds ? 0 : 1;
+	self.gspu = (cc & 0xFFF) + 2 * (~(cc + 1 + nds) & 0x800);
+	self.glu = ((self.glu + 3) & ~(ulong)3) - nds;
+}
+
+// The clock changes speed (PSG::speedChange; at the STOP going back to normal
+// speed, 2 M-cycles on going to double): leaving double speed the last count
+// shifts a cycle, entering it the count is corrected.
+fn void Apu.clock_switch(&self, bool to_double) {
+	if (!to_double) {
+		self.glu--;
+	} else {
+		// Going to double speed the count drops half the ticks since the
+		// last DIV reset (the channels keep their timing).
+		ulong div_ticks = self.gspu & 0xFFF;
+		self.gspu -= div_ticks / 2 + self.glu % 2;
+	}
+	self.clock_ds = to_double;
+}
+
+// Gambatte's ticks from now to a square channel's first step after a start
+// (DutyUnit::nr4Change: cc - (cc - ref) % 2 + period + 4 - 2 * master).
+fn int Apu.duty_start_ticks(&self, int i, bool was_active) {
+	ulong ref = self.double_speed && (self.glu & 1) ? 0 : 1;
+	int par = (int)((self.gspu - ref) & 1);
+	return (2048 - self.sq[i].sample_length) * 2 + 4 - (was_active ? 2 : 0) - par;
+}
+
 // One M-cycle's worth (or more) of time: `t` T-cycles at the real-time rate,
 // with the DIV events that happened in it (see timer::TickResult).
 // `frozen`: the APU stands still for this time (the halt after a CGB speed
-// switch), only the output keeps going.
-fn void Apu.tick(&self, uint t, uint div_events, uint div_secondary = 0, bool div_write = false, bool frozen = false) {
+// switch), only the output keeps going. `ticks`: the 2 MHz ticks (Apu.clock),
+// else half of `t`.
+fn void Apu.tick(&self, uint t, uint div_events, uint div_secondary = 0, bool div_write = false, bool frozen = false, int ticks = -1) {
 	if (frozen) {
 		self.output(t);
 		return;
@@ -466,7 +535,7 @@ fn void Apu.tick(&self, uint t, uint div_events, uint div_secondary = 0, bool di
 	for (uint i = 0; i < div_events; i++) self.div_event();
 	for (uint i = 0; i < div_secondary; i++) self.div_secondary_event();
 
-	if (self.power) self.run((int)t / 2);
+	if (self.power) self.run(ticks >= 0 ? ticks : (int)t / 2);
 	self.output(t);
 	for (int i = 0; i < 3; i++) if (self.env_grace[i]) self.env_grace[i]--;
 	if (self.sweep_grace) self.sweep_grace--;

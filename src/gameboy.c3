@@ -118,6 +118,9 @@ fn GameBoy new(bool boot = true, mmu::Model model = DMG) {
 		// setPostBiosState: spu counter $24xx; sound/ch2_init_env_counter_timing_*).
 		if (model == DMG) gb.mmu.apu.div_divider = 1;
 		gb.mmu.apu.latch_duty(0);
+		// Gambatte's post-boot 2 MHz count (setPostBiosState): its low bits
+		// decide the APU clock phase (Apu.clock).
+		gb.mmu.apu.gspu = model == CGB ? 0x1F50 : 0x25E6;
 	}
 	return gb;
 }

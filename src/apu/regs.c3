@@ -60,6 +60,7 @@ fn void Apu.write(&self, ushort addr, char value) {
 			int[4] lengths = { self.sq[0].pulse_length, self.sq[1].pulse_length,
 			                   self.wave.pulse_length, self.noise.pulse_length };
 			if ((value & 0x80) && !self.power) {
+				self.clock_power_on();
 				self.reset_channels();
 				self.power = true;
 			} else if ((value & 0x80) == 0 && self.power) {
@@ -214,6 +215,7 @@ fn void Apu.write_nrx4(&self, int i, int reg, char value) {
 			}
 			s.delay = 6 - self.lf_div;
 			s.sample_countdown = (s.sample_length ^ 0x7FF) * 2 + s.delay;
+			if (self.cgb && !self.cgb_e) s.sample_countdown = self.duty_start_ticks(i, false) - 1;
 		} else {
 			int extra_delay = 0;
 			if (self.is_cgb_e()) {
@@ -225,20 +227,12 @@ fn void Apu.write_nrx4(&self, int i, int reg, char value) {
 				} else if (s.sample_length == 0x7FF && old_sample_length != 0x7FF && s.sample_surpressed) {
 					extra_delay += 2;
 				}
-			} else if (self.cgb) {
-				// CGB-C: only a duty step due on the very next tick has
-				// already happened for the restart (Gambatte DutyUnit::
-				// nr4Change updates the position up to the write;
-				// sound/ch1_init_pos_*, *_pos6_to_pos7_timing_*).
-				if (s.sample_countdown == 0) {
-					s.current_sample_index = (s.current_sample_index + 1) & 7;
-					self.latch_duty(i);
-					s.sample_surpressed = false;
-				}
 			}
 			// Restarting a playing channel starts 2 ticks earlier.
 			s.delay = 4 - self.lf_div + extra_delay;
 			s.sample_countdown = (s.sample_length ^ 0x7FF) * 2 + s.delay;
+			// CGB-C: Gambatte's timing on its own 2 MHz clock (Apu.clock).
+			if (self.cgb && !self.cgb_e) s.sample_countdown = self.duty_start_ticks(i, true) - 1;
 		}
 		char nrx2 = self.io[i * 5 + 2];
 		s.current_volume = nrx2 >> 4;

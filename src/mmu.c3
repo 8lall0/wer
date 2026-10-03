@@ -564,6 +564,7 @@ fn void Mmu.io_set(&self, ushort addr, char value) {
 				self.serial_left = r > 0 ? r : 1;
 			}
 			self.timer.write_div();
+			self.apu.clock_div_reset();
 		case TIMA_REG: self.timer.write_tima(value);
 		case TMA_REG:  self.timer.write_tma(value);
 		case TAC_REG:  self.timer.write_tac(value);
@@ -914,7 +915,8 @@ fn void Mmu.tick(&self, char mcycles) {
 	if (self.sgb && (pirq & ppu::INT_VBLANK)) self.sgb.capture_transfer(&self.ppu);
 	self.request_irq(pirq);
 
-	self.apu.tick(rt, tr.apu_steps, tr.apu_rises, tr.apu_div_write, false);
+	int apu_ticks = self.apu.clock(mcycles);
+	self.apu.tick(rt, tr.apu_steps, tr.apu_rises, tr.apu_div_write, false, apu_ticks);
 
 	if (self.cart && self.cart.has_rtc) self.cart.rtc.tick(rt);
 }
