@@ -373,11 +373,13 @@ fn char Ppu.ly_reg(&self) {
 
 // --- CPU access to VRAM, OAM and CGB palettes (Gambatte LCD::vramReadable &c) ---
 
-// The first 81 cycles after the LCD is switched on lock nothing.
-fn bool Ppu.inactive_after_enable(&self, int off) => self.cc + (ulong)off < self.lcd_on_cc + 80 * self.spd() + 1;
+// The first 81 cycles after the LCD is switched on lock nothing (not after
+// the boot ROM, which turned it on long ago: gbmicrotest poweron_*).
+fn bool Ppu.inactive_after_enable(&self, int off) => self.first_line && self.cc + (ulong)off < self.lcd_on_cc + 80 * self.spd() + 1;
 
-// The dot STAT starts reading mode 0 on this line.
-fn int Ppu.m0_stat_dot(&self) => self.pipe_end_dot - self.mode3_tail();
+// The dot STAT starts reading mode 0 on this line (not known before mode 3:
+// the end of the line then; after VBlank the last prediction is stale).
+fn int Ppu.m0_stat_dot(&self) => self.dot < MODE3_START_DOT ? DOTS_PER_LINE : self.pipe_end_dot - self.mode3_tail();
 
 fn bool Ppu.vram_read_locked(&self) {
 	if ((self.lcdc & LCDC_ENABLE) == 0 || self.line >= VBLANK_LINE) return false;

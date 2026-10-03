@@ -30,6 +30,7 @@ fn bool header_checksum_ok(char[] rom) {
 	return x == rom[0x14D];
 }
 
+int dmg_boot_dot = 396;
 fn GameBoy new(bool boot = true, mmu::Model model = DMG) {
 	GameBoy gb;
 	gb.mmu.model = model;
@@ -75,7 +76,7 @@ fn GameBoy new(bool boot = true, mmu::Model model = DMG) {
 		// setPostBiosState; display_startstate).
 		gb.mmu.ppu.first_line = false;
 		gb.mmu.ppu.line = model == CGB ? 144 : 153;
-		gb.mmu.ppu.dot = model == CGB ? 164 : 396;
+		gb.mmu.ppu.dot = model == CGB ? 164 : dmg_boot_dot;
 		gb.mmu.ppu.ly = model == CGB ? 144 : 0;
 		gb.mmu.ppu.mode = 1;
 		gb.mmu.ppu.stat = (gb.mmu.ppu.stat & 0xFC) | 1;
