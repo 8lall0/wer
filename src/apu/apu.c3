@@ -530,15 +530,16 @@ fn void Apu.tick(&self, uint t, uint div_events, uint div_secondary = 0, bool di
 		return;
 	}
 	if (self.pending_envelope_tick) self.delayed_envelope_tick();
-	// A CGB-C in double speed with Gambatte's clock a cycle off (odd last
+	// A CGB in double speed with Gambatte's clock a cycle off (odd last
 	// count: its speed switch and DIV reset corrections) steps the frame
-	// sequencer a tick, i.e. an M-cycle, after the DIV edge.
+	// sequencer a tick, i.e. an M-cycle, after the DIV edge (on a CGB-E too:
+	// AGE spsw-ch2-lc-delay).
 	uint d_steps = self.defer_steps;
 	uint d_rises = self.defer_rises;
 	bool d_write = self.defer_write;
 	self.defer_steps = self.defer_rises = 0;
 	self.defer_write = false;
-	if (self.cgb && !self.cgb_e && self.clock_ds && (self.glu & 1)) {
+	if (self.cgb && self.clock_ds && (self.glu & 1)) {
 		self.defer_steps = div_events;
 		self.defer_rises = div_secondary;
 		self.defer_write = div_write;

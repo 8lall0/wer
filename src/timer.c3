@@ -143,11 +143,14 @@ fn void Timer.write_tac(&self, char value) {
 	self.tac = data;
 }
 
-fn void Timer.write_div(&self) {
+// `e_switch`: the DIV reset of a CGB-E's speed switch, where the 65 and
+// 16 KHz timers' immediate increment comes an M-cycle later (AGE spsw-tima).
+fn void Timer.write_div(&self, bool e_switch = false) {
 	self.setup();
 	if (self.tac & 0x04) {
 		ulong nirq = self.next_irq;
 		ulong back = (1UL << (self.clock() - 1)) + 3;
+		if (e_switch && (self.tac & 3) >= 2) back -= 4;
 		self.last_update -= back;
 		if (nirq != NEVER) nirq -= back;
 		if (nirq != NEVER && self.cc >= nirq) self.irq_now = true;

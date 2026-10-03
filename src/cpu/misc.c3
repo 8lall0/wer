@@ -51,7 +51,7 @@ fn void Cpu.stop(&self, mmu::Mmu *mmu) {
 	// Tima::speedChange, TAC >= 5).
 	if (switching) mmu.timer.speed_change();
 	bool to_double = switching && !mmu.double_speed;
-	mmu.timer.write_div(); // side effect of STOP, not a CPU bus access
+	mmu.timer.write_div(switching && mmu.cgb_rev == E); // side effect of STOP, not a CPU bus access
 	mmu.apu.clock_div_reset();
 	if (!switching) return;
 	// Going back to normal speed the clock changes at once (Gambatte): the
