@@ -310,9 +310,9 @@ fn int Ppu.mode3_tail(&self) {
 	// double speed.
 	if (self.double_speed) t -= 1;
 	// The first line after LCD on starts drawing 5 dots early (6 on a CGB)
-	// while its mode 3 starts on time; it ends at dot 250 + SCX & 7
+	// while its mode 3 starts on time; it ends at dot 251 + SCX & 7
 	// (Gambatte enable_display/ly0_late_scx7*).
-	if (self.first_line) t -= self.cgb_hw ? 7 : 6;
+	if (self.first_line) t -= self.cgb_hw ? 8 : 7;
 	return t;
 }
 
