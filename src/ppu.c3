@@ -310,8 +310,9 @@ fn int Ppu.mode3_tail(&self) {
 	// double speed.
 	if (self.double_speed) t -= 1;
 	// The first line after LCD on starts drawing 5 dots early (6 on a CGB)
-	// while its mode 3 starts on time.
-	if (self.first_line) t -= self.cgb_hw ? 6 : 5;
+	// while its mode 3 starts on time; it ends at dot 250 + SCX & 7
+	// (Gambatte enable_display/ly0_late_scx7*).
+	if (self.first_line) t -= self.cgb_hw ? 7 : 6;
 	return t;
 }
 
@@ -450,10 +451,10 @@ fn void Ppu.write_render_reg(&self, char reg, char value) {
 		case 0x42: self.schedule(reg, value, dmg ? 6 : self.cgb_delay(1));
 		case 0x43:
 			int d = dmg ? 6 : self.cgb_delay(2);
-			// The first line after LCD on draws early: SCX reaches its
-			// fine-scroll discard sooner (Gambatte enable_display/ly0_late_scx7*).
-			if (self.first_line) d -= self.cgb_hw ? 6 : 5;
-			self.schedule(reg, value, d < 0 ? 0 : d);
+			// The first line after LCD on draws early: its fine-scroll discard
+			// sees SCX the dot it is written (Gambatte enable_display/ly0_late_scx7*).
+			if (self.first_line) d = 0;
+			self.schedule(reg, value, d);
 		case 0x4A:
 			// Gambatte: the line checks see the new WY 1 cycle later (2 on a
 			// CGB), the check at the WX match 2 (CGB: 6, 5 in double speed).
