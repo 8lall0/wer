@@ -531,6 +531,8 @@ fn void Mmu.dma_step(&self) {
 	if (self.cpu_halted) return;
 	if (self.dma.pending > 0 && --self.dma.pending == 0) {
 		self.dma.active = true;
+		self.ppu.oam_dma_from = self.ppu.cc;
+		self.ppu.oam_dma_until = ppu::NEVER;
 		self.dma.source = self.dma.pending_source;
 		self.dma.index = 0;
 		return;
@@ -542,7 +544,10 @@ fn void Mmu.dma_step(&self) {
 		self.dma.alter = false;
 	}
 	self.ppu.oam[self.dma.index] = b;
-	if (++self.dma.index == DMA_LEN) self.dma.active = false;
+	if (++self.dma.index == DMA_LEN) {
+		self.dma.active = false;
+		self.ppu.oam_dma_until = self.ppu.cc;
+	}
 }
 
 // The address the DMA copies from in this M-cycle, and the byte.

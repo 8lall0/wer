@@ -41,6 +41,10 @@ struct Ppu {
 	char[0x2000] vram;
 	char*        vram1;  // CGB: VRAM bank 1 (heap), null otherwise
 	char[0xA0]   oam;
+	// An OAM DMA owns OAM from oam_dma_from until oam_dma_until (Ppu.cc):
+	// meanwhile the object scan reads $FF (Gambatte startOamDma).
+	ulong        oam_dma_from;
+	ulong        oam_dma_until;
 	char[] fb;
 	// CGB mode: the picture as RGB555 colours (heap), and the switch between
 	// the DMG and CGB renderers (Mmu.cgb_mode's copy).
