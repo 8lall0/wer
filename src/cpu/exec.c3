@@ -48,6 +48,13 @@ fn char Cpu.step(&self, mmu::Mmu *mmu) {
 		mmu.vdma_hblank_step(self.halted);
 		self.no_prefetch = false;
 	}
+	if (mmu.gdma_due) {
+		if (!self.halted && !self.stopped && !self.prefetched) {
+			self.prefetch_op = self.bus_value(mmu, self.pc);
+			self.prefetched = true;
+		}
+		mmu.gdma_run();
+	}
 	if (mmu.vdma_stall > 0) {
 		int n = mmu.vdma_stall;
 		mmu.vdma_stall = 0;

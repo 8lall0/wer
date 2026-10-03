@@ -124,6 +124,7 @@ struct Mmu {
 	bool   hdma_hold;   // ... or about to be (a speed switch): no HBlank DMA requests
 	bool   hdma_refund; // the next HBlank DMA block stalls the CPU an M-cycle less
 	int    timer_hold;  // M-cycles the timer stands still (CGB speed switch, Cpu.stop)
+	bool   gdma_due;    // a general purpose VRAM DMA starts at the next instruction boundary
 	bool   hdma_due;    // an HBlank DMA block goes at the next instruction boundary (Cpu.step)
 	char   halt_hdma;   // HDMA state as HALT began: 0 low, 1 in HBlank, 2 a block was due, 3 the same at a speed switch (Gambatte)
 	int    vdma_stall;  // M-cycles the CPU is held off the bus (Cpu.step)
@@ -255,16 +256,9 @@ fn void Mmu.vdma_start(&self, char value) {
 	self.vdma_left = value & 0x7F;
 	if ((value & 0x80) == 0) {
 		// General purpose: everything now, the CPU waits for all of it.
-		// The destination running past $FFFF ends it (Gambatte Memory::dma).
+		// It starts at the next instruction boundary (Cpu.step: gdma_run).
 		self.vdma_ff55 = 0xFF;
-		for (int n = self.vdma_left; n >= 0; n--) {
-			self.vdma_block();
-			if (self.vdma_dst == 0) {
-				self.vdma_ff55 = 0x80 | (char)((n - 1) & 0x7F);
-				break;
-			}
-		}
-		self.vdma_stall += VDMA_OVERHEAD;
+		self.gdma_due = true;
 		return;
 	}
 	self.vdma_hblank = true;
@@ -288,6 +282,20 @@ fn void Mmu.hdma_halt(&self) {
 	self.halt_hdma = (self.vdma_hblank && self.hdma_period()) ? 1 : 0;
 	if (self.hdma_due) self.halt_hdma = 2;
 	self.hdma_due = false;
+}
+
+// A general purpose VRAM DMA: everything at once while the CPU waits. The
+// destination running past $FFFF ends it (Gambatte Memory::dma).
+fn void Mmu.gdma_run(&self) {
+	self.gdma_due = false;
+	for (int n = self.vdma_left; n >= 0; n--) {
+		self.vdma_block();
+		if (self.vdma_dst == 0) {
+			self.vdma_ff55 = 0x80 | (char)((n - 1) & 0x7F);
+			break;
+		}
+	}
+	self.vdma_stall += VDMA_OVERHEAD;
 }
 
 // A speed switch halts the CPU (Gambatte Memory::stop): going to double

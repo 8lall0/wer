@@ -352,6 +352,7 @@ cgb hex dma/hdma_transition_speedchange_ldaaimm_scx1_cgb04c_outFF.gbc
 cgb hex dma/hdma_transition_speedchange_ldaaimm_scx1_ds_cgb04c_out03.gbc
 cgb hex dma/hdma_vs_m0int_pc_scx1_1_cgb04c_out1033.gbc
 cgb hex dma/hdma_vs_m0int_pc_scx1_2_cgb04c_out1033.gbc
+cgb hex dma/late_gdma_pc_7ffe_1_cgb04c_out02.gbc
 cgb hex dma/late_gdma_pc_7ffe_2_cgb04c_out00.gbc
 dmg png dmgpalette_during_m3/dmgpalette_during_m3_1.gb
 dmg png dmgpalette_during_m3/dmgpalette_during_m3_2.gb
