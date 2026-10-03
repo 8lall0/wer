@@ -193,6 +193,7 @@ cgb hex dma/hdma_cycles_scx5_1_cgb04c_out3.gbc
 cgb hex dma/hdma_cycles_scx5_2_cgb04c_out0.gbc
 cgb hex dma/hdma_cycles_scx5_ds_1_cgb04c_out3.gbc
 cgb hex dma/hdma_cycles_scx5_ds_2_cgb04c_out0.gbc
+cgb hex dma/hdma_disable_display_1_cgb04c_out1.gbc
 cgb hex dma/hdma_disable_display_2_cgb04c_out0.gbc
 cgb hex dma/hdma_disabled_display_1_cgb04c_out1.gbc
 cgb hex dma/hdma_disabled_display_2_cgb04c_out0.gbc

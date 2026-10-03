@@ -566,6 +566,9 @@ fn void Mmu.io_set(&self, ushort addr, char value) {
 		case TAC_REG:  self.timer.write_tac(value);
 		case 0xFF40:
 			self.ppu.write_render_reg(0x40, value);
+			// Switching the LCD off with an HBlank DMA on requests a block
+			// (Gambatte Memory: LCDC write; dma/hdma_disable_display).
+			if (self.cgb_mode && self.vdma_hblank && (self.ppu.lcdc & ppu::LCDC_ENABLE) && !(value & ppu::LCDC_ENABLE)) self.hdma_due = true;
 			self.request_irq(self.ppu.write_lcdc(value));
 		case 0xFF41:   self.request_irq(self.ppu.write_stat(value));
 		case 0xFF42:   self.ppu.write_render_reg(0x42, value);
