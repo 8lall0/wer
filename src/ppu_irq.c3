@@ -114,6 +114,10 @@ fn LyCmp Ppu.lyc_cmp_ly(&self) {
 fn bool Ppu.lyc_flag(&self) {
 	if ((self.lcdc & LCDC_ENABLE) == 0) return (self.stat & STAT_LYC_FLAG) != 0;
 	LyCmp c = self.lyc_cmp_ly();
+	// Right before LY changes a CGB-C in normal speed compares nothing; a
+	// CGB-D/E keeps the old line's result (SameBoy GB_STAT_update; Mooneye
+	// wilbertpol ly_lyc*-C).
+	if (self.after_c() && !self.double_speed) return c.ly == (int)self.lyc;
 	return c.ly == (int)self.lyc && c.time_to_next > 2;
 }
 
