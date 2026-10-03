@@ -420,10 +420,33 @@ fn bool Ppu.oam_read_locked(&self) {
 	return !(self.line >= VBLANK_LINE || self.dot >= self.m0_stat_dot() + late);
 }
 
+fn char glitch_bits(char a, char b, char c) => ((a ^ c) & (b ^ c)) ^ c;
+
+// A write in that window: row 0 takes the written row (its first word
+// glitched) (SameBoy write_high_memory).
+fn void Ppu.oam_row0_glitch(&self, ushort addr) {
+	int row = addr & 0xF8;
+	int word = addr & 0xFE;
+	self.oam[0] = glitch_bits(self.oam[0], self.oam[row], self.oam[word]);
+	self.oam[1] = glitch_bits(self.oam[1], self.oam[row + 1], self.oam[word | 1]);
+	for (int i = 2; i < 8; i++) self.oam[i] = self.oam[row + i];
+}
+// DMG: for 2 dots, 4 before a visible line starts, OAM writes go through
+// while the PPU has OAM row 0 on its bus (SameBoy: accessed_oam_row 0; AGE
+// oam-write-dmgC).
+const int ROW0_WINDOW_DOT = DOTS_PER_LINE - 4;
+const int ROW0_WINDOW_DOTS = 2;
+fn bool Ppu.oam_row0_window(&self) {
+	if (self.cgb_hw || (self.lcdc & LCDC_ENABLE) == 0 || self.first_line) return false;
+	if (self.dot < ROW0_WINDOW_DOT || self.dot >= ROW0_WINDOW_DOT + ROW0_WINDOW_DOTS) return false;
+	return (self.line + 1) % TOTAL_LINES < VBLANK_LINE;
+}
+
 fn bool Ppu.oam_write_locked(&self) {
 	int ds = self.double_speed ? 1 : 0;
 	int cgb = self.cgb_hw ? 1 : 0;
 	if ((self.lcdc & LCDC_ENABLE) == 0 || self.inactive_after_enable(4 + ds)) return false;
+	if (self.oam_row0_window()) return false;
 	if (self.dot + 3 + cgb >= DOTS_PER_LINE) return !(self.line >= VBLANK_LINE - 1 && self.line < TOTAL_LINES - 1);
 	return !(self.line >= VBLANK_LINE || self.dot >= self.m0_stat_dot() || (self.dot == 76 && !self.cgb_hw));
 }

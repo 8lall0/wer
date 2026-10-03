@@ -33,13 +33,11 @@ const ushort[4] NCM_OBJ = { 0x7FFF, 0x421F, 0x1CF2, 0x0000 };
 //    early; the author's CGB-E was unstable after running them.
 //  - m3-bg-bgp (DMG): the BGP write glitch that Mealybug's DMG screenshots
 //    don't show (different DMG revisions).
-//  - oam-write (DMG): OAM write locking around mode 2.
 const String[*] KNOWN_FAIL = {
 	"cgb b speed-switch/caution/spsw-interrupts-cgbBC.gb",
 	"cgb c speed-switch/caution/spsw-interrupts-cgbBC.gb",
 	"cgb e speed-switch/caution/spsw-interrupts-cgbE.gb",
 	"dmg c m3-bg-bgp/m3-bg-bgp.gb",
-	"dmg c oam/oam-write-dmgC.gb",
 };
 
 struct Check {

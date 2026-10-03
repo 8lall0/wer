@@ -283,6 +283,7 @@ fn void Cpu.write(&self, mmu::Mmu* mmu, ushort addr, char value) {
 		mmu.dma_conflict_write(addr, value);
 	} else if (!mmu.ppu_blocks(addr, true)) {
 		mmu.set(addr, value);
+		if (addr >= 0xFE00 && addr < 0xFEA0 && mmu.ppu.oam_row0_window()) mmu.ppu.oam_row0_glitch(addr);
 	}
 	self.record(WRITE, addr, value);
 	if (io_trace && addr >= 0xFF00 && addr < 0xFF80) io::eprintfn("W %02X=%02X ly %d lc %d", addr & 0xFF, value, mmu.ppu.line, mmu.ppu.dot);
