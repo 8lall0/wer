@@ -121,6 +121,7 @@ fn void Cpu.halt(&self, mmu::Mmu *mmu) {
 	} else {
 		self.halted = true;
 		self.just_halted = true;
+		self.halt_dma_ran = false;
 		mmu.hdma_halt();
 	}
 }

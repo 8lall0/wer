@@ -73,7 +73,7 @@ fn char Cpu.step(&self, mmu::Mmu *mmu) {
 			mmu.cpu_halted = self.halted;
 			// The OAM DMA stands still in HALT, after one more M-cycle
 			// (Gambatte Memory::halt: updateOamDma(cc + 4)).
-			mmu.oam_dma_hold = self.halted && !first;
+			mmu.oam_dma_hold = self.halted && (!first || self.halt_dma_ran);
 			self.idle(mmu);
 			mmu.cpu_halted = false;
 			mmu.oam_dma_hold = false;

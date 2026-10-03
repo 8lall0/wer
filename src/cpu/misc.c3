@@ -73,7 +73,13 @@ fn void Cpu.stop(&self, mmu::Mmu *mmu) {
 		if (mmu.hdma_due) self.pc--;
 		mmu.hdma_stop(to_double);
 		mmu.hdma_hold = true;
-		for (int i = 0; i < SWITCH_PRE[to_double ? 0 : 1]; i++) self.idle(mmu); // reading that byte, ...
+		// The OAM DMA gets one more M-cycle, then stands still (Gambatte
+		// Memory::stop: updateOamDma(cc + 4)).
+		for (int i = 0; i < SWITCH_PRE[to_double ? 0 : 1]; i++) {
+			mmu.oam_dma_hold = i > 0;
+			self.idle(mmu); // reading that byte, ...
+		}
+		mmu.oam_dma_hold = false;
 		mmu.hdma_hold = false;
 	}
 	if (to_double) mmu.apu.clock_switch(true);
@@ -82,6 +88,7 @@ fn void Cpu.stop(&self, mmu::Mmu *mmu) {
 	if (!pending) {
 		self.halted = true;
 		self.just_halted = true;
+		self.halt_dma_ran = true; // (no extra OAM DMA cycle here)
 		self.speed_switch_halt = SWITCH_HALT[to_double ? 0 : 1];
 	}
 }
