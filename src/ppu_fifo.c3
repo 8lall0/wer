@@ -138,8 +138,15 @@ fn void Ppu.oam_scan(&self, int i) {
 	bool dma = self.oam_dma_hides();
 	// An entry read before the DMA started has the old contents.
 	char* oam = self.oam_read_before_dma() ? &self.oam_pre_dma : &self.oam;
-	char y = dma ? 0xFF : oam[i * 4];
-	char x = dma ? 0xFF : oam[i * 4 + 1];
+	// While the DMA has OAM the scan reads nothing new: it checks this entry
+	// with the Y and X last on its bus (SameBoy add_object_from_index;
+	// strikethrough, Gambatte oamdma/late_sp39y).
+	if (!dma) {
+		self.scan_y_bus = oam[i * 4];
+		self.scan_x_bus = oam[i * 4 + 1];
+	}
+	char y = self.scan_y_bus;
+	char x = self.scan_x_bus;
 	int top = (int)y - 16;
 	r.scan_tall_only = 0;
 	if (self.line < top || self.line >= top + height) {
@@ -288,6 +295,17 @@ fn void Ppu.render_dot(&self) {
 			char i = r.obj_index[r.n_obj - 1];
 			r.obj_tile = self.oam[i * 4 + 2];
 			r.obj_flags = self.oam[i * 4 + 3];
+			// While an OAM DMA writes OAM the PPU reads the bytes at the DMA's
+			// address instead (SameBoy oam_read; strikethrough).
+			if (self.oam_dma_hides()) {
+				long d = (long)((self.cc - self.oam_dma_from) / (4 * (ulong)self.spd())) + 1;
+				if (d >= 0 && d < 160) {
+					r.obj_tile = self.oam[d & ~1];
+					r.obj_flags = self.oam[(d & ~1) | 1];
+				}
+			}
+			// The tile number goes over the bus the OAM scan latches Y from.
+			self.scan_y_bus = r.obj_tile;
 			r.obj_step = OAM_IDLE;
 		case OAM_IDLE:
 			r.obj_step = LOW;

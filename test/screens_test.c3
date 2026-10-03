@@ -24,11 +24,9 @@ const char[4] DMG_SHADE = { 0xFF, 0xAA, 0x55, 0x00 };
 const ushort[4] NCM_BG = { 0x7FFF, 0x1BEF, 0x6180, 0x0000 };
 const ushort[4] NCM_OBJ = { 0x7FFF, 0x421F, 0x1CF2, 0x0000 };
 
-// Failing: strikethrough draws a sprite from what the OAM scan reads while
-// an OAM DMA writes OAM (neither Gambatte's nor SameBoy's model gives it).
+// Expected to pass but failing (none at the moment).
 const String[*] KNOWN_FAIL = {
-	"dmg strikethrough/strikethrough.gb",
-	"cgb strikethrough/strikethrough.gb",
+	"",
 };
 
 struct Check {

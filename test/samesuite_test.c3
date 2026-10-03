@@ -15,8 +15,8 @@ import std::core::test;
 // passes. Names ending in revisions (-cgb0B, -cgbDE, -A, ...) target that
 // hardware; they run on the first revision named (see revision_of). The APU follows SameBoy's
 // CGB-E model; channel_1_sweep, _sweep_restart and channel_1/2 _stop_div and
-// _volume_div give the same results as SameBoy 1.0.3 there, not the expected
-// ones.
+// _volume_div give the same results as SameBoy (1.0.3 and its current core),
+// not the expected ones.
 //
 // Entries marked `true` must keep passing; the others are reported only.
 //   c3c test && ./build/testrun --test-nocapture --test-filter samesuite

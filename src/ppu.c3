@@ -114,6 +114,8 @@ struct Ppu {
 	int      n_writes;
 	ulong    lcd_on_cc;     // when the LCD was last switched on
 	bool     hide_frame;    // the frame since the LCD went on isn't shown
+	char     scan_y_bus;    // the OAM scan's last Y and X read (kept while a DMA has OAM)
+	char     scan_x_bus;
 	ulong    cc;            // Gambatte's cycle count: +1 per dot, +2 in double speed (ppu_irq.c3)
 	StatIrq  si;
 }
