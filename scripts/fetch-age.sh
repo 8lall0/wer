@@ -9,8 +9,8 @@
 # verified on: dmgC (DMG-CPU C), cgbBCE (CPU CGB B, C and E), cgbBC, cgbE,
 # and ncm... for a CGB running a DMG game (non-CGB mode). Visual tests come
 # with a screenshot per device instead (<rom>-cgbBCE.png, ...).
-# test/age/index.txt gets one line per check, for wer's DMG, CGB-C and CGB-E:
-#   <dmg|cgb> <c|e> <regs|shot> <rom> <.rgb file or -> <pass|fail> <tag>
+# test/age/index.txt gets one line per check, for a DMG and a CGB-B, C, E:
+#   <dmg|cgb> <b|c|e> <regs|shot> <rom> <.rgb file or -> <pass|fail> <tag>
 # `pass`: that revision is in the name; `fail`: verified to differ there.
 # Every reference PNG gets a .rgb twin (160x144, 3 bytes per pixel).
 set -euo pipefail
@@ -76,8 +76,8 @@ def checks(tag, kind, rom, ref):
     hw, revs = m.group(1), m.group(2)
     if hw == "dmg":
         return [f"dmg c {kind} {rom} {ref} pass {tag}"]
-    # wer's CGB is a C or an E; B results count as C ones where both are listed.
-    return [f"cgb {r} {kind} {rom} {ref} {'pass' if r.upper() in revs else 'fail'} {tag}" for r in "ce"]
+    # The CGB revisions AGE was verified on: B, C and E.
+    return [f"cgb {r} {kind} {rom} {ref} {'pass' if r.upper() in revs else 'fail'} {tag}" for r in "bce"]
 
 lines = []
 for d, _, files in sorted(os.walk(root)):

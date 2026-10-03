@@ -7,8 +7,8 @@ import std::core::test;
 // AGE test ROMs (https://github.com/c-sp/age-test-roms): PPU, HALT, speed
 // switch and timer edge cases, each verified on named hardware revisions
 // (DMG-CPU C; CPU CGB B, C and E; "ncm" = a CGB running a DMG game). wer
-// runs every CGB test as a CGB-C and as a CGB-E (mmu::CgbRevision): it has
-// to pass on the revisions in its name; on the others the hardware gives
+// runs every CGB test as a CGB-B, C and E (mmu::CgbRevision): it has to
+// pass on the revisions in its name; on the others the hardware gives
 // other results, so passing there means the two revisions don't differ
 // where they should (reported, not an error).
 // Numerical tests stop at LD B,B with B C D E H L = 3 5 8 13 21 34 on
@@ -35,6 +35,7 @@ const ushort[4] NCM_OBJ = { 0x7FFF, 0x421F, 0x1CF2, 0x0000 };
 //    don't show (different DMG revisions).
 //  - oam-write (DMG): OAM write locking around mode 2.
 const String[*] KNOWN_FAIL = {
+	"cgb b speed-switch/caution/spsw-interrupts-cgbBC.gb",
 	"cgb c speed-switch/caution/spsw-interrupts-cgbBC.gb",
 	"cgb e speed-switch/caution/spsw-interrupts-cgbE.gb",
 	"dmg c m3-bg-bgp/m3-bg-bgp.gb",
@@ -43,7 +44,7 @@ const String[*] KNOWN_FAIL = {
 
 struct Check {
 	bool   cgb;
-	bool   e;
+	char   rev;  // 'b', 'c' or 'e'
 	bool   shot;
 	String rom;
 	String ref;
@@ -60,7 +61,7 @@ fn void Check.run(&self) {
 	}
 	gameboy::GameBoy gb = gameboy::new(false, self.cgb ? mmu::Model.CGB : mmu::Model.DMG);
 	defer gb.destroy();
-	gb.set_cgb_revision(self.e ? mmu::CgbRevision.E : mmu::CgbRevision.C);
+	gb.set_cgb_revision(self.rev == 'e' ? mmu::CgbRevision.E : self.rev == 'b' ? mmu::CgbRevision.B : mmu::CgbRevision.C);
 	gb.load_rom(data);
 	if (gb.mmu.cart) gb.mmu.cart.has_battery = false;
 	if (self.cgb && !gb.mmu.cgb_mode) {
@@ -101,7 +102,7 @@ fn void Check.run(&self) {
 	self.passed = rgb[:PIXELS * 3] == ref[:PIXELS * 3];
 }
 
-fn String Check.id(&self) => string::tformat("%s %s %s", self.cgb ? "cgb" : "dmg", self.e ? "e" : "c", self.rom);
+fn String Check.id(&self) => string::tformat("%s %c %s", self.cgb ? "cgb" : "dmg", self.rev, self.rom);
 
 fn void run_job(void* ctx, usz i) {
 	((Check*)ctx)[i].run();
@@ -121,7 +122,7 @@ fn void run_all() @test
 		if (f.len < 6) continue;
 		list.push({
 			.cgb = f[0] == "cgb",
-			.e = f[1] == "e",
+			.rev = f[1][0],
 			.shot = f[2] == "shot",
 			.rom = f[3],
 			.ref = f[4],

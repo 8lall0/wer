@@ -41,7 +41,7 @@ the common hardware test suites check; results below.
 | Blargg `oam_bug` | 7/8 (`7-timing_effect` writes past its own text buffer, on SameBoy too) |
 | [SameSuite](https://github.com/LIJI32/SameSuite) | 65/78 (the rest target specific CGB revisions, or give SameBoy's results) |
 | [Gambatte test suite](https://github.com/pokemon-speedrunning/gambatte-core) | 5204/5225 (99.6%) |
-| [AGE test ROMs](https://github.com/c-sp/age-test-roms) | 80/84 on the revisions each test names (DMG, CGB-C, CGB-E) |
+| [AGE test ROMs](https://github.com/c-sp/age-test-roms) | 114/119 on the revisions each test names (DMG, CGB-B, C, E) |
 | [rtc3test](https://github.com/aaaaaa123456789/rtc3test), [MBC3 Tester](https://github.com/EricKirschenmann/MBC3-Tester-gb) | pass |
 | [SingleStepTests sm83](https://github.com/SingleStepTests/sm83) | every case, including bus timing |
 
