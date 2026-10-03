@@ -88,7 +88,7 @@ struct Apu {
 	uint   defer_rises;
 	bool   defer_write;
 	bool   clock_ds;      // the 2 MHz clock's view of double speed (it switches at its own time)
-	bool   cgb_e;        // CGB revision E (SameBoy's model), else C (Gambatte's test hardware)
+	char   rev;          // CGB revision (REV_*, mmu::CgbRevision's ordinal)
 	bool   double_speed;
 	ushort div_counter;  // the timer's 16-bit counter, for power-on
 
@@ -120,8 +120,17 @@ fn void Apu.set_ring(&self, short[] buf) {
 
 fn bool Apu.dmg(&self) => !self.cgb;
 // SameBoy's model <= CGB_C: a DMG, or a CGB-C.
-fn bool Apu.le_c(&self) => !self.cgb || !self.cgb_e;
-fn bool Apu.is_cgb_e(&self) => self.cgb && self.cgb_e;
+// CGB revisions (mmu::CgbRevision's ordinals).
+const char REV_0 = 0;
+const char REV_A = 1;
+const char REV_B = 2;
+const char REV_C = 3;
+const char REV_D = 4;
+const char REV_E = 5;
+
+// SameBoy's `model <= GB_MODEL_CGB_C` (a DMG counts) and `> CGB_C` (D, E).
+fn bool Apu.le_c(&self) => !self.cgb || self.rev <= REV_C;
+fn bool Apu.after_c(&self) => self.cgb && self.rev > REV_C;
 
 // Clears the channel state like a power cycle does (not the registers).
 fn void Apu.clear_state(&self) {
@@ -130,7 +139,7 @@ fn void Apu.clear_state(&self) {
 	self.power = keep.power;
 	self.io = keep.io;
 	self.cgb = keep.cgb;
-	self.cgb_e = keep.cgb_e;
+	self.rev = keep.rev;
 	self.gcc = keep.gcc;
 	self.glu = keep.glu;
 	self.gspu = keep.gspu;
@@ -286,7 +295,7 @@ fn void Apu.div_event(&self) {
 		if (!self.noise.env.clock && !self.env_grace[2]) self.noise.volume_countdown = (self.noise.volume_countdown - 1) & 7;
 	}
 
-	if (self.double_speed && self.is_cgb_e()) {
+	if (self.double_speed && self.after_c()) {
 		self.pending_envelope_tick = true;
 	} else {
 		for (int i = 0; i < 2; i++) {

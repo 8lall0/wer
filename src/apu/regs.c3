@@ -187,7 +187,7 @@ fn void Apu.write_nrx4(&self, int i, int reg, char value) {
 	// A frequency change from >= $700 to < $700 right before a step: the
 	// countdown should use the old length but the sample must not change.
 	if ((value & 0x80) == 0 && self.active[i] && (old_nrx4 & 7) == 7 && (value & 7) != 7) {
-		if (self.is_cgb_e() || (s.sample_countdown & 1)) {
+		if (self.after_c() || (s.sample_countdown & 1)) {
 			if (s.did_tick && s.sample_countdown >> 1 == (s.sample_length ^ 0x7FF)) {
 				s.current_sample_index = (s.current_sample_index - 1) & 7;
 				s.sample_surpressed = false;
@@ -206,7 +206,7 @@ fn void Apu.write_nrx4(&self, int i, int reg, char value) {
 		s.did_tick = false;
 		bool force_unsurpressed = false;
 		if (!self.active[i]) {
-			if (self.is_cgb_e()) {
+			if (self.after_c()) {
 				if ((value & 4) == 0 && (((s.sample_countdown - s.delay) / 2) & 0x400) == 0) {
 					s.current_sample_index = (s.current_sample_index + 1) & 7;
 					self.latch_duty(i);
@@ -215,10 +215,10 @@ fn void Apu.write_nrx4(&self, int i, int reg, char value) {
 			}
 			s.delay = 6 - self.lf_div;
 			s.sample_countdown = (s.sample_length ^ 0x7FF) * 2 + s.delay;
-			if (self.cgb && !self.cgb_e) s.sample_countdown = self.duty_start_ticks(i, false) - 1;
+			if (self.cgb && self.rev <= REV_C) s.sample_countdown = self.duty_start_ticks(i, false) - 1;
 		} else {
 			int extra_delay = 0;
-			if (self.is_cgb_e()) {
+			if (self.after_c()) {
 				// SameBoy (CGB-E): the duty steps on a restart almost always.
 				if (!s.just_reloaded && (value & 4) == 0 && (((s.sample_countdown - 1 - s.delay) / 2) & 0x400) == 0) {
 					s.current_sample_index = (s.current_sample_index + 1) & 7;
@@ -232,7 +232,7 @@ fn void Apu.write_nrx4(&self, int i, int reg, char value) {
 			s.delay = 4 - self.lf_div + extra_delay;
 			s.sample_countdown = (s.sample_length ^ 0x7FF) * 2 + s.delay;
 			// CGB-C: Gambatte's timing on its own 2 MHz clock (Apu.clock).
-			if (self.cgb && !self.cgb_e) s.sample_countdown = self.duty_start_ticks(i, true) - 1;
+			if (self.cgb && self.rev <= REV_C) s.sample_countdown = self.duty_start_ticks(i, true) - 1;
 		}
 		char nrx2 = self.io[i * 5 + 2];
 		s.current_volume = nrx2 >> 4;
@@ -353,7 +353,7 @@ fn void Apu.prepare_noise_start(&self) {
 	bool instant_step = false;
 	bool div_1_glitch = false;
 	// SameBoy's quirks of a CGB-C in double speed.
-	bool c_ds = self.cgb && !self.cgb_e && self.double_speed;
+	bool c_ds = self.cgb && self.rev <= REV_C && self.double_speed;
 
 	if (divisor > 1 && n.counter_countdown == 1) {
 		n.counter = (n.counter + 1) & 0x3FFF;
@@ -427,7 +427,7 @@ fn void Apu.write_nr43_reg(&self, char value) {
 	if (n.countdown_reloaded) {
 		int divisor = (value & 0x07) << 2;
 		if (!divisor) divisor = 2;
-		int[4] adj = self.is_cgb_e() ? { 2, 1, 0, 3 } : { 2, 1, 4, 3 };
+		int[4] adj = self.after_c() ? { 2, 1, 0, 3 } : { 2, 1, 4, 3 };
 		n.counter_countdown = divisor + (divisor == 2 ? 0 : adj[n.alignment & 3]);
 	}
 	if (self.le_c()) {

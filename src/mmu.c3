@@ -32,11 +32,16 @@ enum Model : char {
 	CGB,
 }
 
-// A CGB's chip revision, where the revisions behave differently: C (CPU CGB
-// C, the default: Gambatte's and Mealybug's results come from one) or E (CPU
-// CGB E, the last one: SameSuite's, and AGE's -cgbE tests).
+// A CGB's chip revision (CPU CGB 0, A, B, C, D, E), where they behave
+// differently (SameBoy's model checks, AGE, SameSuite, Mealybug). C is the
+// default: Gambatte's and Mealybug's results come from one. The PPU and APU
+// keep the ordinal (ppu::REV_*, apu::REV_*).
 enum CgbRevision : char {
+	CGB0,
+	A,
+	B,
 	C,
+	D,
 	E,
 }
 

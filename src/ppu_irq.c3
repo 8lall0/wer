@@ -352,19 +352,20 @@ fn char Ppu.write_lyc(&self, char value) {
 fn char Ppu.ly_reg(&self) {
 	if ((self.lcdc & LCDC_ENABLE) == 0) return self.ly;
 	// Line 153 reads 0 at once (in double speed from its second cycle).
-	// A CGB-E reads 153 for its first dot in normal speed too (AGE ly-cgbE).
+	// A CGB-D/E reads 153 for its first dot in normal speed too (AGE ly-cgbE;
+	// SameBoy: model > CGB_C).
 	if (self.line == TOTAL_LINES - 1) {
-		return (self.double_speed || self.cgb_e) && self.dot == 0 ? (char)(TOTAL_LINES - 1) : 0;
+		return (self.double_speed || self.after_c()) && self.dot == 0 ? (char)(TOTAL_LINES - 1) : 0;
 	}
 	long ttn = (long)(DOTS_PER_LINE - self.dot) * (long)self.spd();
 	long edge = self.double_speed ? 10 : 6;
-	// A CGB-E's LY & (LY + 1) glitch comes a dot later in normal speed (AGE
+	// A CGB-D/E's LY & (LY + 1) glitch comes a dot later in normal speed (AGE
 	// lcd-align-ly-cgbE).
-	if (self.cgb_e && !self.double_speed) edge = 5;
+	if (self.after_c() && !self.double_speed) edge = 5;
 	char ly = (char)self.line;
-	// A CGB-C in normal speed glitches for 2 dots, a dot longer than in
+	// A CGB up to C in normal speed glitches for 2 dots, a dot longer than in
 	// Gambatte (AGE lcd-align-ly-cgbBC).
-	bool c_wide = self.cgb_hw && !self.cgb_e && !self.double_speed && ttn == 5;
+	bool c_wide = self.cgb_hw && !self.after_c() && !self.double_speed && ttn == 5;
 	if (ttn == edge || c_wide) return ly & (ly + 1);
 	if (ttn < edge) return ly + 1;
 	return ly;
@@ -401,15 +402,15 @@ fn bool Ppu.palette_locked(&self) {
 	return self.dot + ds >= 80 && self.dot < self.m0_stat_dot() + (self.double_speed ? 2 : 4);
 }
 
-// A CGB-E's OAM read lock (AGE oam-read-cgbE): in normal speed it lasts a
+// A CGB-D/E's OAM read lock (AGE oam-read-cgbE; SameBoy: model >= CGB_D): in normal speed it lasts a
 // dot past mode 3, in double speed it starts a dot earlier before mode 2
 // (1 or 2 dots both fit the test).
 fn bool Ppu.oam_read_locked(&self) {
 	int ds = self.double_speed ? 1 : 0;
 	if ((self.lcdc & LCDC_ENABLE) == 0 || self.inactive_after_enable(4)) return false;
-	int early = self.cgb_e && self.double_speed ? 1 : 0;
+	int early = self.after_c() && self.double_speed ? 1 : 0;
 	if (self.dot + 4 - ds + early >= DOTS_PER_LINE) return !(self.line >= VBLANK_LINE - 1 && self.line < TOTAL_LINES - 1);
-	int late = self.cgb_e && !self.double_speed ? 1 : 0;
+	int late = self.after_c() && !self.double_speed ? 1 : 0;
 	return !(self.line >= VBLANK_LINE || self.dot >= self.m0_stat_dot() + late);
 }
 

@@ -39,6 +39,7 @@ fn GameBoy new(bool boot = true, mmu::Model model = DMG) {
 	gb.mmu.apu.clock_hz = model.clock_hz();
 	gb.mmu.apu.cgb = model == CGB;
 	gb.mmu.ppu.cgb_hw = model == CGB;
+	gb.set_cgb_revision(C);
 	gb.mmu.ppu.sgb_hw = model.is_sgb();
 	gb.mmu.apu.set_ring(mem::new_array(short, 16384));
 	if (model == CGB) {
@@ -127,10 +128,9 @@ fn GameBoy new(bool boot = true, mmu::Model model = DMG) {
 
 // Which CGB chip revision to emulate (C unless set).
 fn void GameBoy.set_cgb_revision(&self, mmu::CgbRevision rev) {
-	bool e = rev == E;
 	self.mmu.cgb_rev = rev;
-	self.mmu.apu.cgb_e = e;
-	self.mmu.ppu.cgb_e = e;
+	self.mmu.apu.rev = (char)rev.ordinal;
+	self.mmu.ppu.rev = (char)rev.ordinal;
 }
 
 fn void GameBoy.destroy(&self) {

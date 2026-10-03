@@ -74,13 +74,15 @@ fn gameboy::Cartridge? load_game(gameboy::GameBoy* gb, String path, bool boot, M
 	return cart;
 }
 
+const String[6] REV_LETTERS = { "0", "A", "B", "C", "D", "E" };
+
 fn String window_title(gameboy::Cartridge* cart, gameboy::GameBoy* gb) {
 	String tag;
 	switch (gb.mmu.model) {
 		case DMG:  tag = "";
 		case SGB:  tag = " [SGB]";
 		case SGB2: tag = " [SGB2]";
-		case CGB:  tag = gb.mmu.cgb_rev == E ? " [CGB-E]" : " [CGB]";
+		case CGB:  tag = gb.mmu.cgb_rev == C ? " [CGB]" : string::tformat(" [CGB-%s]", REV_LETTERS[gb.mmu.cgb_rev.ordinal]);
 	}
 	return string::tformat("wer - %s%s", (ZString)&cart.title[0], tag);
 }
@@ -124,24 +126,36 @@ enum Mode : char {
 	DMG,
 	SGB,
 	SGB2,
-	CGB,    // CPU CGB C
-	CGB_E,  // CPU CGB E
+	CGB_0,  // CPU CGB 0 ... E: the CGB's chip revisions
+	CGB_A,
+	CGB_B,
+	CGB,    // CPU CGB C, the default CGB
+	CGB_D,
+	CGB_E,
 }
 
-const String[5] MODE_NAMES = { "dmg", "sgb", "sgb2", "cgb", "cgb-e" };
-const String[5] MODE_LABELS = { "DMG", "SGB", "SGB2", "CGB (C)", "CGB (E)" };
+const String[9] MODE_NAMES = { "dmg", "sgb", "sgb2", "cgb-0", "cgb-a", "cgb-b", "cgb", "cgb-d", "cgb-e" };
+const String[9] MODE_LABELS = { "DMG", "SGB", "SGB2", "CGB (0)", "CGB (A)", "CGB (B)", "CGB (C)", "CGB (D)", "CGB (E)" };
 
 fn mmu::Model Mode.model(self) {
 	switch (self) {
 		case DMG:   return mmu::Model.DMG;
 		case SGB:   return mmu::Model.SGB;
 		case SGB2:  return mmu::Model.SGB2;
-		case CGB:
-		case CGB_E: return mmu::Model.CGB;
+		default:    return mmu::Model.CGB;
 	}
 }
 
-fn mmu::CgbRevision Mode.revision(self) => self == CGB_E ? mmu::CgbRevision.E : mmu::CgbRevision.C;
+fn mmu::CgbRevision Mode.revision(self) {
+	switch (self) {
+		case CGB_0: return mmu::CgbRevision.CGB0;
+		case CGB_A: return mmu::CgbRevision.A;
+		case CGB_B: return mmu::CgbRevision.B;
+		case CGB_D: return mmu::CgbRevision.D;
+		case CGB_E: return mmu::CgbRevision.E;
+		default:    return mmu::CgbRevision.C;
+	}
+}
 
 // The mode after `m` (dir = +1 / -1).
 fn Mode cycle_mode(Mode m, int dir) {
@@ -268,7 +282,7 @@ fn int main(String[] args)
 				if (try m = mode_from(a[7..])) {
 					mode = m;
 				} else {
-					io::eprintfn("unknown mode '%s': use dmg, sgb, sgb2, cgb (= cgb-c) or cgb-e", a[7..]);
+					io::eprintfn("unknown mode '%s': use dmg, sgb, sgb2, cgb (= cgb-c), cgb-0, cgb-a, cgb-b, cgb-d or cgb-e", a[7..]);
 					return 1;
 				}
 			default: rom = a;

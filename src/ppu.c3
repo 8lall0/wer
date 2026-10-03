@@ -36,6 +36,14 @@ const int LCDON_START_DOT = 0;
 const char INT_VBLANK = 0x01;
 const char INT_STAT   = 0x02;
 
+// CGB revisions (mmu::CgbRevision's ordinals).
+const char REV_0 = 0;
+const char REV_A = 1;
+const char REV_B = 2;
+const char REV_C = 3;
+const char REV_D = 4;
+const char REV_E = 5;
+
 struct Ppu {
 	int  irq_dot;        // tick(): the dot of the call that raised the first IRQ, or -1
 	char[0x2000] vram;
@@ -55,7 +63,7 @@ struct Ppu {
 	bool     cgb;
 	bool     compat;  // CGB running a DMG game: DMG renderer, colours from palette RAM
 	bool     cgb_hw;  // CGB hardware, in either mode (timing differences)
-	bool     cgb_e;   // ... a CPU CGB E (mmu::CgbRevision)
+	char     rev;     // ... its revision (REV_*, mmu::CgbRevision's ordinal)
 
 	char lcdc;
 	char stat;
@@ -161,6 +169,9 @@ fn void pal_advance(char* spec) {
 // White to black in RGB555: BG palette 0 and OBJ palettes 0 and 1 for a DMG
 // game on a CGB started without the boot ROM.
 const ushort[4] GREYS = { 0x7FFF, 0x56B5, 0x294A, 0x0000 };
+
+// A CGB-D or E (SameBoy: model > CGB_C), where many timings changed.
+fn bool Ppu.after_c(&self) => self.cgb_hw && self.rev > REV_C;
 
 fn void set_grey_palettes(Ppu* p) {
 	for (int i = 0; i < 4; i++) {
@@ -374,9 +385,9 @@ fn char Ppu.update_mode(&self) {
 
 	char want;
 	int vblank_end = VBLANK_END_DOT + (self.double_speed ? 1 : 0);
-	// A CGB-E has no mode-0 M-cycle between VBlank and line 0's mode 2
-	// (AGE stat-mode-cgbE).
-	if (self.cgb_e) vblank_end = MODE2_START_DOT;
+	// A CGB-D/E has no mode-0 M-cycle between VBlank and line 0's mode 2
+	// (AGE stat-mode-cgbE; SameBoy: model > CGB_C).
+	if (self.after_c()) vblank_end = MODE2_START_DOT;
 	if ((self.line >= VBLANK_LINE && self.line < TOTAL_LINES - 1)
 		|| (self.line == VBLANK_LINE - 1 && self.dot >= VBLANK_START_DOT)
 		|| (self.line == TOTAL_LINES - 1 && self.dot < vblank_end)) {
@@ -472,8 +483,9 @@ fn void Ppu.write_render_reg(&self, char reg, char value) {
 		case 0x49:
 			// DMG: for one dot the palette reads as old | new.
 			if (dmg && !self.sgb_hw) self.schedule(reg, old | value, 6);
-			// A CGB-E's renderer sees them a dot sooner (AGE m3-bg-bgp-ncmE).
-			self.schedule(reg, value, self.cgb_e ? 6 : 7);
+			// A CGB-D/E's renderer sees them a dot sooner (AGE m3-bg-bgp-ncmE;
+			// SameBoy GB_CONFLICT_PALETTE_CGB, model >= CGB_D).
+			self.schedule(reg, value, self.after_c() ? 6 : 7);
 		case 0x40:
 			if (dmg && !self.sgb_hw) {
 				self.queue({ .reg = LCDC_DMG, .value = value, .old = old, .delay = 6 });

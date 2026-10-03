@@ -143,7 +143,7 @@ fn void Timer.write_tac(&self, char value) {
 	self.tac = data;
 }
 
-// `e_switch`: the DIV reset of a CGB-E's speed switch, where the 65 and
+// `e_switch`: the DIV reset of a CGB-D/E's speed switch, where the 65 and
 // 16 KHz timers' immediate increment comes an M-cycle later (AGE spsw-tima).
 fn void Timer.write_div(&self, bool e_switch = false) {
 	self.setup();
