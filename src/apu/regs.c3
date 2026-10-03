@@ -220,7 +220,8 @@ fn void Apu.write_nrx4(&self, int i, int reg, char value) {
 					force_unsurpressed = true;
 				}
 			}
-			s.delay = 6 - self.lf_div;
+			// SameBoy: before a CGB-D, double speed adds the 1 MHz phase instead.
+			s.delay = 6 + self.lf_div * (self.cgb && self.rev < REV_D && self.double_speed ? 1 : -1);
 			s.sample_countdown = (s.sample_length ^ 0x7FF) * 2 + s.delay;
 			if (self.cgb && self.rev == REV_C) s.sample_countdown = self.duty_start_ticks(i, false) - 1;
 		} else {
