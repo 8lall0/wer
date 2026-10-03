@@ -42,8 +42,10 @@ fn bool Cpu.service_interrupt(&self, mmu::Mmu *mmu) {
 		self.halt_first_ran = false;
 		self.speed_switch_halt = 0;
 		if (!seen_early) self.idle(mmu);
-		// Gambatte decides on an HBlank DMA block after that cycle.
+		// Gambatte decides on an HBlank DMA block after that cycle; such a
+		// block goes before the next opcode is read.
 		mmu.hdma_unhalt();
+		self.no_prefetch = mmu.hdma_due;
 		// An HBlank DMA that came due meanwhile goes before the dispatch.
 		if (mmu.hdma_due) return true;
 		if (!self.ime) return !seen_early;
@@ -53,6 +55,7 @@ fn bool Cpu.service_interrupt(&self, mmu::Mmu *mmu) {
 	if (!self.ime) return false;
 
 	if (io_trace) io::eprintfn("INT if %02X ly %d lc %d", pending, mmu.ppu.line, mmu.ppu.dot);
+	self.prefetched = false; // a dispatch undoes the prefetch
 	self.ime = false;
 	self.ime_delay = 0;  // a pending EI must not re-enable IME inside the handler
 	// EI; HALT with an interrupt already pending: HALT hits the HALT bug (IME

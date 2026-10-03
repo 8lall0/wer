@@ -120,6 +120,9 @@ struct Cpu {
 	// HALT bug: the next opcode fetch must not advance PC (it is read twice).
 	bool halt_bug;
 	bool just_halted; // the first M-cycle in HALT (samples interrupts like a CGB)
+	bool prefetched;  // the next opcode was read already (before an HBlank DMA block): prefetch_op
+	char prefetch_op;
+	bool no_prefetch; // the HBlank DMA block due was released by a HALT wake-up: no prefetch
 	bool halt_first_ran; // the M-cycle just run was HALT's first (a DMG can't wake before the next one ends)
 	int  speed_switch_halt; // M-cycles left of the halt after a speed switch
 	// The 16-bit incrementer puts its value on the address bus in the next
@@ -246,6 +249,13 @@ fn void Cpu.oam_bug(&self, mmu::Mmu* mmu, bool read, bool write) @inline {
 // Debugging: print every IO access with the PPU's line and dot (the format of
 // the instrumented Gambatte used to compare timings).
 bool io_trace;
+
+// What a read of `addr` gives now, without a bus cycle.
+fn char Cpu.bus_value(&self, mmu::Mmu* mmu, ushort addr) {
+	if (mmu.dma_blocks(addr)) return mmu.dma_conflict_read(addr);
+	if (mmu.ppu_blocks(addr, false)) return 0xFF;
+	return mmu.get(addr);
+}
 
 fn char Cpu.read(&self, mmu::Mmu* mmu, ushort addr) {
 	self.bus_cycles++;

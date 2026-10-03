@@ -322,6 +322,7 @@ cgb hex dma/hdma_m3halt_m0unhalt_ly_2_cgb04c_out03.gbc
 cgb hex dma/hdma_m3halt_m1unhalt_hdma5_cgb04c_out00.gbc
 cgb hex dma/hdma_m3speedchange_late_m0wakeup_1_cgb04c_outFF.gbc
 cgb hex dma/hdma_m3speedchange_late_m0wakeup_2_cgb04c_out00.gbc
+cgb hex dma/hdma_pc_7ffe_cgb04c_out02.gbc
 cgb hex dma/hdma_start_1_cgb04c_out0.gbc
 cgb hex dma/hdma_start_2_cgb04c_out1.gbc
 cgb hex dma/hdma_start_ds_1_cgb04c_out0.gbc

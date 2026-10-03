@@ -10,6 +10,10 @@ fn char Cpu.execute_one(&self, mmu::Mmu *mmu) {
 	self.bus_cycles = 0;
 	self.trace_len = 0;
 	char op = self.fetch8(mmu);
+	if (self.prefetched) {
+		op = self.prefetch_op;
+		self.prefetched = false;
+	}
 	if (self.halt_bug) {
 		// The HALT bug: the byte after HALT is read without advancing PC.
 		self.pc--;
@@ -35,7 +39,14 @@ fn char Cpu.step(&self, mmu::Mmu *mmu) {
 	if (mmu.hdma_due) {
 		if (io_trace) io::eprintfn("DMA ly %d lc %d", mmu.ppu.line, mmu.ppu.dot);
 		mmu.hdma_due = false;
+		// The next opcode is read before the copy (Gambatte
+		// Interrupter::prefetch; its fetch cycle still comes after).
+		if (!self.halted && !self.stopped && !self.prefetched && !self.no_prefetch) {
+			self.prefetch_op = self.bus_value(mmu, self.pc);
+			self.prefetched = true;
+		}
 		mmu.vdma_hblank_step(self.halted);
+		self.no_prefetch = false;
 	}
 	if (mmu.vdma_stall > 0) {
 		int n = mmu.vdma_stall;
