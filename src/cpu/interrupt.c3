@@ -41,11 +41,13 @@ fn bool Cpu.service_interrupt(&self, mmu::Mmu *mmu) {
 		self.just_halted = false;
 		self.halt_first_ran = false;
 		self.speed_switch_halt = 0;
-		// The wake-up cycle still counts as halted for the OAM DMA (Gambatte
-		// updates it before unhalting).
+		// The wake-up cycle still counts as halted for the OAM DMA and an
+		// HBlank DMA request (Gambatte updates both before unhalting).
 		if (!seen_early) {
 			mmu.oam_dma_hold = true;
+			mmu.cpu_halted = true;
 			self.idle(mmu);
+			mmu.cpu_halted = false;
 			mmu.oam_dma_hold = false;
 		}
 		// Gambatte decides on an HBlank DMA block after that cycle; such a

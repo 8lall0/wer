@@ -315,6 +315,7 @@ cgb hex dma/hdma_late_speedchange_inc_scx1_ds_3_cgb04c_out01.gbc
 cgb hex dma/hdma_late_wrambank_1_cgb04c_out0.gbc
 cgb hex dma/hdma_late_wrambank_2_cgb04c_out1.gbc
 cgb hex dma/hdma_m0halt_late_m3unhalt_scx1_1_cgb04c_outFF.gbc
+cgb hex dma/hdma_m0halt_late_m3unhalt_scx1_2_cgb04c_out00.gbc
 cgb hex dma/hdma_m0speedchange_late_m3wakeup_scx1_1_cgb04c_outFF.gbc
 cgb hex dma/hdma_m0speedchange_late_m3wakeup_scx1_2_cgb04c_out00.gbc
 cgb hex dma/hdma_m0speedchange_late_m3wakeup_scx2_1_cgb04c_outFF.gbc
