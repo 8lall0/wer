@@ -105,6 +105,8 @@ struct Mmu {
 	char* wram_ext;     // CGB: WRAM banks 2-7 (heap, freed by GameBoy.destroy)
 	char  svbk;         // $FF70: WRAM bank at $D000 (0 selects 1)
 	char  vbk;          // $FF4F: VRAM bank the CPU sees
+	char  dma_vbk;      // ... both as the OAM DMA sees them (as of the M-cycle's start)
+	char  dma_svbk;
 	char  key0;         // $FF4C: bit 2 = DMG compatibility mode (set by the boot ROM)
 	char  key1;         // $FF4D: bit 0 = speed switch armed
 	bool  double_speed; // CGB double speed: CPU, timer, serial, OAM DMA at 8 MHz
@@ -585,7 +587,15 @@ fn void Mmu.dma_step(&self) {
 		return;
 	}
 	if (!self.dma.active) return;
+	// The byte goes before a CPU write in the same M-cycle (Gambatte updates
+	// the DMA first): a VRAM/WRAM bank switch there comes too late for it.
+	char vbk = self.vbk;
+	char svbk = self.svbk;
+	self.vbk = self.dma_vbk;
+	self.svbk = self.dma_svbk;
 	char b = self.dma_byte();
+	self.vbk = vbk;
+	self.svbk = svbk;
 	if (self.dma.alter) {
 		b = self.dma.alter_and ? b & self.dma.alter_value : self.dma.alter_value;
 		self.dma.alter = false;
@@ -806,6 +816,8 @@ fn void Mmu.tick(&self, char mcycles) {
 	uint rt = self.double_speed ? t / 2 : t;
 
 	for (char i = 0; i < mcycles; i++) self.dma_step();
+	self.dma_vbk = self.vbk;
+	self.dma_svbk = self.svbk;
 
 	timer::TickResult tr;
 	if (self.timer_hold > 0) {
