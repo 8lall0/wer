@@ -84,6 +84,9 @@ struct Apu {
 	ulong  glu;
 	ulong  gspu;
 	int    clock_hold;
+	uint   defer_steps;   // frame sequencer events held back an M-cycle (Apu.tick)
+	uint   defer_rises;
+	bool   defer_write;
 	bool   clock_ds;      // the 2 MHz clock's view of double speed (it switches at its own time)
 	bool   cgb_e;        // CGB revision E (SameBoy's model), else C (Gambatte's test hardware)
 	bool   double_speed;
@@ -527,6 +530,24 @@ fn void Apu.tick(&self, uint t, uint div_events, uint div_secondary = 0, bool di
 		return;
 	}
 	if (self.pending_envelope_tick) self.delayed_envelope_tick();
+	// A CGB-C in double speed with Gambatte's clock a cycle off (odd last
+	// count: its speed switch and DIV reset corrections) steps the frame
+	// sequencer a tick, i.e. an M-cycle, after the DIV edge.
+	uint d_steps = self.defer_steps;
+	uint d_rises = self.defer_rises;
+	bool d_write = self.defer_write;
+	self.defer_steps = self.defer_rises = 0;
+	self.defer_write = false;
+	if (self.cgb && !self.cgb_e && self.clock_ds && (self.glu & 1)) {
+		self.defer_steps = div_events;
+		self.defer_rises = div_secondary;
+		self.defer_write = div_write;
+		div_events = div_secondary = 0;
+		div_write = false;
+	}
+	div_events += d_steps;
+	div_secondary += d_rises;
+	div_write |= d_write;
 	if (div_write) {
 		self.during_div_write = true;
 		self.div_event();
