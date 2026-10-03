@@ -52,6 +52,7 @@ fn GameBoy new(bool boot = true, mmu::Model model = DMG) {
 		gb.mmu.vdma_ff55 = 0xFF; // no VRAM DMA has run
 	}
 
+	gb.mmu.power_on_wram();
 	if (boot) {
 		gb.cpu = cpu::init_cold();
 		gb.mmu.boot_active = true;

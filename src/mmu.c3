@@ -743,6 +743,36 @@ fn void Mmu.set_input(&self, char buttons, char dpad) {
 	}
 }
 
+// WRAM comes up in stripes of $00 and $FF (with a few stray bits, not
+// modelled): on a DMG runs of 256 bytes, swapping at $C800; on a CGB runs of
+// 8 bytes (bank 2 clear). Some tests read it before writing it (Gambatte
+// oamdma_srcFE00_*).
+fn void Mmu.power_on_wram(&self) {
+	char[0x1000] bank;
+	for (int i = 0; i < 0x1000; i++) {
+		bool high = i >= 0x800;
+		if (self.model == CGB) {
+			bank[i] = ((i & 8) != 0) == high ? 0xFF : 0x00;
+			if (i >= 0xE00 && (i & 0xF) == 2) bank[i] = 0xFF;
+			if (i >= 0xE00 && (i & 0xF) == 0xA) bank[i] = 0x00;
+		} else {
+			bank[i] = ((i & 0x100) != 0) == high ? 0x00 : 0xFF;
+		}
+	}
+	self.wram[0:0x1000] = bank[..];
+	self.wram[0x1000:0x1000] = bank[..];
+	if (self.wram_ext) {
+		for (int b = 0; b < 6; b++) {
+			char* p = self.wram_ext + b * 0x1000;
+			if (b == 0) {
+				mem::set(p, 0, 0x1000);
+			} else {
+				mem::copy(p, &bank, 0x1000);
+			}
+		}
+	}
+}
+
 // A CGB running a DMG game: the CGB registers lock, and the PPU draws like a
 // DMG's, coloured through palette RAM (BG palette 0, OBJ palettes 0 and 1).
 fn void Mmu.enter_compat_mode(&self) {
