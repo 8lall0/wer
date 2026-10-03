@@ -2313,6 +2313,8 @@ dmg hex oamdma/oamdma_busydelay_1_dmg08_cgb04c_out5.gbc
 cgb hex oamdma/oamdma_busydelay_1_dmg08_cgb04c_out5.gbc
 dmg hex oamdma/oamdma_late_halt_stat_1_dmg08_cgb04c_out0.gbc
 cgb hex oamdma/oamdma_late_halt_stat_1_dmg08_cgb04c_out0.gbc
+dmg hex oamdma/oamdma_late_halt_stat_2_dmg08_cgb04c_out3.gbc
+cgb hex oamdma/oamdma_late_halt_stat_2_dmg08_cgb04c_out3.gbc
 cgb hex oamdma/oamdma_late_speedchange_stat_2_cgb04c_out3.gbc
 dmg hex oamdma/oamdma_src0000_busycallAFFF_dmg08_cgb04c_outFF8F.gbc
 cgb hex oamdma/oamdma_src0000_busycallAFFF_dmg08_cgb04c_outFF8F.gbc
@@ -3065,6 +3067,7 @@ dmg hex oamdma/oamdma_srcFF00_readFE00_dmg08_out1_cgb04c_out0.gbc
 cgb hex oamdma/oamdma_srcFF00_readFE00_dmg08_out1_cgb04c_out0.gbc
 dmg hex oamdma/oamdma_srcFF00_readFE45_dmg08_out1_cgb04c_out0.gbc
 cgb hex oamdma/oamdma_srcFF00_readFE45_dmg08_out1_cgb04c_out0.gbc
+dmg hex oamdma/oamdmasrc80_halt_lycirq_read8000_dmg08_cgb04c_out81.gbc
 cgb hex oamdma/oamdmasrc80_halt_lycirq_read8000_dmg08_cgb04c_out81.gbc
 dmg hex oamdma/oamdmasrc80_halt_m2irq_read8000_dmg08_cgb04c_out81.gbc
 cgb hex oamdma/oamdmasrc80_halt_m2irq_read8000_dmg08_cgb04c_out81.gbc

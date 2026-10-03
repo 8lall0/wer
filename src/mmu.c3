@@ -121,6 +121,7 @@ struct Mmu {
 	bool   vdma_hblank; // an HBlank DMA is running
 	char   vdma_ff55;   // $FF55 read value when no HBlank DMA runs
 	bool   cpu_halted;  // the CPU is in HALT (Cpu.step)
+	bool   oam_dma_hold; // the OAM DMA stands still (HALT after its first M-cycle, and the wake-up cycle)
 	bool   hdma_hold;   // ... or about to be (a speed switch): no HBlank DMA requests
 	bool   vdma_busy;   // a VRAM DMA is copying: an HBlank DMA request now is lost (Gambatte dma(): ackDmaReq)
 	bool   hdma_refund; // the next HBlank DMA block stalls the CPU an M-cycle less
@@ -612,7 +613,7 @@ fn void Mmu.dma_request(&self, char page) {
 
 fn void Mmu.dma_step(&self) {
 	// Gambatte: a halted CPU's OAM DMA stands still (Memory::updateOamDma).
-	if (self.cpu_halted) return;
+	if (self.oam_dma_hold) return;
 	if (self.dma.pending > 0 && --self.dma.pending == 0) {
 		self.dma.active = true;
 		// Gambatte's start and end times: an M-cycle on from here.

@@ -69,10 +69,14 @@ fn char Cpu.step(&self, mmu::Mmu *mmu) {
 	self.bus_cycles = 0;
 	if (!self.service_interrupt(mmu)) {
 		if (self.halted || self.stopped) {
-			mmu.cpu_halted = self.halted;
 			bool first = self.just_halted;
+			mmu.cpu_halted = self.halted;
+			// The OAM DMA stands still in HALT, after one more M-cycle
+			// (Gambatte Memory::halt: updateOamDma(cc + 4)).
+			mmu.oam_dma_hold = self.halted && !first;
 			self.idle(mmu);
 			mmu.cpu_halted = false;
+			mmu.oam_dma_hold = false;
 			self.just_halted = false;
 			self.halt_first_ran = first;
 			if (self.speed_switch_halt > 0 && --self.speed_switch_halt == 0) {
