@@ -193,7 +193,9 @@ fn void Mmu.set(&self, ushort addr, char value) {
 		return;
 	}
 	if (addr >= 0xFF10 && addr <= 0xFF3F) {
-		self.apu.div_counter = self.timer.div;
+		// Powering on samples DIV's APU bit an M-cycle on (Gambatte PSG::reset:
+		// cc + 1 + !ds; sound/ch2_late_reset_nr52_*).
+		self.apu.div_counter = self.timer.div + 4; // EXP // EXP
 		self.apu.write(addr, value);
 		return;
 	}
