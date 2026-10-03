@@ -778,6 +778,7 @@ cgb hex lcd_offset/offset1_lyc8fint_m1stat_ds_2_cgb04c_outC1.gbc
 cgb hex lcd_offset/offset1_lyc98int_ly_count_1_cgb04c_out99.gbc
 cgb hex lcd_offset/offset1_lyc98int_ly_count_2_cgb04c_out9A.gbc
 cgb hex lcd_offset/offset1_lyc98int_ly_count_ds_1_cgb04c_out99.gbc
+cgb hex lcd_offset/offset1_lyc98int_ly_count_ds_2_cgb04c_out9A.gbc
 cgb hex lcd_offset/offset1_lyc98int_ly_count_ds_3_cgb04c_out9A.gbc
 cgb hex lcd_offset/offset1_lyc99int_m0irq_count_scx1_ds_1_cgb04c_out90.gbc
 cgb hex lcd_offset/offset1_lyc99int_m0irq_count_scx1_ds_2_cgb04c_out90.gbc
@@ -806,6 +807,7 @@ cgb hex lcd_offset/offset2_lyc8fint_m1irq_2_cgb04c_outE3.gbc
 cgb hex lcd_offset/offset2_lyc8fint_m1stat_1_cgb04c_outC4.gbc
 cgb hex lcd_offset/offset2_lyc8fint_m1stat_2_cgb04c_outC1.gbc
 cgb hex lcd_offset/offset2_lyc98int_ly_count_1_cgb04c_out99.gbc
+cgb hex lcd_offset/offset2_lyc98int_ly_count_2_cgb04c_out9A.gbc
 cgb hex lcd_offset/offset2_lyc98int_ly_count_3_cgb04c_out9A.gbc
 cgb hex lcd_offset/offset2_lyc99int_m0stat_count_scx1_1_cgb04c_out90.gbc
 cgb hex lcd_offset/offset2_lyc99int_m0stat_count_scx1_2_cgb04c_out90.gbc

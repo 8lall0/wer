@@ -346,6 +346,21 @@ fn char Ppu.write_lyc(&self, char value) {
 	return 0;
 }
 
+// LY as the CPU reads it (Gambatte LCD::getLyReg): the next line's number
+// from 6 cycles before it starts (10 in double speed), at exactly that cycle
+// the old and new ANDed (lcd_offset/*_ly_count_*).
+fn char Ppu.ly_reg(&self) {
+	if ((self.lcdc & LCDC_ENABLE) == 0) return self.ly;
+	// Line 153 reads 0 at once (in double speed from its second cycle).
+	if (self.line == TOTAL_LINES - 1) return self.double_speed && self.dot == 0 ? (char)(TOTAL_LINES - 1) : 0;
+	long ttn = (long)(DOTS_PER_LINE - self.dot) * (long)self.spd();
+	long edge = self.double_speed ? 10 : 6;
+	char ly = (char)self.line;
+	if (ttn == edge) return ly & (ly + 1);
+	if (ttn < edge) return ly + 1;
+	return ly;
+}
+
 // --- CPU access to VRAM, OAM and CGB palettes (Gambatte LCD::vramReadable &c) ---
 
 // The first 81 cycles after the LCD is switched on lock nothing.

@@ -485,7 +485,7 @@ fn char Mmu.io_get(&self, ushort addr) {
 		case 0xFF41:   return (char)((self.ppu.stat & ~ppu::STAT_LYC_FLAG) | (self.ppu.lyc_flag() ? ppu::STAT_LYC_FLAG : 0) | 0x80);
 		case 0xFF42:   return self.ppu.cpu_view(0x42, self.ppu.scy);
 		case 0xFF43:   return self.ppu.cpu_view(0x43, self.ppu.scx);
-		case 0xFF44:   return self.ppu.ly;
+		case 0xFF44:   return self.ppu.ly_reg();
 		case 0xFF45:   return self.ppu.lyc;
 		case 0xFF47:   return self.ppu.cpu_view(0x47, self.ppu.bgp);
 		case 0xFF48:   return self.ppu.cpu_view(0x48, self.ppu.obp0);
