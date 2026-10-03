@@ -765,7 +765,13 @@ fn void Mmu.dma_conflict_write(&self, ushort addr, char value) {
 			return;
 		}
 		if (src >= 0xC000) {
-			self.dma.alter = false;   // WRAM against WRAM: just lost
+			// WRAM against WRAM: just lost; a CGB-B ANDs it into the byte
+			// copied, a CGB-0/A copies it instead (SameBoy).
+			if (self.cgb_rev == B) {
+				self.dma.alter_and = true;
+			} else if (self.cgb_rev > B) {
+				self.dma.alter = false;
+			}
 		} else if (src >= 0x8000 && src < 0xA000) {
 			self.dma.alter_value = 0;
 		}
