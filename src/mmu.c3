@@ -120,9 +120,10 @@ struct Mmu {
 	char   vdma_ff55;   // $FF55 read value when no HBlank DMA runs
 	bool   cpu_halted;  // the CPU is in HALT (Cpu.step)
 	bool   hdma_hold;   // ... or about to be (a speed switch): no HBlank DMA requests
+	bool   hdma_refund; // the next HBlank DMA block stalls the CPU an M-cycle less
 	int    timer_hold;  // M-cycles the timer stands still (CGB speed switch, Cpu.stop)
 	bool   hdma_due;    // an HBlank DMA block goes at the next instruction boundary (Cpu.step)
-	char   halt_hdma;   // HDMA state as HALT began: 0 low, 1 in HBlank, 2 a block was due (Gambatte)
+	char   halt_hdma;   // HDMA state as HALT began: 0 low, 1 in HBlank, 2 a block was due, 3 the same at a speed switch (Gambatte)
 	int    vdma_stall;  // M-cycles the CPU is held off the bus (Cpu.step)
 	char   ack_bit;     // the interrupt just acknowledged: dropped if raised again within a cycle or two
 	bool   if_written;  // the CPU wrote IF: it overrides what the PPU raises in the next dot (Gambatte)
@@ -277,14 +278,18 @@ fn void Mmu.hdma_stop(&self, bool to_double) {
 	if (!self.cgb_mode) return;
 	bool requested = self.hdma_due;
 	self.halt_hdma = (self.vdma_hblank && self.hdma_period()) ? 1 : 0;
-	if (requested && !to_double) self.halt_hdma = 2;
+	if (requested && !to_double) self.halt_hdma = 3;
 	if (!(requested && to_double)) self.hdma_due = false;
 }
 
 // The CPU wakes: the block it held back, or one for an HBlank HALT slept into.
 fn void Mmu.hdma_unhalt(&self) {
 	if (!self.cgb_mode) return;
-	if ((self.vdma_hblank && self.hdma_period() && self.halt_hdma == 0) || self.halt_hdma == 2) self.hdma_due = true;
+	if ((self.vdma_hblank && self.hdma_period() && self.halt_hdma == 0) || self.halt_hdma >= 2) self.hdma_due = true;
+	// A block held back by a speed switch gives the CPU an M-cycle back
+	// (Gambatte Memory::event, intevent_dma: cc -= 4; after a plain HALT our
+	// wake-up cycle already accounts for it).
+	if (self.halt_hdma == 3) self.hdma_refund = true;
 	self.halt_hdma = 0;
 }
 
@@ -310,6 +315,10 @@ fn void Mmu.vdma_hblank_step(&self, bool halted) {
 	}
 	self.vdma_block();
 	self.vdma_stall += VDMA_OVERHEAD;
+	if (self.hdma_refund) {
+		self.hdma_refund = false;
+		self.vdma_stall--;
+	}
 	// A block copied while the CPU is halted ends the HBlank DMA, the length
 	// left as it was (Gambatte Memory::dma).
 	if (halted) {
