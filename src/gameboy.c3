@@ -99,6 +99,12 @@ fn GameBoy new(bool boot = true, mmu::Model model = DMG) {
 		// reads $FF (the SGB's talks to the SNES through them).
 		if (model != DMG) gb.mmu.set(0xFF00, 0x30);
 		if (model == CGB) {
+			// The boot ROM makes every background colour white (Gambatte;
+			// bully on a CGB).
+			for (int i = 0; i < 64; i += 2) {
+				gb.mmu.ppu.bg_pal[i] = 0xFF;
+				gb.mmu.ppu.bg_pal[i + 1] = 0x7F;
+			}
 			// The palette indices after the last colour the boot ROM wrote
 			// (Mooneye boot_hwio-C).
 			gb.mmu.ppu.bcps = 0xC8;
