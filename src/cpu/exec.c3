@@ -66,11 +66,14 @@ fn char Cpu.step(&self, mmu::Mmu *mmu) {
 		// While it copies (not in its closing cycle) HBlank DMA requests are lost.
 		int copying = mmu.vdma_copying;
 		mmu.vdma_copying = 0;
+		// A halted CPU's OAM DMA stands still through it (Gambatte Memory::dma).
+		mmu.oam_dma_hold = self.halted;
 		for (int i = 0; i < n; i++) {
 			mmu.vdma_busy = i < copying;
 			mmu.tick(1);
 		}
 		mmu.vdma_busy = false;
+		mmu.oam_dma_hold = false;
 		self.clk += (ulong)n; // too long for bus_cycles
 		// A speed switch's halt ends on time all the same (Gambatte sets the
 		// wake-up time at the STOP).
