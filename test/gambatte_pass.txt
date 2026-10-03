@@ -3095,6 +3095,7 @@ dmg png scx_during_m3/scx_during_m3_spx0.gbc
 cgb png scx_during_m3/scx_during_m3_spx1.gbc
 dmg png scx_during_m3/scx_during_m3_spx1.gbc
 dmg png scx_during_m3/scx_during_m3_spx2.gbc
+dmg hex scx_during_m3/scx_m3_extend_1_dmg08_cgb04c_out3.gbc
 cgb hex scx_during_m3/scx_m3_extend_1_dmg08_cgb04c_out3.gbc
 dmg hex scx_during_m3/scx_m3_extend_2_dmg08_cgb04c_out0.gbc
 cgb hex scx_during_m3/scx_m3_extend_2_dmg08_cgb04c_out0.gbc

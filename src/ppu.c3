@@ -340,6 +340,7 @@ fn void Ppu.predict_mode3(&self) {
 	// then a pixel step (as in Ppu.tick).
 	self.pipe_end_dot = DOTS_PER_LINE;
 	while (sim.dot < DOTS_PER_LINE) {
+		sim.scx_landed = false;
 		sim.apply_writes();
 		if (sim.r.active) sim.render_dot();
 		sim.dot++;
