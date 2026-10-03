@@ -72,6 +72,16 @@ fn char Cpu.step(&self, mmu::Mmu *mmu) {
 		}
 		mmu.vdma_busy = false;
 		self.clk += (ulong)n; // too long for bus_cycles
+		// A speed switch's halt ends on time all the same (Gambatte sets the
+		// wake-up time at the STOP).
+		if (self.speed_switch_halt > 0) {
+			self.speed_switch_halt -= n;
+			if (self.speed_switch_halt <= 0) {
+				self.speed_switch_halt = 0;
+				self.halted = false;
+				mmu.hdma_unhalt();
+			}
+		}
 	}
 	self.bus_cycles = 0;
 	if (held_block || !self.service_interrupt(mmu)) {
