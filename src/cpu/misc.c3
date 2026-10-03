@@ -57,12 +57,18 @@ fn void Cpu.stop(&self, mmu::Mmu *mmu) {
 	// Going back to normal speed the clock changes at once (Gambatte): the
 	// timer and the APU's clock don't see the M-cycle the PPU still runs
 	// before it.
+	bool pending = self.interrupt_pending(mmu);
 	if (!to_double) {
-		mmu.timer_hold = SWITCH_PRE[1];
+		// With an interrupt waiting, a CGB-D/E's timer misses nothing here
+		// (AGE spsw-interrupts-cgbE).
+		mmu.timer_hold = pending && mmu.cgb_rev > C ? 0 : SWITCH_PRE[1];
 		mmu.apu.clock_switch(false);
 		mmu.apu.clock_hold = SWITCH_PRE[1];
+	} else if (pending && mmu.cgb_rev <= C) {
+		// ... and going to double speed an earlier CGB's misses an M-cycle
+		// (AGE spsw-interrupts-cgbBC).
+		mmu.timer_hold = 1;
 	}
-	bool pending = self.interrupt_pending(mmu);
 	if (pending) {
 		self.pc--; // with an interrupt pending the byte after STOP runs as an instruction
 	} else {

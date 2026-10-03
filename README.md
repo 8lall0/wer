@@ -41,7 +41,7 @@ the common hardware test suites check; results below.
 | Blargg `oam_bug` | 7/8 (`7-timing_effect` writes past its own text buffer, on SameBoy too) |
 | [SameSuite](https://github.com/LIJI32/SameSuite) | 65/78 (the rest target specific CGB revisions, or give SameBoy's results) |
 | [Gambatte test suite](https://github.com/pokemon-speedrunning/gambatte-core) | 5204/5225 (99.6%) |
-| [AGE test ROMs](https://github.com/c-sp/age-test-roms) | 115/119 on the revisions each test names (DMG, CGB-B, C, E) |
+| [AGE test ROMs](https://github.com/c-sp/age-test-roms) | 118/119 on the revisions each test names (DMG, CGB-B, C, E) |
 | [gbmicrotest](https://github.com/aappleby/GBMicrotest) | 480/482 |
 | [Mooneye, wilbertpol's 2016 fork](https://github.com/wilbertpol/mooneye-gb) | 186/186 (CGB tests on a CGB-E) |
 | cgb-acid-hell, bully, turtle-tests, scribbltests, little-things-gb firstwhite, Mooneye sprite_priority, strikethrough | 22/22 |
