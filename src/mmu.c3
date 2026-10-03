@@ -114,7 +114,7 @@ struct Mmu {
 	// CGB VRAM DMA ($FF51-$FF55): copies 16-byte blocks into VRAM, either
 	// all at once (general purpose) or one block per HBlank (HBlank DMA).
 	ushort vdma_src;    // next source address
-	ushort vdma_dst;    // next destination, offset into VRAM
+	ushort vdma_dst;    // next destination ($FF53 high byte unmasked; VRAM at & $1FFF)
 	char   vdma_left;   // blocks left - 1 (what $FF55 bits 0-6 read)
 	bool   vdma_hblank; // an HBlank DMA is running
 	char   vdma_ff55;   // $FF55 read value when no HBlank DMA runs
@@ -216,7 +216,7 @@ fn void Mmu.vdma_block(&self) {
 		char b = (src >= 0x8000 && src < 0xA000) || src >= 0xE000 ? 0xFF : self.get(src);
 		*self.vram_at(self.vdma_dst & 0x1FFF) = b;
 		self.vdma_src++;
-		self.vdma_dst = (self.vdma_dst + 1) & 0x1FFF;
+		self.vdma_dst++;
 	}
 	self.vdma_stall += self.vdma_block_mcycles();
 }
@@ -234,9 +234,16 @@ fn void Mmu.vdma_start(&self, char value) {
 	self.vdma_left = value & 0x7F;
 	if ((value & 0x80) == 0) {
 		// General purpose: everything now, the CPU waits for all of it.
-		for (int n = self.vdma_left; n >= 0; n--) self.vdma_block();
-		self.vdma_stall += VDMA_OVERHEAD;
+		// The destination running past $FFFF ends it (Gambatte Memory::dma).
 		self.vdma_ff55 = 0xFF;
+		for (int n = self.vdma_left; n >= 0; n--) {
+			self.vdma_block();
+			if (self.vdma_dst == 0) {
+				self.vdma_ff55 = 0x80 | (char)((n - 1) & 0x7F);
+				break;
+			}
+		}
+		self.vdma_stall += VDMA_OVERHEAD;
 		return;
 	}
 	self.vdma_hblank = true;
@@ -309,9 +316,10 @@ fn void Mmu.vdma_hblank_step(&self, bool halted) {
 		self.vdma_ff55 = 0x80 | self.vdma_left;
 		return;
 	}
-	if (self.vdma_left == 0) {
+	if (self.vdma_left == 0 || self.vdma_dst == 0) {
+		// Done, or the destination ran past $FFFF.
 		self.vdma_hblank = false;
-		self.vdma_ff55 = 0xFF;
+		self.vdma_ff55 = 0x80 | ((self.vdma_left - 1) & 0x7F);
 		return;
 	}
 	self.vdma_left--;
@@ -481,7 +489,7 @@ fn void Mmu.io_set(&self, ushort addr, char value) {
 			case 0xFF6C: if (c) self.ppu.opri = value & 0x01; return;
 			case 0xFF51: if (c) self.vdma_src = (self.vdma_src & 0x00FF) | ((ushort)value << 8); return;
 			case 0xFF52: if (c) self.vdma_src = (self.vdma_src & 0xFF00) | (value & 0xF0); return;
-			case 0xFF53: if (c) self.vdma_dst = (self.vdma_dst & 0x00FF) | ((ushort)(value & 0x1F) << 8); return;
+			case 0xFF53: if (c) self.vdma_dst = (self.vdma_dst & 0x00FF) | ((ushort)value << 8); return;
 			case 0xFF54: if (c) self.vdma_dst = (self.vdma_dst & 0x1F00) | (value & 0xF0); return;
 			case 0xFF55: if (c) self.vdma_start(value); return;
 			case 0xFF70: if (c) self.svbk = value & 0x07; return;

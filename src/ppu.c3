@@ -239,7 +239,11 @@ fn char Ppu.tick(&self, uint tcycles) {
 		// Mode 3 drawing for this dot (before the counters move on).
 		if (self.line < VBLANK_LINE) {
 			int scan = self.oam_scan_index();
-			if (scan >= 0) self.oam_scan(scan);
+			if (scan >= 0) {
+				self.oam_scan(scan);
+			} else if (self.cgb_hw && self.r.scan_tall_only > 0) {
+				self.oam_scan_second();
+			}
 			// The first line after the LCD is switched on has no OAM scan and
 			// starts drawing earlier.
 			int start = self.first_line ? render_start_dot - (self.cgb_hw ? 6 : 5) : render_start_dot;

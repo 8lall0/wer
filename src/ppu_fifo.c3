@@ -87,6 +87,7 @@ struct Renderer {
 	int  window_y;      // window line counter (-1 before the first window line)
 	char window_tile_x;
 	bool window_fetching; // the window has just started: its first pixel isn't out yet
+	int  scan_tall_only; // CGB: 1 + the entry just scanned that only an 8x16 object would show, or 0
 	bool fractional;      // this line discards pixels for SCX fine scroll
 	bool no_insert_glitch; // WIN_EN was cleared while the window was being fetched
 
@@ -138,7 +139,26 @@ fn void Ppu.oam_scan(&self, int i) {
 	char y = dma ? 0xFF : self.oam[i * 4];
 	char x = dma ? 0xFF : self.oam[i * 4 + 1];
 	int top = (int)y - 16;
-	if (self.line < top || self.line >= top + height) return;
+	r.scan_tall_only = 0;
+	if (self.line < top || self.line >= top + height) {
+		if (height == 8 && self.line >= top + 8 && self.line < top + 16) r.scan_tall_only = i + 1;
+		return;
+	}
+	self.scan_add(i, y, x);
+}
+
+// CGB: an entry counts as 8x16 if OBJ_SIZE is set in either of its 2 scan
+// dots (Gambatte OamReader: lsbuf |= the size at the second).
+fn void Ppu.oam_scan_second(&self) {
+	Renderer* r = &self.r;
+	int i = r.scan_tall_only - 1;
+	r.scan_tall_only = 0;
+	if (i < 0 || r.n_obj == 10 || (self.r_lcdc & LCDC_OBJ_SIZE) == 0) return;
+	self.scan_add(i, self.oam[i * 4], self.oam[i * 4 + 1]);
+}
+
+fn void Ppu.scan_add(&self, int i, char y, char x) {
+	Renderer* r = &self.r;
 	// Descending X; for equal X the lower OAM index ends up later, so it is
 	// fetched first.
 	int j = 0;

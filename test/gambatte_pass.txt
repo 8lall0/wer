@@ -3989,6 +3989,7 @@ cgb hex sprites/late_sizechange2_sp00_2_dmg08_cgb04c_out0.gbc
 cgb hex sprites/late_sizechange2_sp00_ds_1_cgb04c_out3.gbc
 cgb hex sprites/late_sizechange2_sp00_ds_2_cgb04c_out0.gbc
 dmg hex sprites/late_sizechange2_sp01_1_dmg08_cgb04c_out3.gbc
+cgb hex sprites/late_sizechange2_sp01_1_dmg08_cgb04c_out3.gbc
 dmg hex sprites/late_sizechange2_sp01_2_dmg08_cgb04c_out0.gbc
 cgb hex sprites/late_sizechange2_sp01_2_dmg08_cgb04c_out0.gbc
 cgb hex sprites/late_sizechange2_sp01_ds_1_cgb04c_out3.gbc
@@ -3998,6 +3999,7 @@ cgb hex sprites/late_sizechange2_sp02_1_dmg08_cgb04c_out3.gbc
 dmg hex sprites/late_sizechange2_sp02_2_dmg08_cgb04c_out0.gbc
 cgb hex sprites/late_sizechange2_sp02_2_dmg08_cgb04c_out0.gbc
 dmg hex sprites/late_sizechange2_sp39_1_dmg08_cgb04c_out3.gbc
+cgb hex sprites/late_sizechange2_sp39_1_dmg08_cgb04c_out3.gbc
 dmg hex sprites/late_sizechange2_sp39_2_dmg08_cgb04c_out0.gbc
 cgb hex sprites/late_sizechange2_sp39_2_dmg08_cgb04c_out0.gbc
 cgb hex sprites/late_sizechange2_sp39_ds_1_cgb04c_out3.gbc
