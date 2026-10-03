@@ -106,12 +106,13 @@ enum Outcome : char {
 }
 
 // Runs one ROM; on failure `text` gets the ROM's own explanation.
-fn Outcome run_rom(String path, mmu::Model model, char* code, String* text) {
+fn Outcome run_rom(String path, mmu::Model model, char* code, String* text, mmu::CgbRevision rev = C) {
 	char[]? data = file::load_temp(path);
 	if (catch data) return MISSING;
 
 	gameboy::GameBoy gb = gameboy::new(false, model);
 	defer gb.destroy();
+	gb.set_cgb_revision(rev);
 	gb.load_rom_named(data, path);
 	char[] ram;
 	if (gb.mmu.cart) {
@@ -266,4 +267,16 @@ fn void hardware_bugs() @test
 	run_suite("halt_bug", &HALT_BUG, DMG);
 	run_suite("oam_bug", &OAM_BUG, DMG);
 	run_suite("interrupt_time", &INTERRUPT_TIME, CGB);
+}
+
+// On a CPU CGB B, cgb_sound's 03-trigger fails with code 04 (c-sp's
+// game-boy-test-roms notes); later revisions pass it.
+fn void cgb_b_sound_trigger() @test
+{
+	char code;
+	String text;
+	Outcome o = run_rom("test/blargg/cgb_sound/03-trigger.gb", CGB, &code, &text, B);
+	if (o == MISSING) return;
+	io::eprintfn("  cgb_sound 03-trigger on a CGB-B: %s, code %d", o == PASS ? "pass" : "fail", code);
+	test::@check(o == FAIL && code == 4, "CGB-B: 03-trigger should fail with code 04");
 }
