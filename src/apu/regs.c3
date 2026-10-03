@@ -277,7 +277,7 @@ fn void Apu.write_nrx4(&self, int i, int reg, char value) {
 			} else {
 				self.sweep_addend = 0;
 			}
-			self.ch1_restart_hold = 2 - self.lf_div + (self.cgb ? 2 : 0);
+			self.ch1_restart_hold = 2 - self.lf_div + (self.cgb && self.rev != REV_D ? 2 : 0);
 			self.sweep_countdown = ((nr10 >> 4) & 7) ^ 7;
 			// The sweep's step just after the start counts as before it (Gambatte
 			// SweepUnit::nr4Init: cc + 2, + 4 on a CGB; ch1_init_reset_sweep_counter_timing_*).
