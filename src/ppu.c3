@@ -45,6 +45,8 @@ struct Ppu {
 	// meanwhile the object scan reads $FF (Gambatte startOamDma).
 	ulong        oam_dma_from;
 	ulong        oam_dma_until;
+	char         scx_before;  // SCX before a write that landed this dot (the fine scroll check still sees it)
+	bool         scx_landed;
 	char[0xA0]   oam_pre_dma; // OAM as the DMA found it (for entries the scan read before)
 	char[] fb;
 	// CGB mode: the picture as RGB555 colours (heap), and the switch between
@@ -235,6 +237,7 @@ fn char Ppu.tick(&self, uint tcycles) {
 	self.irq_dot = -1;
 	for (uint i = 0; i < tcycles; i++) {
 		if (self.repredict && self.r.active && !self.predicting) self.predict_mode3();
+		self.scx_landed = false;
 		self.apply_writes();
 		self.window_line_checks();
 		// Mode 3 drawing for this dot (before the counters move on).
@@ -531,7 +534,10 @@ fn void Ppu.apply(&self, RegWrite w) {
 		case TILE_SEL_GLITCH_OFF: self.r.tile_sel_glitch = false;
 		case TILE_SEL_CLEARED: self.r.glitch_data = self.r.last_read;
 		case 0x42: self.scy = w.value;
-		case 0x43: self.scx = w.value;
+		case 0x43:
+			self.scx_before = self.scx;
+			self.scx_landed = true;
+			self.scx = w.value;
 		case 0x4A: self.wy = w.value;
 		case WY2: self.wy2 = w.value;
 		case WE_LINE: self.we_lcdc = w.value;

@@ -623,9 +623,13 @@ fn void Ppu.render_pixel(&self) {
 	if (u8(r.pos + 16) < 8) {
 		// The first 8 positions: the junk pixels, and dropping SCX & 7 pixels
 		// of the first tile.
-		if ((r.pos & 7) == (self.scx & 7)) {
+		// On a DMG an SCX write landing this dot comes after the check
+		// (Gambatte scxChange: the PPU runs up to the write first;
+		// scx_m3_extend). The first line after LCD on has its own timing.
+		char scx = self.scx_landed && !self.cgb_hw && !self.first_line ? self.scx_before : self.scx;
+		if ((r.pos & 7) == (scx & 7)) {
 			r.pos = -8;
-		} else if (r.window_fetching && (r.pos & 7) == 6 && (self.scx & 7) == 7) {
+		} else if (r.window_fetching && (r.pos & 7) == 6 && (scx & 7) == 7) {
 			r.pos = -8;
 		} else if (r.pos == -9) {
 			r.pos = -16;
