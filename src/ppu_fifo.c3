@@ -403,9 +403,9 @@ fn bool Ppu.window_check(&self) {
 	bool win_en = (self.r_lcdc & LCDC_WIN_ENABLE) != 0;
 	bool was_en = r.prev_win_en;
 	r.prev_win_en = win_en;
-	// CGB double speed: a window enable starts the window from the next dot
-	// on (Gambatte window/late_reenable_ds).
-	if (self.cgb_hw && self.double_speed && !was_en) win_en = false;
+	// CGB: a window enable starts the window from the next dot on (Gambatte
+	// window/late_reenable*).
+	if (self.cgb_hw && !was_en) win_en = false;
 	bool wy_ok = r.wy_triggered || self.wy2 == u8(self.line);
 	if (!r.wx_triggered && wy_ok && win_en) {
 		bool start = false;
