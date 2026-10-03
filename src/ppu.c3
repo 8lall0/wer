@@ -113,6 +113,7 @@ struct Ppu {
 	RegWrite[8] writes;
 	int      n_writes;
 	ulong    lcd_on_cc;     // when the LCD was last switched on
+	bool     hide_frame;    // the frame since the LCD went on isn't shown
 	ulong    cc;            // Gambatte's cycle count: +1 per dot, +2 in double speed (ppu_irq.c3)
 	StatIrq  si;
 }
@@ -214,6 +215,7 @@ fn char Ppu.write_lcdc(&self, char value) {
 		// (not whatever line drew last, if any did).
 		self.m0_irq_pred = MODE2_DOTS + MODE3_DOTS + (self.scx & 7) + PLAIN_PIPE_EXTRA - M0_IRQ_BEFORE_END;
 		self.lcd_on_cc = self.cc;
+		self.hide_frame = true;
 		self.irq_reschedule(true);
 		// LY=LYC turns true at once with LYC 0.
 		if ((self.si.stat & STAT_LYC_IE) && self.lyc == 0 && !flag_was) irq = INT_STAT;
@@ -415,6 +417,12 @@ fn char Ppu.update_mode(&self) {
 
 	char irq = 0;
 	if (want == 1) {
+		// The LCD shows nothing for the first frame after it is switched on
+		// (little-things-gb firstwhite; SameBoy).
+		if (self.hide_frame) {
+			self.hide_frame = false;
+			self.blank();
+		}
 		self.frame_ready = true;
 		irq |= INT_VBLANK;
 	}
