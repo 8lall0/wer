@@ -73,7 +73,10 @@ struct Apu {
 
 	// Set by the MMU.
 	bool   cgb;          // CGB hardware (either mode)
-	char   env_triggered; // channels (bits 0-2: SQ1, SQ2, NOI) started in this M-cycle
+	// M-cycles from a channel's start in which a frame sequencer step still
+	// counts as before it (envelope: SQ1, SQ2, NOI; sweep; Gambatte nr4Init).
+	int[3] env_grace;
+	int    sweep_grace;
 	bool   cgb_e;        // CGB revision E (SameBoy's model), else C (Gambatte's test hardware)
 	bool   double_speed;
 	ushort div_counter;  // the timer's 16-bit counter, for power-on
@@ -252,13 +255,12 @@ fn void Apu.div_event(&self) {
 	}
 
 	if ((self.div_divider & 7) == 7) {
-		// A channel started in this same M-cycle counts from after this step
-		// (Gambatte EnvelopeUnit::nr4Init: (cc + 2) in step 0 gets a period
-		// more; sound/ch2_init_reset_env_counter_timing_*).
+		// A channel started just before counts from after this step (Gambatte
+		// EnvelopeUnit::nr4Init: cc + 2; sound/ch2_init_reset_env_counter_timing_*).
 		for (int i = 0; i < 2; i++) {
-			if (!self.sq[i].env.clock && !(self.env_triggered & (1 << i))) self.sq[i].volume_countdown = (self.sq[i].volume_countdown - 1) & 7;
+			if (!self.sq[i].env.clock && !self.env_grace[i]) self.sq[i].volume_countdown = (self.sq[i].volume_countdown - 1) & 7;
 		}
-		if (!self.noise.env.clock && !(self.env_triggered & 4)) self.noise.volume_countdown = (self.noise.volume_countdown - 1) & 7;
+		if (!self.noise.env.clock && !self.env_grace[2]) self.noise.volume_countdown = (self.noise.volume_countdown - 1) & 7;
 	}
 
 	if (self.double_speed && self.is_cgb_e()) {
@@ -276,7 +278,7 @@ fn void Apu.div_event(&self) {
 		self.clock_length(&self.noise.pulse_length, self.noise.length_enabled, NOI);
 	}
 
-	if ((self.div_divider & 3) == 3) {
+	if ((self.div_divider & 3) == 3 && !self.sweep_grace) {
 		self.sweep_countdown = (self.sweep_countdown + 1) & 7;
 		self.trigger_sweep_calculation();
 	}
@@ -457,8 +459,13 @@ fn void Apu.tick(&self, uint t, uint div_events, uint div_secondary = 0, bool di
 
 	if (self.power) self.run((int)t / 2);
 	self.output(t);
-	self.env_triggered = 0;
+	for (int i = 0; i < 3; i++) if (self.env_grace[i]) self.env_grace[i]--;
+	if (self.sweep_grace) self.sweep_grace--;
 }
+
+// Gambatte's nr4Init windows (2 APU cycles, a sweep on a CGB 4): in M-cycles,
+// counting the start's own.
+fn int Apu.start_grace(&self, int apu_cycles) => self.double_speed ? apu_cycles : apu_cycles / 2;
 
 // Output samples for `t` T-cycles of the current state.
 fn void Apu.output(&self, uint t) {

@@ -242,7 +242,7 @@ fn void Apu.write_nrx4(&self, int i, int reg, char value) {
 		// The new volume applies at once to the sample already playing.
 		if (self.active[i]) self.update_square_sample(i);
 		s.volume_countdown = nrx2 & 7;
-		self.env_triggered |= (char)(1 << i);
+		self.env_grace[i] = self.start_grace(2);
 
 		if ((nrx2 & 0xF8) != 0 && !self.active[i]) {
 			self.active[i] = true;
@@ -272,6 +272,9 @@ fn void Apu.write_nrx4(&self, int i, int reg, char value) {
 			}
 			self.ch1_restart_hold = 2 - self.lf_div + (self.cgb ? 2 : 0);
 			self.sweep_countdown = ((nr10 >> 4) & 7) ^ 7;
+			// The sweep's step just after the start counts as before it (Gambatte
+			// SweepUnit::nr4Init: cc + 2, + 4 on a CGB; ch1_init_reset_sweep_counter_timing_*).
+			self.sweep_grace = self.start_grace(self.cgb ? 4 : 2);
 		}
 	}
 
@@ -325,7 +328,7 @@ fn void Apu.write_nr44(&self, char value) {
 			n.current_volume = nr42 >> 4;
 			n.current_lfsr_sample = false;
 			n.volume_countdown = nr42 & 7;
-			self.env_triggered |= 4;
+			self.env_grace[2] = self.start_grace(2);
 			n.did_step_counter = (n.alignment & 3) == 2;
 			if (nr42 & 0xF8) {
 				self.active[NOI] = true;
