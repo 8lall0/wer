@@ -374,6 +374,9 @@ fn char Ppu.update_mode(&self) {
 
 	char want;
 	int vblank_end = VBLANK_END_DOT + (self.double_speed ? 1 : 0);
+	// A CGB-E has no mode-0 M-cycle between VBlank and line 0's mode 2
+	// (AGE stat-mode-cgbE).
+	if (self.cgb_e) vblank_end = MODE2_START_DOT;
 	if ((self.line >= VBLANK_LINE && self.line < TOTAL_LINES - 1)
 		|| (self.line == VBLANK_LINE - 1 && self.dot >= VBLANK_START_DOT)
 		|| (self.line == TOTAL_LINES - 1 && self.dot < vblank_end)) {

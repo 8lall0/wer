@@ -352,11 +352,20 @@ fn char Ppu.write_lyc(&self, char value) {
 fn char Ppu.ly_reg(&self) {
 	if ((self.lcdc & LCDC_ENABLE) == 0) return self.ly;
 	// Line 153 reads 0 at once (in double speed from its second cycle).
-	if (self.line == TOTAL_LINES - 1) return self.double_speed && self.dot == 0 ? (char)(TOTAL_LINES - 1) : 0;
+	// A CGB-E reads 153 for its first dot in normal speed too (AGE ly-cgbE).
+	if (self.line == TOTAL_LINES - 1) {
+		return (self.double_speed || self.cgb_e) && self.dot == 0 ? (char)(TOTAL_LINES - 1) : 0;
+	}
 	long ttn = (long)(DOTS_PER_LINE - self.dot) * (long)self.spd();
 	long edge = self.double_speed ? 10 : 6;
+	// A CGB-E's LY & (LY + 1) glitch comes a dot later in normal speed (AGE
+	// lcd-align-ly-cgbE).
+	if (self.cgb_e && !self.double_speed) edge = 5;
 	char ly = (char)self.line;
-	if (ttn == edge) return ly & (ly + 1);
+	// A CGB-C in normal speed glitches for 2 dots, a dot longer than in
+	// Gambatte (AGE lcd-align-ly-cgbBC).
+	bool c_wide = self.cgb_hw && !self.cgb_e && !self.double_speed && ttn == 5;
+	if (ttn == edge || c_wide) return ly & (ly + 1);
 	if (ttn < edge) return ly + 1;
 	return ly;
 }
