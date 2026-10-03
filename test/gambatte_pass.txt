@@ -241,7 +241,9 @@ cgb hex dma/hdma_late_m0halt_ds_lcdoffset1_1_cgb04c_out00.gbc
 cgb hex dma/hdma_late_m0halt_ds_lcdoffset1_2_cgb04c_outFF.gbc
 cgb hex dma/hdma_late_m0halt_lcdoffset3_1_cgb04c_out00.gbc
 cgb hex dma/hdma_late_m0halt_lcdoffset3_2_cgb04c_outFF.gbc
+cgb hex dma/hdma_late_m0unhalt_1_cgb04c_out00.gbc
 cgb hex dma/hdma_late_m0unhalt_2_cgb04c_outFF.gbc
+cgb hex dma/hdma_late_m0unhalt_ds_1_cgb04c_out00.gbc
 cgb hex dma/hdma_late_m0unhalt_ds_2_cgb04c_outFF.gbc
 cgb hex dma/hdma_late_m3halt_m0unhalt_scx1_1_cgb04c_outFF.gbc
 cgb hex dma/hdma_late_m3halt_m0unhalt_scx1_2_cgb04c_outFF.gbc

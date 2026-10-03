@@ -38,11 +38,12 @@ fn bool Cpu.service_interrupt(&self, mmu::Mmu *mmu) {
 	if (self.halted) {
 		bool seen_early = !self.just_halted && !self.halt_first_ran && mmu.irq_early;
 		self.halted = false;
-		mmu.hdma_unhalt();
 		self.just_halted = false;
 		self.halt_first_ran = false;
 		self.speed_switch_halt = 0;
 		if (!seen_early) self.idle(mmu);
+		// Gambatte decides on an HBlank DMA block after that cycle.
+		mmu.hdma_unhalt();
 		// An HBlank DMA that came due meanwhile goes before the dispatch.
 		if (mmu.hdma_due) return true;
 		if (!self.ime) return !seen_early;
