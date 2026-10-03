@@ -60,7 +60,12 @@ fn void Cpu.stop(&self, mmu::Mmu *mmu) {
 	if (pending) {
 		self.pc--; // with an interrupt pending the byte after STOP runs as an instruction
 	} else {
+		// Halted from the STOP on as far as HBlank DMA requests go (Gambatte
+		// Memory::stop halts before the clock changes).
+		mmu.hdma_stop(to_double);
+		mmu.hdma_hold = true;
 		for (int i = 0; i < SWITCH_PRE[to_double ? 0 : 1]; i++) self.idle(mmu); // reading that byte, ...
+		mmu.hdma_hold = false;
 	}
 	mmu.set_double_speed(to_double);
 	mmu.ppu_freeze = mmu::SWITCH_PPU_FREEZE[mmu.double_speed ? 0 : 1];
@@ -68,6 +73,5 @@ fn void Cpu.stop(&self, mmu::Mmu *mmu) {
 		self.halted = true;
 		self.just_halted = true;
 		self.speed_switch_halt = SWITCH_HALT[to_double ? 0 : 1];
-		mmu.hdma_stop(to_double);
 	}
 }

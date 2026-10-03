@@ -1,6 +1,6 @@
 module cpu;
 
-import mmu;
+import mmu, std::io;
 
 // Fetch and run exactly one instruction: no interrupt check, no halt/stop
 // idling. Returns the M-cycles it cost, as counted by the bus wrappers. Used
@@ -33,6 +33,7 @@ fn char Cpu.step(&self, mmu::Mmu *mmu) {
 	// An HBlank DMA block is copied between instructions (Gambatte: a DMA
 	// event), and holds the CPU off the bus while it runs.
 	if (mmu.hdma_due) {
+		if (io_trace) io::eprintfn("DMA ly %d lc %d", mmu.ppu.line, mmu.ppu.dot);
 		mmu.hdma_due = false;
 		mmu.vdma_hblank_step(self.halted);
 	}
