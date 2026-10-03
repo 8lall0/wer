@@ -472,7 +472,8 @@ fn void Ppu.write_render_reg(&self, char reg, char value) {
 		case 0x49:
 			// DMG: for one dot the palette reads as old | new.
 			if (dmg && !self.sgb_hw) self.schedule(reg, old | value, 6);
-			self.schedule(reg, value, 7);
+			// A CGB-E's renderer sees them a dot sooner (AGE m3-bg-bgp-ncmE).
+			self.schedule(reg, value, self.cgb_e ? 6 : 7);
 		case 0x40:
 			if (dmg && !self.sgb_hw) {
 				self.queue({ .reg = LCDC_DMG, .value = value, .old = old, .delay = 6 });
