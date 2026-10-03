@@ -68,6 +68,6 @@ fn void Cpu.stop(&self, mmu::Mmu *mmu) {
 		self.halted = true;
 		self.just_halted = true;
 		self.speed_switch_halt = SWITCH_HALT[to_double ? 0 : 1];
-		mmu.hdma_halt();
+		mmu.hdma_stop(to_double);
 	}
 }

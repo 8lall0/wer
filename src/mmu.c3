@@ -258,6 +258,17 @@ fn void Mmu.hdma_halt(&self) {
 	self.hdma_due = false;
 }
 
+// A speed switch halts the CPU (Gambatte Memory::stop): going to double
+// speed a block already requested is not dropped (it runs while halted, which
+// ends the HBlank DMA); going back to normal speed it waits for the wake-up.
+fn void Mmu.hdma_stop(&self, bool to_double) {
+	if (!self.cgb_mode) return;
+	bool requested = self.hdma_due;
+	self.halt_hdma = (self.vdma_hblank && self.hdma_period()) ? 1 : 0;
+	if (requested && !to_double) self.halt_hdma = 2;
+	if (!(requested && to_double)) self.hdma_due = false;
+}
+
 // The CPU wakes: the block it held back, or one for an HBlank HALT slept into.
 fn void Mmu.hdma_unhalt(&self) {
 	if (!self.cgb_mode) return;
@@ -276,10 +287,17 @@ fn bool Mmu.in_hblank(&self) {
 	return p.dot > ppu::MODE3_START_DOT && p.dot >= p.m0_stat_dot() - (ds ? 1 : 2) && p.dot < (ds ? 451 : 449);
 }
 
-fn void Mmu.vdma_hblank_step(&self) {
+fn void Mmu.vdma_hblank_step(&self, bool halted) {
 	if (!self.vdma_hblank) return;
 	self.vdma_block();
 	self.vdma_stall += VDMA_OVERHEAD;
+	// A block copied while the CPU is halted ends the HBlank DMA, the length
+	// left as it was (Gambatte Memory::dma).
+	if (halted) {
+		self.vdma_hblank = false;
+		self.vdma_ff55 = 0x80 | self.vdma_left;
+		return;
+	}
 	if (self.vdma_left == 0) {
 		self.vdma_hblank = false;
 		self.vdma_ff55 = 0xFF;
@@ -762,7 +780,9 @@ fn void Mmu.tick(&self, char mcycles) {
 	self.irq_early = self.model != CGB && ((pirq != 0 && self.ppu.irq_dot < 2) || (tr.timer_irq && tr.irq_before_end >= 2));
 	if (self.ppu.hblank_start) {
 		self.ppu.hblank_start = false;
-		if (self.cgb_mode && self.vdma_hblank) self.hdma_due = true;
+		// Not while the CPU is halted (Gambatte LCD flagHdmaReq): waking up
+		// in the HBlank DMA period requests the block (Mmu.hdma_unhalt).
+		if (self.cgb_mode && self.vdma_hblank && !self.cpu_halted) self.hdma_due = true;
 	}
 	// An SGB reads *_TRN data out of the frame that has just been shown.
 	if (self.sgb && (pirq & ppu::INT_VBLANK)) self.sgb.capture_transfer(&self.ppu);

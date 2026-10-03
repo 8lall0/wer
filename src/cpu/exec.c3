@@ -34,7 +34,7 @@ fn char Cpu.step(&self, mmu::Mmu *mmu) {
 	// event), and holds the CPU off the bus while it runs.
 	if (mmu.hdma_due) {
 		mmu.hdma_due = false;
-		mmu.vdma_hblank_step();
+		mmu.vdma_hblank_step(self.halted);
 	}
 	if (mmu.vdma_stall > 0) {
 		int n = mmu.vdma_stall;
