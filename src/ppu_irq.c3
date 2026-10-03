@@ -401,11 +401,16 @@ fn bool Ppu.palette_locked(&self) {
 	return self.dot + ds >= 80 && self.dot < self.m0_stat_dot() + (self.double_speed ? 2 : 4);
 }
 
+// A CGB-E's OAM read lock (AGE oam-read-cgbE): in normal speed it lasts a
+// dot past mode 3, in double speed it starts a dot earlier before mode 2
+// (1 or 2 dots both fit the test).
 fn bool Ppu.oam_read_locked(&self) {
 	int ds = self.double_speed ? 1 : 0;
 	if ((self.lcdc & LCDC_ENABLE) == 0 || self.inactive_after_enable(4)) return false;
-	if (self.dot + 4 - ds >= DOTS_PER_LINE) return !(self.line >= VBLANK_LINE - 1 && self.line < TOTAL_LINES - 1);
-	return !(self.line >= VBLANK_LINE || self.dot >= self.m0_stat_dot());
+	int early = self.cgb_e && self.double_speed ? 1 : 0;
+	if (self.dot + 4 - ds + early >= DOTS_PER_LINE) return !(self.line >= VBLANK_LINE - 1 && self.line < TOTAL_LINES - 1);
+	int late = self.cgb_e && !self.double_speed ? 1 : 0;
+	return !(self.line >= VBLANK_LINE || self.dot >= self.m0_stat_dot() + late);
 }
 
 fn bool Ppu.oam_write_locked(&self) {
