@@ -527,7 +527,7 @@ fn void Mmu.io_set(&self, ushort addr, char value) {
 			case 0xFF51: if (c) self.vdma_src = (self.vdma_src & 0x00FF) | ((ushort)value << 8); return;
 			case 0xFF52: if (c) self.vdma_src = (self.vdma_src & 0xFF00) | (value & 0xF0); return;
 			case 0xFF53: if (c) self.vdma_dst = (self.vdma_dst & 0x00FF) | ((ushort)value << 8); return;
-			case 0xFF54: if (c) self.vdma_dst = (self.vdma_dst & 0x1F00) | (value & 0xF0); return;
+			case 0xFF54: if (c) self.vdma_dst = (self.vdma_dst & 0xFF00) | (value & 0xF0); return;
 			case 0xFF55: if (c) self.vdma_start(value); return;
 			case 0xFF70: if (c) self.svbk = value & 0x07; return;
 			case 0xFF72:

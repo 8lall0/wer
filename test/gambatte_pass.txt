@@ -141,6 +141,7 @@ cgb hex div/start_stop1_inc_2_cgb04c_out01.gbc
 cgb hex div/start_stop2_inc_1_cgb04c_out00.gbc
 cgb hex div/start_stop2_inc_2_cgb04c_out01.gbc
 cgb hex dma/dma_dst_wrap_1_cgb04c_out1.gbc
+cgb hex dma/dma_dst_wrap_2_cgb04c_out0.gbc
 cgb hex dma/dma_hiram_read_cgb04c_out7.gbc
 cgb hex dma/dma_hiram_read_result_cgb04c_out1.gbc
 cgb hex dma/dma_oam_read_cgb04c_out7.gbc
