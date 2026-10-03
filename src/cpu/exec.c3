@@ -58,7 +58,12 @@ fn char Cpu.step(&self, mmu::Mmu *mmu) {
 	if (mmu.vdma_stall > 0) {
 		int n = mmu.vdma_stall;
 		mmu.vdma_stall = 0;
-		for (int i = 0; i < n; i++) mmu.tick(1);
+		// While it copies (not in its closing cycle) HBlank DMA requests are lost.
+		for (int i = 0; i < n; i++) {
+			mmu.vdma_busy = i < n - mmu::VDMA_OVERHEAD;
+			mmu.tick(1);
+		}
+		mmu.vdma_busy = false;
 		self.clk += (ulong)n; // too long for bus_cycles
 	}
 	self.bus_cycles = 0;

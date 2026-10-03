@@ -122,6 +122,7 @@ struct Mmu {
 	char   vdma_ff55;   // $FF55 read value when no HBlank DMA runs
 	bool   cpu_halted;  // the CPU is in HALT (Cpu.step)
 	bool   hdma_hold;   // ... or about to be (a speed switch): no HBlank DMA requests
+	bool   vdma_busy;   // a VRAM DMA is copying: an HBlank DMA request now is lost (Gambatte dma(): ackDmaReq)
 	bool   hdma_refund; // the next HBlank DMA block stalls the CPU an M-cycle less
 	int    timer_hold;  // M-cycles the timer stands still (CGB speed switch, Cpu.stop)
 	bool   gdma_due;    // a general purpose VRAM DMA starts at the next instruction boundary
@@ -905,7 +906,7 @@ fn void Mmu.tick(&self, char mcycles) {
 		self.ppu.hblank_start = false;
 		// Not while the CPU is halted (Gambatte LCD flagHdmaReq): waking up
 		// in the HBlank DMA period requests the block (Mmu.hdma_unhalt).
-		if (self.cgb_mode && self.vdma_hblank && !self.cpu_halted && !self.hdma_hold) self.hdma_due = true;
+		if (self.cgb_mode && self.vdma_hblank && !self.cpu_halted && !self.hdma_hold && !self.vdma_busy) self.hdma_due = true;
 	}
 	// An SGB reads *_TRN data out of the frame that has just been shown.
 	if (self.sgb && (pirq & ppu::INT_VBLANK)) self.sgb.capture_transfer(&self.ppu);

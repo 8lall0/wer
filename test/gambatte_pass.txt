@@ -339,9 +339,11 @@ cgb hex dma/hdma_start_scx5_1_cgb04c_out0.gbc
 cgb hex dma/hdma_start_scx5_2_cgb04c_out1.gbc
 cgb hex dma/hdma_start_scx5_ds_1_cgb04c_out0.gbc
 cgb hex dma/hdma_start_scx5_ds_2_cgb04c_out1.gbc
+cgb hex dma/hdma_transition_ei_halt_late_unhalt_scx1_1_cgb04c_out00.gbc
 cgb hex dma/hdma_transition_ei_halt_late_unhalt_scx1_2_cgb04c_outFF.gbc
 cgb hex dma/hdma_transition_halt_hdmadst_unhalt_cgb04c_out01.gbc
 cgb hex dma/hdma_transition_halt_late_unhalt_ldaaimm_hdma_scx1_2_cgb04c_out02.gbc
+cgb hex dma/hdma_transition_halt_late_unhalt_scx1_1_cgb04c_out00.gbc
 cgb hex dma/hdma_transition_halt_late_unhalt_scx1_2_cgb04c_outFF.gbc
 cgb hex dma/hdma_transition_oamdma_1_cgb04c_out509E529C.gbc
 cgb hex dma/hdma_transition_oamdma_2_cgb04c_out67.gbc
