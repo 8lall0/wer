@@ -69,8 +69,13 @@ fn void Cpu.stop(&self, mmu::Mmu *mmu) {
 		// Halted from the STOP on as far as HBlank DMA requests go (Gambatte
 		// Memory::stop halts before the clock changes).
 		// With an HBlank DMA block requested the byte after STOP runs as an
-		// instruction too (Gambatte: stop() returns it as prefetched).
-		if (mmu.hdma_due) self.pc--;
+		// instruction too, as read now, before the block's copy (Gambatte:
+		// stop() returns it as prefetched).
+		if (mmu.hdma_due) {
+			self.pc--;
+			self.prefetch_op = self.bus_value(mmu, self.pc);
+			self.prefetched = true;
+		}
 		mmu.hdma_stop(to_double);
 		mmu.hdma_hold = true;
 		// The OAM DMA gets one more M-cycle, then stands still (Gambatte
