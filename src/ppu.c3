@@ -382,7 +382,9 @@ fn char Ppu.update_mode(&self) {
 		want = 0;
 	}
 
-	if (self.first_line && want == 2) {
+	// Right after LCD on STAT reads mode 0 for a while (Gambatte getStat:
+	// inactivePeriodAfterDisplayEnable; mode 3 too in double speed).
+	if (self.first_line && (want == 2 || (want == 3 && self.inactive_after_enable(1)))) {
 		want = 0;
 	}
 	if (want == self.mode) return 0;

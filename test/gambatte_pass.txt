@@ -430,6 +430,7 @@ dmg hex enable_display/frame0_m3stat_count_1_dmg08_cgb04c_out90.gbc
 cgb hex enable_display/frame0_m3stat_count_1_dmg08_cgb04c_out90.gbc
 dmg hex enable_display/frame0_m3stat_count_2_dmg08_cgb04c_out90.gbc
 cgb hex enable_display/frame0_m3stat_count_2_dmg08_cgb04c_out90.gbc
+cgb hex enable_display/frame0_m3stat_count_ds_1_cgb04c_out90.gbc
 cgb hex enable_display/frame0_m3stat_count_ds_2_cgb04c_out90.gbc
 dmg hex enable_display/frame1_ly_count_1_dmg08_cgb04c_out99.gbc
 cgb hex enable_display/frame1_ly_count_1_dmg08_cgb04c_out99.gbc
