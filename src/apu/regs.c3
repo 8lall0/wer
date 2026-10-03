@@ -164,9 +164,16 @@ fn void Apu.write(&self, ushort addr, char value) {
 }
 
 // If length is enabled while the frame sequencer's next step won't clock it,
-// it is clocked once now; a trigger that finds it at 0 reloads max - 1.
+// it is clocked once now; a trigger that finds it at 0 reloads max - 1. On a
+// CGB-B and older this happens whatever the new enable bit (SameSuite
+// *_extra_length_clocking-cgb0B; noise too, unlike SameBoy).
 fn void Apu.length_enable_glitch(&self, int* length, bool* enabled, int ch, char value, int max) {
-	if ((value & 0x40) && !*enabled && (self.div_divider & 1) && *length) {
+	bool always = self.cgb && self.rev <= REV_B;
+	// ... and in double speed the square and noise channels still see the
+	// frame sequencer as it was before a step in this M-cycle.
+	int lsb = self.div_divider & 1;
+	if (always && self.double_speed && ch != WAV && self.div_step_age == 0) lsb ^= 1;
+	if (((value & 0x40) || always) && !*enabled && lsb && *length) {
 		(*length)--;
 		if (*length == 0) {
 			if (value & 0x80) {

@@ -12,9 +12,8 @@ import std::core::test;
 // Not vendored, and there are no prebuilt ROMs; build them with
 //   scripts/fetch-samesuite.sh
 // into test/samesuite/ . With none present the test prints one line and
-// passes. Names ending in a revision (-cgbDE, -A, ...) target that hardware
-// revision; wer's CGB is closest to a CPU CGB C in some places and to later
-// ones in others, so those are expected to vary. The APU follows SameBoy's
+// passes. Names ending in revisions (-cgb0B, -cgbDE, -A, ...) target that
+// hardware; they run on the first revision named (see revision_of). The APU follows SameBoy's
 // CGB-E model; channel_1_sweep, _sweep_restart and channel_1/2 _stop_div and
 // _volume_div give the same results as SameBoy 1.0.3 there, not the expected
 // ones.
@@ -37,7 +36,7 @@ const Rom[*] ROMS = {
 	{ "apu/channel_1/channel_1_delay", true },
 	{ "apu/channel_1/channel_1_duty", true },
 	{ "apu/channel_1/channel_1_duty_delay", true },
-	{ "apu/channel_1/channel_1_extra_length_clocking-cgb0B", false },
+	{ "apu/channel_1/channel_1_extra_length_clocking-cgb0B", true },
 	{ "apu/channel_1/channel_1_freq_change", true },
 	{ "apu/channel_1/channel_1_freq_change_timing-A", false },
 	{ "apu/channel_1/channel_1_freq_change_timing-cgb0BC", false },
@@ -58,7 +57,7 @@ const Rom[*] ROMS = {
 	{ "apu/channel_2/channel_2_delay", true },
 	{ "apu/channel_2/channel_2_duty", true },
 	{ "apu/channel_2/channel_2_duty_delay", true },
-	{ "apu/channel_2/channel_2_extra_length_clocking-cgb0B", false },
+	{ "apu/channel_2/channel_2_extra_length_clocking-cgb0B", true },
 	{ "apu/channel_2/channel_2_freq_change", true },
 	{ "apu/channel_2/channel_2_nrx2_glitch", true },
 	{ "apu/channel_2/channel_2_nrx2_speed_change", true },
@@ -70,7 +69,7 @@ const Rom[*] ROMS = {
 	{ "apu/channel_2/channel_2_volume_div", false },
 	{ "apu/channel_3/channel_3_and_glitch", true  },
 	{ "apu/channel_3/channel_3_delay", true  },
-	{ "apu/channel_3/channel_3_extra_length_clocking-cgb0", false },
+	{ "apu/channel_3/channel_3_extra_length_clocking-cgb0", true },
 	{ "apu/channel_3/channel_3_extra_length_clocking-cgbB", false },
 	{ "apu/channel_3/channel_3_first_sample", true  },
 	{ "apu/channel_3/channel_3_freq_change_delay", true  },
@@ -87,7 +86,7 @@ const Rom[*] ROMS = {
 	{ "apu/channel_4/channel_4_align", true },
 	{ "apu/channel_4/channel_4_delay", true },
 	{ "apu/channel_4/channel_4_equivalent_frequencies", true },
-	{ "apu/channel_4/channel_4_extra_length_clocking-cgb0B", false },
+	{ "apu/channel_4/channel_4_extra_length_clocking-cgb0B", true },
 	{ "apu/channel_4/channel_4_freq_change", true },
 	{ "apu/channel_4/channel_4_frequency_alignment", true },
 	{ "apu/channel_4/channel_4_lfsr", true  },
@@ -119,13 +118,22 @@ enum Outcome : char {
 	TIMEOUT,
 }
 
+// SameSuite targets a CGB-E, unless a test's name lists other revisions
+// (-cgb0B: CGB 0 and B, -cgbB, -cgbDE; -A, a GBA, isn't emulated): the
+// first one named.
+fn mmu::CgbRevision revision_of(String path) {
+	if (path.contains("-cgb0")) return CGB0;
+	if (path.contains("-cgbB")) return B;
+	if (path.contains("-cgbD")) return D;
+	return E;
+}
+
 fn Outcome run_rom(String path) {
 	char[]? data = file::load_temp(string::tformat("%s%s.gb", DIR, path));
 	if (catch data) return MISSING;
 	mmu::Model model = path.starts_with("sgb/") ? mmu::Model.SGB : mmu::Model.CGB;
 	gameboy::GameBoy gb = gameboy::new(false, model);
-	// SameSuite targets a CGB-E unless a test names an older revision.
-	gb.set_cgb_revision(path.contains("-cgb0BC") || path.contains("-cgb0B") ? mmu::CgbRevision.C : mmu::CgbRevision.E);
+	gb.set_cgb_revision(revision_of(path));
 	defer gb.destroy();
 	gb.load_rom(data);
 	if (gb.mmu.cart) gb.mmu.cart.has_battery = false;
