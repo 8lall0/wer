@@ -780,7 +780,15 @@ fn void Mmu.serial_tick(&self, uint t) {
 	self.serial_left -= (int)t;
 	int p = self.serial_period();
 	int due = self.serial_left <= 0 ? 8 : 8 - (self.serial_left + p - 1) / p;
+	bool was_active = self.serial_active;
+	int end_at = (int)t + self.serial_left; // the cycle of this tick the transfer ends in
 	while (self.serial_active && self.serial_bits < due) self.serial_shift();
+	// Ending within 3 cycles (4 on a CGB) of the serial interrupt being
+	// acknowledged, the new request is lost (Gambatte Memory::ackIrq:
+	// updateSerial(cc + 3 + cgb) before the acknowledge).
+	if (was_active && !self.serial_active && (self.ack_bit & 0x08) && end_at <= 3 + (self.model == CGB ? 1 : 0)) {
+		self.io[IF_REG - 0xFF00] &= (char)~0x08;
+	}
 	if (!self.serial_active) self.serial_left = 0;
 }
 
