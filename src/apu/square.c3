@@ -7,6 +7,7 @@ struct Square {
 	int  current_volume;
 	int  volume_countdown;     // envelope period countdown (NRx2)
 	int  current_sample_index; // duty step 0-7
+	bool duty_high;            // the duty output, latched when the step moves (a duty change waits for it)
 	bool sample_surpressed;    // just started: output 0 until the first step
 	int  sample_countdown;     // 2 MHz ticks to the next duty step (a 16-bit counter)
 	int  sample_length;        // frequency (NRx3/NRx4)

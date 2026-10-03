@@ -117,6 +117,7 @@ fn GameBoy new(bool boot = true, mmu::Model model = DMG) {
 		// The frame sequencer step the DMG boot ROM leaves (Gambatte
 		// setPostBiosState: spu counter $24xx; sound/ch2_init_env_counter_timing_*).
 		if (model == DMG) gb.mmu.apu.div_divider = 1;
+		gb.mmu.apu.latch_duty(0);
 	}
 	return gb;
 }

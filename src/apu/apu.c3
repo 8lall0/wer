@@ -162,11 +162,19 @@ fn void Apu.stop(&self, int ch) {
 	self.samples[ch] = 0;
 }
 
+// The duty step moved: latch its output with the current duty (Gambatte
+// DutyUnit: a duty change alone doesn't change the output; sound/
+// ch1_duty0_to_duty3_pos3*).
+fn void Apu.latch_duty(&self, int i) {
+	Square* s = &self.sq[i];
+	int duty = self.io[i * 5 + 1] >> 6;
+	s.duty_high = DUTY_TABLE[s.current_sample_index + duty * 8] != 0;
+}
+
 fn void Apu.update_square_sample(&self, int i) {
 	Square* s = &self.sq[i];
 	if (s.sample_surpressed) return;
-	int duty = self.io[i * 5 + 1] >> 6;
-	self.samples[i] = DUTY_TABLE[s.current_sample_index + duty * 8] ? (char)s.current_volume : 0;
+	self.samples[i] = s.duty_high ? (char)s.current_volume : 0;
 }
 
 fn void Apu.update_wave_sample(&self) {
@@ -388,6 +396,7 @@ fn void Apu.run(&self, int cycles) {
 			s.current_sample_index = (s.current_sample_index + 1) & 7;
 			s.sample_surpressed = false;
 			s.did_tick = true;
+			self.latch_duty(i);
 			self.update_square_sample(i);
 		}
 		s.just_reloaded = left == 0;

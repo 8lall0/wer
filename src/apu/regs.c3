@@ -208,6 +208,7 @@ fn void Apu.write_nrx4(&self, int i, int reg, char value) {
 			if (self.is_cgb_e()) {
 				if ((value & 4) == 0 && (((s.sample_countdown - s.delay) / 2) & 0x400) == 0) {
 					s.current_sample_index = (s.current_sample_index + 1) & 7;
+					self.latch_duty(i);
 					force_unsurpressed = true;
 				}
 			}
@@ -219,6 +220,7 @@ fn void Apu.write_nrx4(&self, int i, int reg, char value) {
 				// SameBoy (CGB-E): the duty steps on a restart almost always.
 				if (!s.just_reloaded && (value & 4) == 0 && (((s.sample_countdown - 1 - s.delay) / 2) & 0x400) == 0) {
 					s.current_sample_index = (s.current_sample_index + 1) & 7;
+					self.latch_duty(i);
 					s.sample_surpressed = false;
 				} else if (s.sample_length == 0x7FF && old_sample_length != 0x7FF && s.sample_surpressed) {
 					extra_delay += 2;
@@ -230,6 +232,7 @@ fn void Apu.write_nrx4(&self, int i, int reg, char value) {
 				// sound/ch1_init_pos_*, *_pos6_to_pos7_timing_*).
 				if (s.sample_countdown == 0) {
 					s.current_sample_index = (s.current_sample_index + 1) & 7;
+					self.latch_duty(i);
 					s.sample_surpressed = false;
 				}
 			}
