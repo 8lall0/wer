@@ -99,7 +99,6 @@ struct Renderer {
 	ObjStep  obj_step;
 	bool     prev_win_en;     // LCDC's window enable in the previous dot
 	bool     obj_abort;   // DMG: OBJ_EN was cleared during an object fetch
-	int      abort_dots;  // ... the dots of fetches cut short that way
 	int      x158_dot;    // the dot pixel 158 went out (Gambatte's xpos 166: the mode 0 interrupt)
 
 	// CGB TILE_SEL glitch (SameBoy, after Matt Currie's research)
@@ -215,7 +214,6 @@ fn void Ppu.render_start(&self) {
 	r.state = TILE_T1;
 	r.obj_step = NONE;
 	r.insert_bg_pixel = false;
-	r.abort_dots = 0;
 	r.prev_win_en = (self.r_lcdc & LCDC_WIN_ENABLE) != 0;
 
 	if (self.first_line) r.n_obj = 0; // no OAM scan on the first line after LCD on
@@ -246,14 +244,14 @@ fn void Ppu.render_dot(&self) {
 			self.win_abortable = false;
 		}
 	}
+	// DMG: OBJ_EN off (by the write's second step) while a fetch is under way
+	// cuts it short as well (Gambatte sprites/sprite_late_disable_*).
+	if (!self.cgb_hw && (self.r_lcdc & LCDC_OBJ_ENABLE) == 0 && self.during_object_fetch()) r.obj_abort = true;
 	if (r.obj_abort) {
 		// The object being fetched is dropped from this dot on (it stays in
 		// the list, but with objects off nothing fetches it).
 		r.obj_abort = false;
 		if (r.obj_step != NONE && r.obj_step != WIN_STALL) {
-			// Once its OAM read has begun, STAT still waits for the rest of
-			// the fetch, though the pixels go on (Gambatte sprites/*late_disable*).
-			if (r.obj_step >= OAM) r.abort_dots += (int)ObjStep.OVERLAY - (int)r.obj_step;
 			r.obj_step = NONE;
 			self.pixel_and_fetch();
 			return;

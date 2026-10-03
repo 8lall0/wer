@@ -302,7 +302,6 @@ const int M0_IRQ_BEFORE_END = 7;
 // How many dots before the pipeline's last pixel STAT leaves mode 3.
 fn int Ppu.mode3_tail(&self) {
 	int t = MODE3_TAIL;
-	t -= self.r.abort_dots;
 	// Gambatte: STAT reads mode 3 until 2 cycles before mode 0 - a dot in
 	// double speed.
 	if (self.double_speed) t -= 1;
@@ -327,7 +326,6 @@ fn void Ppu.predict_mode3(&self) {
 	if (!self.first_line && self.r.n_obj == 0 && !window_possible && self.n_writes == 0) {
 		self.pipe_end_dot = MODE2_DOTS + MODE3_DOTS + (self.scx & 7) + PLAIN_PIPE_EXTRA;
 		self.m0_irq_pred = self.pipe_end_dot - M0_IRQ_BEFORE_END;
-		self.r.abort_dots = 0;
 		return;
 	}
 	Ppu sim = *self;
@@ -346,7 +344,6 @@ fn void Ppu.predict_mode3(&self) {
 			break;
 		}
 	}
-	self.r.abort_dots = sim.r.abort_dots;
 	self.m0_irq_pred = sim.r.x158_dot >= 0 ? sim.r.x158_dot + 2 - M0_IRQ_BEFORE_END : self.pipe_end_dot - M0_IRQ_BEFORE_END;
 }
 

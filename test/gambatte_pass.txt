@@ -4050,6 +4050,7 @@ cgb hex sprites/mix_m3stat_ds_1_cgb04c_out3.gbc
 cgb hex sprites/mix_m3stat_ds_2_cgb04c_out0.gbc
 dmg hex sprites/sprite_late_disable_spx18_1_dmg08_out0.gb
 dmg hex sprites/sprite_late_disable_spx18_2_dmg08_out3.gb
+dmg hex sprites/sprite_late_disable_spx19_1_dmg08_out0.gb
 dmg hex sprites/sprite_late_disable_spx19_2_dmg08_out3.gb
 dmg hex sprites/sprite_late_disable_spx1A_1_dmg08_out0.gb
 dmg hex sprites/sprite_late_disable_spx1A_2_dmg08_out3.gb
@@ -4066,7 +4067,9 @@ dmg hex sprites/sprite_late_late_disable_spx18_1_dmg08_out0.gb
 dmg hex sprites/sprite_late_late_disable_spx18_2_dmg08_out3.gb
 dmg hex sprites/sprite_late_late_disable_spx19_1_dmg08_out0.gb
 dmg hex sprites/sprite_late_late_disable_spx19_2_dmg08_out3.gb
+dmg hex sprites/sprite_late_late_disable_spx1A_1_dmg08_out0.gb
 dmg hex sprites/sprite_late_late_disable_spx1A_2_dmg08_out3.gb
+dmg hex sprites/sprite_late_late_disable_spx1B_1_dmg08_out0.gb
 dmg hex sprites/sprite_late_late_disable_spx1B_2_dmg08_out3.gb
 cgb hex sprites/enable/late_disable_ds_1_cgb04c_out3.gbc
 cgb hex sprites/enable/late_disable_ds_2_cgb04c_out3.gbc
