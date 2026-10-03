@@ -288,7 +288,14 @@ fn bool Mmu.in_hblank(&self) {
 }
 
 fn void Mmu.vdma_hblank_step(&self, bool halted) {
-	if (!self.vdma_hblank) return;
+	if (!self.vdma_hblank) {
+		// Stopped after this block was requested: it still goes, and counts
+		// down the length written with the stop (Gambatte Memory::dma).
+		self.vdma_block();
+		self.vdma_stall += VDMA_OVERHEAD;
+		self.vdma_ff55 = 0x80 | ((self.vdma_ff55 - 1) & 0x7F);
+		return;
+	}
 	self.vdma_block();
 	self.vdma_stall += VDMA_OVERHEAD;
 	// A block copied while the CPU is halted ends the HBlank DMA, the length

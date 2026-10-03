@@ -197,11 +197,17 @@ cgb hex dma/hdma_ei_m3halt_m0unhalt_ly_2_cgb04c_out03.gbc
 cgb hex dma/hdma_late_destl_1_cgb04c_out0.gbc
 cgb hex dma/hdma_late_destl_2_cgb04c_out1.gbc
 cgb hex dma/hdma_late_disable_1_cgb04c_out0.gbc
+cgb hex dma/hdma_late_disable_2_cgb04c_out1.gbc
 cgb hex dma/hdma_late_disable_ds_1_cgb04c_out0.gbc
+cgb hex dma/hdma_late_disable_ds_2_cgb04c_out1.gbc
 cgb hex dma/hdma_late_disable_scx2_1_cgb04c_out0.gbc
+cgb hex dma/hdma_late_disable_scx2_2_cgb04c_out1.gbc
 cgb hex dma/hdma_late_disable_scx3_1_cgb04c_out0.gbc
+cgb hex dma/hdma_late_disable_scx3_2_cgb04c_out1.gbc
 cgb hex dma/hdma_late_disable_scx5_1_cgb04c_out0.gbc
+cgb hex dma/hdma_late_disable_scx5_2_cgb04c_out1.gbc
 cgb hex dma/hdma_late_disable_scx5_ds_1_cgb04c_out0.gbc
+cgb hex dma/hdma_late_disable_scx5_ds_2_cgb04c_out1.gbc
 cgb hex dma/hdma_late_ei_m3halt_m2unhalt_ly_scx1_1_cgb04c_out02.gbc
 cgb hex dma/hdma_late_ei_m3halt_m2unhalt_ly_scx1_2_cgb04c_out03.gbc
 cgb hex dma/hdma_late_ei_m3halt_m2unhalt_ly_scx1_3_cgb04c_out02.gbc
