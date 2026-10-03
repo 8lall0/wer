@@ -46,6 +46,9 @@ struct Apu {
 
 	int div_divider;     // frame sequencer step counter (8 bits)
 	char div_step_age;   // Apu.tick calls since div_divider last moved (saturates)
+	// CGB-C and older: PCM12/PCM34 read in the M-cycle a channel's output
+	// changes give a glitched value (SameBoy pcm_mask); reset every M-cycle.
+	char[2] pcm_mask;
 	int lf_div;          // 1 MHz phase of the 2 MHz clock
 
 	// channel 1 sweep
@@ -216,6 +219,15 @@ fn void Apu.tick_square_envelope(&self, int i) {
 	if (s.env.locked) return;
 	char nrx2 = self.io[i * 5 + 2];
 	if ((nrx2 & 7) == 0) return;
+	if (self.double_speed) {
+		if (i == SQ1) {
+			self.pcm_mask[0] &= (char)(s.current_volume | 0xF1);
+		} else {
+			// A CGB-0's channel 2 masks less going down from 1 (SameBoy).
+			char low = self.rev == REV_0 && s.current_volume == 1 && (nrx2 & 8) ? 0x1F : 0x3F;
+			self.pcm_mask[0] &= (char)((s.current_volume << 4) | low);
+		}
+	}
 	s.current_volume = (nrx2 & 8) ? (s.current_volume + 1) & 0xFF : (s.current_volume - 1) & 0xFF;
 	if (self.active[i]) self.update_square_sample(i);
 }
@@ -225,6 +237,7 @@ fn void Apu.tick_noise_envelope(&self) {
 	if (self.noise.env.locked) return;
 	char nr42 = self.io[NR42];
 	if ((nr42 & 7) == 0) return;
+	if (self.double_speed) self.pcm_mask[1] &= (char)((self.noise.current_volume << 4) | 0x1F);
 	self.noise.current_volume = (nr42 & 8) ? (self.noise.current_volume + 1) & 0xFF : (self.noise.current_volume - 1) & 0xFF;
 	if (self.active[NOI]) self.samples[NOI] = (self.noise.lfsr & 1) ? (char)self.noise.current_volume : 0;
 }
@@ -260,6 +273,7 @@ fn void Apu.trigger_sweep_calculation(&self) {
 // Envelope ticks postponed by one M-cycle (CGB double speed).
 fn void Apu.delayed_envelope_tick(&self) {
 	self.pending_envelope_tick = false;
+	self.pcm_mask = { 0xFF, 0xFF };
 	if (!self.power) return;
 	for (int i = 0; i < 2; i++) {
 		if (self.sq[i].env.clock) self.tick_square_envelope(i);
@@ -276,6 +290,7 @@ fn void Apu.clock_length(&self, int* length, bool enabled, int ch) {
 
 // Falling edge of the DIV bit: the 512 Hz frame sequencer step.
 fn void Apu.div_event(&self) {
+	self.pcm_mask = { 0xFF, 0xFF };
 	if (!self.power) return;
 	if (self.skip_div_event == SKIP_SKIP) {
 		self.skip_div_event = SKIP_SKIPPED;
@@ -320,6 +335,7 @@ fn void Apu.div_event(&self) {
 
 // Rising edge of the DIV bit: envelope periods that ran out raise the clock.
 fn void Apu.div_secondary_event(&self) {
+	self.pcm_mask = { 0xFF, 0xFF };
 	if (!self.power) return;
 	for (int i = 0; i < 2; i++) {
 		Square* s = &self.sq[i];
@@ -421,6 +437,7 @@ fn void Apu.run(&self, int cycles) {
 			s.sample_countdown = s.reload();
 			s.current_sample_index = (s.current_sample_index + 1) & 7;
 			s.sample_surpressed = false;
+			if (left == 0 && self.samples[i] == 0) self.pcm_mask[0] &= i == SQ1 ? 0xF0 : 0x0F;
 			s.did_tick = true;
 			self.latch_duty(i);
 			self.update_square_sample(i);
@@ -461,7 +478,10 @@ fn void Apu.run(&self, int cycles) {
 			n.counter = (n.counter + 1) & 0x3FFF;
 			n.did_step_counter = true;
 			bool new_bit = (n.counter & mask) != 0;
-			if (new_bit && !old_bit && self.active[NOI]) self.step_lfsr();
+			if (new_bit && !old_bit && self.active[NOI]) {
+				if (left == 0 && self.samples[NOI] == 0 && !self.double_speed) self.pcm_mask[1] &= 0x0F;
+				self.step_lfsr();
+			}
 		}
 		if (left) {
 			n.counter_countdown -= left;
@@ -537,6 +557,7 @@ fn int Apu.duty_start_ticks(&self, int i, bool was_active) {
 // else half of `t`.
 fn void Apu.tick(&self, uint t, uint div_events, uint div_secondary = 0, bool div_write = false, bool frozen = false, int ticks = -1) {
 	if (self.div_step_age < 255) self.div_step_age++;
+	self.pcm_mask = { 0xFF, 0xFF };
 	if (frozen) {
 		self.output(t);
 		return;
@@ -651,6 +672,6 @@ fn uint Apu.drain(&self, short[] out) {
 
 // CGB PCM12/PCM34 ($FF76/$FF77): the current digital output (0-15) of
 // channels 1+2 and 3+4, the second channel of each pair in the high nibble.
-fn char Apu.pcm12(&self) => self.pcm(SQ1) | self.pcm(SQ2) << 4;
-fn char Apu.pcm34(&self) => self.pcm(WAV) | self.pcm(NOI) << 4;
+fn char Apu.pcm12(&self) => (self.pcm(SQ1) | self.pcm(SQ2) << 4) & (self.le_c() ? self.pcm_mask[0] : 0xFF);
+fn char Apu.pcm34(&self) => (self.pcm(WAV) | self.pcm(NOI) << 4) & (self.le_c() ? self.pcm_mask[1] : 0xFF);
 fn char Apu.pcm(&self, int ch) => self.active[ch] ? self.samples[ch] : 0;

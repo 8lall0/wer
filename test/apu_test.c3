@@ -140,7 +140,7 @@ fn void square_produces_alternating_output() @test
 	bool saw_high;
 	bool saw_low;
 	for (int i = 0; i < 64; i++) {
-		char o = a.pcm12() & 0x0F;
+		char o = a.pcm(apu::SQ1);
 		if (o == 15) saw_high = true;
 		if (o == 0) saw_low = true;
 		a.run(8);

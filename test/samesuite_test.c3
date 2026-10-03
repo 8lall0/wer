@@ -39,7 +39,7 @@ const Rom[*] ROMS = {
 	{ "apu/channel_1/channel_1_extra_length_clocking-cgb0B", true },
 	{ "apu/channel_1/channel_1_freq_change", true },
 	{ "apu/channel_1/channel_1_freq_change_timing-A", false },
-	{ "apu/channel_1/channel_1_freq_change_timing-cgb0BC", false },
+	{ "apu/channel_1/channel_1_freq_change_timing-cgb0BC", true },
 	{ "apu/channel_1/channel_1_freq_change_timing-cgbDE", true },
 	{ "apu/channel_1/channel_1_nrx2_glitch", true },
 	{ "apu/channel_1/channel_1_nrx2_speed_change", true },

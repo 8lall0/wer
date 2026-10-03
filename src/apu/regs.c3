@@ -222,7 +222,7 @@ fn void Apu.write_nrx4(&self, int i, int reg, char value) {
 			}
 			s.delay = 6 - self.lf_div;
 			s.sample_countdown = (s.sample_length ^ 0x7FF) * 2 + s.delay;
-			if (self.cgb && self.rev <= REV_C) s.sample_countdown = self.duty_start_ticks(i, false) - 1;
+			if (self.cgb && self.rev == REV_C) s.sample_countdown = self.duty_start_ticks(i, false) - 1;
 		} else {
 			int extra_delay = 0;
 			if (self.after_c()) {
@@ -239,7 +239,10 @@ fn void Apu.write_nrx4(&self, int i, int reg, char value) {
 			s.delay = 4 - self.lf_div + extra_delay;
 			s.sample_countdown = (s.sample_length ^ 0x7FF) * 2 + s.delay;
 			// CGB-C: Gambatte's timing on its own 2 MHz clock (Apu.clock).
-			if (self.cgb && self.rev <= REV_C) s.sample_countdown = self.duty_start_ticks(i, true) - 1;
+			// Older revisions keep SameBoy's (SameSuite
+			// channel_1_freq_change_timing-cgb0BC; Gambatte's tests disagree
+			// on a C).
+			if (self.cgb && self.rev == REV_C) s.sample_countdown = self.duty_start_ticks(i, true) - 1;
 		}
 		char nrx2 = self.io[i * 5 + 2];
 		s.current_volume = nrx2 >> 4;
