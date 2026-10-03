@@ -104,15 +104,16 @@ fn void general_purpose_dma_copies_everything() @test
 	gb.mmu.set(0xFF4F, 1);                       // into VRAM bank 1
 	vdma_program(&gb, 0xC105, 0x8203);          // low 4 bits are ignored
 	gb.mmu.set(0xFF55, 0x02);                    // 3 blocks, general purpose
+	test::@check(gb.mmu.gdma_due, "it starts at the next instruction boundary");
+
+	// 8 M-cycles per block, plus the start, before the next instruction.
+	ulong before = gb.cpu.clk;
+	gb.step();
+	test::@check(gb.cpu.clk - before >= 24 + mmu::VDMA_OVERHEAD, "the CPU waits for the copy");
+	test::eq(0, gb.mmu.vdma_stall);
 	for (int i = 0; i < 48; i++) test::eq((char)(0x00 + i), gb.mmu.ppu.vram1[0x200 + i]);
 	test::eq((char)0x00, gb.mmu.ppu.vram1[0x230]); // stops after 3 blocks
 	test::eq((char)0xFF, gb.mmu.get(0xFF55));
-	test::eq(24 + mmu::VDMA_OVERHEAD, gb.mmu.vdma_stall); // 8 M-cycles per block, plus the start
-
-	ulong before = gb.cpu.clk;
-	gb.step();
-	test::@check(gb.cpu.clk - before >= 24, "the CPU waits for the copy");
-	test::eq(0, gb.mmu.vdma_stall);
 }
 
 fn void hblank_dma_one_block_per_hblank() @test
