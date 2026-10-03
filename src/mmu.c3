@@ -210,7 +210,11 @@ fn int Mmu.vdma_block_mcycles(&self) => self.double_speed ? 16 : 8;
 // Copy one 16-byte block, advancing source and destination.
 fn void Mmu.vdma_block(&self) {
 	for (int i = 0; i < 16; i++) {
-		*self.vram_at(self.vdma_dst & 0x1FFF) = self.get(self.vdma_src);
+		// From VRAM or $E000 on the DMA reads the cartridge bus, pulled up
+		// to $FF by then (Gambatte Memory::dma, cartBus).
+		ushort src = self.vdma_src;
+		char b = (src >= 0x8000 && src < 0xA000) || src >= 0xE000 ? 0xFF : self.get(src);
+		*self.vram_at(self.vdma_dst & 0x1FFF) = b;
 		self.vdma_src++;
 		self.vdma_dst = (self.vdma_dst + 1) & 0x1FFF;
 	}
