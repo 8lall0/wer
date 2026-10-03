@@ -130,6 +130,7 @@ struct Mmu {
 	ushort vdma_feed_src; // the bytes the VRAM DMA copied that are still "passing" (Mmu.dma_step)
 	int    vdma_feed_len;
 	int    vdma_feed_pos;
+	int    vdma_feed_wait;
 	char   ack_bit;     // the interrupt just acknowledged: dropped if raised again within a cycle or two
 	bool   if_written;  // the CPU wrote IF: it overrides what the PPU raises in the next dot (Gambatte)
 	bool   irq_early;   // the PPU raised an interrupt early enough in the last tick
@@ -227,6 +228,8 @@ fn void Mmu.vdma_block(&self) {
 		self.vdma_feed_src = self.vdma_src;
 		self.vdma_feed_len = 0;
 		self.vdma_feed_pos = 0;
+		// Gambatte fetches the next opcode before the copy starts.
+		self.vdma_feed_wait = 1;
 	}
 	self.vdma_feed_len += 16;
 	for (int i = 0; i < 16; i++) {
@@ -606,7 +609,9 @@ fn void Mmu.dma_step(&self) {
 	// While a VRAM DMA copies (a byte per 2 cycles), each OAM DMA step writes
 	// the byte the VRAM DMA reads, at OAM index source & $FF (Gambatte
 	// Memory::dma; oamdmasrcC000_hdmasrc0000).
-	if (self.vdma_feed_pos < self.vdma_feed_len) {
+	if (self.vdma_feed_pos < self.vdma_feed_len && self.vdma_feed_wait > 0) {
+		self.vdma_feed_wait--;
+	} else if (self.vdma_feed_pos < self.vdma_feed_len) {
 		int step = self.double_speed ? 1 : 2;
 		int k = self.vdma_feed_pos + VDMA_FEED_PHASE * (step - 1);
 		self.vdma_feed_pos += step;

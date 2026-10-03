@@ -3055,6 +3055,7 @@ cgb hex oamdma/oamdma_srcFF00_readFE45_dmg08_out1_cgb04c_out0.gbc
 cgb hex oamdma/oamdmasrc80_halt_lycirq_read8000_dmg08_cgb04c_out81.gbc
 dmg hex oamdma/oamdmasrc80_halt_m2irq_read8000_dmg08_cgb04c_out81.gbc
 cgb hex oamdma/oamdmasrc80_halt_m2irq_read8000_dmg08_cgb04c_out81.gbc
+cgb hex oamdma/oamdmasrcC000_hdmasrc0000_cgb04c_out0A940C0D.gbc
 cgb png scx_during_m3/scx1_scx0_during_m3_1.gbc
 dmg png scx_during_m3/scx1_scx0_during_m3_1.gbc
 cgb png scx_during_m3/scx2_scx0_during_m3_1.gbc
