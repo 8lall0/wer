@@ -42,6 +42,7 @@ the common hardware test suites check; results below.
 | [SameSuite](https://github.com/LIJI32/SameSuite) | 65/78 (the rest target specific CGB revisions, or give SameBoy's results) |
 | [Gambatte test suite](https://github.com/pokemon-speedrunning/gambatte-core) | 5204/5225 (99.6%) |
 | [AGE test ROMs](https://github.com/c-sp/age-test-roms) | 114/119 on the revisions each test names (DMG, CGB-B, C, E) |
+| [gbmicrotest](https://github.com/aappleby/GBMicrotest) | 480/482 |
 | [rtc3test](https://github.com/aaaaaa123456789/rtc3test), [MBC3 Tester](https://github.com/EricKirschenmann/MBC3-Tester-gb) | pass |
 | [SingleStepTests sm83](https://github.com/SingleStepTests/sm83) | every case, including bus timing |
 
@@ -103,7 +104,8 @@ the build of wer that wrote it; another version of wer refuses to load it.
 ```sh
 scripts/fetch-mooneye.sh      # and fetch-mealybug.sh, fetch-acid2.sh,
 scripts/fetch-blargg.sh       #     fetch-sm83-tests.sh, fetch-samesuite.sh,
-                              #     fetch-gambatte.sh, fetch-age.sh
+                              #     fetch-gambatte.sh, fetch-age.sh,
+                              #     fetch-gbmicrotest.sh
 c3c test
 ./build/testrun --test-nocapture --test-filter mooneye   # a suite's report
 WER_GAMBATTE=1 c3c test -O2 --test-nocapture --test-filter gambatte
