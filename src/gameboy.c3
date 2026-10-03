@@ -125,10 +125,12 @@ fn GameBoy new(bool boot = true, mmu::Model model = DMG) {
 	return gb;
 }
 
-// A CGB's revision where it matters (the APU): E (later CGBs, SameBoy's
-// model) or C (the default).
-fn void GameBoy.set_cgb_revision_e(&self, bool e) {
+// Which CGB chip revision to emulate (C unless set).
+fn void GameBoy.set_cgb_revision(&self, mmu::CgbRevision rev) {
+	bool e = rev == E;
+	self.mmu.cgb_rev = rev;
 	self.mmu.apu.cgb_e = e;
+	self.mmu.ppu.cgb_e = e;
 }
 
 fn void GameBoy.destroy(&self) {

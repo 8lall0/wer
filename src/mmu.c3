@@ -32,6 +32,14 @@ enum Model : char {
 	CGB,
 }
 
+// A CGB's chip revision, where the revisions behave differently: C (CPU CGB
+// C, the default: Gambatte's and Mealybug's results come from one) or E (CPU
+// CGB E, the last one: SameSuite's, and AGE's -cgbE tests).
+enum CgbRevision : char {
+	C,
+	E,
+}
+
 // The DMG's clock, 4 194 304 Hz.
 const uint DMG_HZ = 4194304;
 // The original SGB derives its Game Boy clock from the SNES master clock
@@ -99,6 +107,7 @@ struct Mmu {
 
 	bool boot_active;
 	Model model;
+	CgbRevision cgb_rev; // CGB only
 	// CGB features on: model CGB and a game that supports them. Every CGB
 	// register reads $FF and ignores writes otherwise.
 	bool  cgb_mode;

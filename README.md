@@ -64,7 +64,7 @@ wer --mode=cgb game.gbc
 
 | Option | |
 |---|---|
-| `--mode=dmg\|sgb\|sgb2\|cgb` | the model to emulate |
+| `--mode=dmg\|sgb\|sgb2\|cgb\|cgb-e` | the model to emulate; `cgb` is a CPU CGB C (as `cgb-c`), `cgb-e` a CPU CGB E |
 | `--palette=1-A` … `4-H` | SGB built-in palette (SGB modes) |
 | `--scale=1..4` | window size, multiples of 160x144 |
 | `--no-boot` | skip the boot ROM |

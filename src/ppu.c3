@@ -55,6 +55,7 @@ struct Ppu {
 	bool     cgb;
 	bool     compat;  // CGB running a DMG game: DMG renderer, colours from palette RAM
 	bool     cgb_hw;  // CGB hardware, in either mode (timing differences)
+	bool     cgb_e;   // ... a CPU CGB E (mmu::CgbRevision)
 
 	char lcdc;
 	char stat;

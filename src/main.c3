@@ -50,9 +50,10 @@ bool sgb_log;
 // Replace the running game with the ROM at `path`. The file is read first, so
 // a failed load leaves the current game untouched; destroy() writes the old
 // game's battery save before it goes away.
-// `model` is the player's choice; CGB-only games run on a CGB regardless
+// `mode` is the player's choice; CGB-only games run on a CGB regardless
 // (gb.mmu.model is the model actually running).
-fn gameboy::Cartridge? load_game(gameboy::GameBoy* gb, String path, bool boot, mmu::Model model, int pal) {
+fn gameboy::Cartridge? load_game(gameboy::GameBoy* gb, String path, bool boot, Mode mode, int pal) {
+	mmu::Model model = mode.model();
 	char[]? data = file::load_temp(path);
 	if (catch data) {
 		io::eprintfn("could not load ROM: %s", path);
@@ -64,6 +65,7 @@ fn gameboy::Cartridge? load_game(gameboy::GameBoy* gb, String path, bool boot, m
 	}
 	gb.destroy();
 	*gb = gameboy::new(boot, model);
+	gb.set_cgb_revision(mode.revision());
 	apply_preset(gb, pal);
 	gb.mmu.serial_echo = true; // Blargg-style test ROMs report over serial
 	if (gb.mmu.sgb) gb.mmu.sgb.log = sgb_log;
@@ -72,13 +74,13 @@ fn gameboy::Cartridge? load_game(gameboy::GameBoy* gb, String path, bool boot, m
 	return cart;
 }
 
-fn String window_title(gameboy::Cartridge* cart, mmu::Model model) {
+fn String window_title(gameboy::Cartridge* cart, gameboy::GameBoy* gb) {
 	String tag;
-	switch (model) {
+	switch (gb.mmu.model) {
 		case DMG:  tag = "";
 		case SGB:  tag = " [SGB]";
 		case SGB2: tag = " [SGB2]";
-		case CGB:  tag = " [CGB]";
+		case CGB:  tag = gb.mmu.cgb_rev == E ? " [CGB-E]" : " [CGB]";
 	}
 	return string::tformat("wer - %s%s", (ZString)&cart.title[0], tag);
 }
@@ -110,44 +112,53 @@ fn void apply_preset(gameboy::GameBoy* gb, int pal) {
 	if (gb.mmu.sgb) gb.mmu.sgb.set_preset(display::SGB_PALETTES[pal]);
 }
 
-fn char[12] mode_colors(mmu::Model model, int pal) {
+fn char[12] mode_colors(Mode mode, int pal) {
 	char[12] colors;
-	display::palette_rgb(model.is_sgb() ? PALETTE_NAMES[pal] : "dmg", &colors);
+	display::palette_rgb(mode.model().is_sgb() ? PALETTE_NAMES[pal] : "dmg", &colors);
 	return colors;
 }
 
-// The model after `m` in the menu's DMG -> SGB -> SGB2 -> CGB order (dir = +1 / -1).
-fn mmu::Model cycle_model(mmu::Model m, int dir) {
-	switch (m) {
-		case DMG:  return dir > 0 ? mmu::Model.SGB : mmu::Model.CGB;
-		case SGB:  return dir > 0 ? mmu::Model.SGB2 : mmu::Model.DMG;
-		case SGB2: return dir > 0 ? mmu::Model.CGB : mmu::Model.SGB;
-		case CGB:  return dir > 0 ? mmu::Model.DMG : mmu::Model.SGB2;
+// What the player picks: a model, and for a CGB its chip revision. In the
+// menu's order (Left/Right cycles through them).
+enum Mode : char {
+	DMG,
+	SGB,
+	SGB2,
+	CGB,    // CPU CGB C
+	CGB_E,  // CPU CGB E
+}
+
+const String[5] MODE_NAMES = { "dmg", "sgb", "sgb2", "cgb", "cgb-e" };
+const String[5] MODE_LABELS = { "DMG", "SGB", "SGB2", "CGB (C)", "CGB (E)" };
+
+fn mmu::Model Mode.model(self) {
+	switch (self) {
+		case DMG:   return mmu::Model.DMG;
+		case SGB:   return mmu::Model.SGB;
+		case SGB2:  return mmu::Model.SGB2;
+		case CGB:
+		case CGB_E: return mmu::Model.CGB;
 	}
 }
 
-fn mmu::Model? model_from(String name) {
-	switch (name) {
-		case "dmg":  return DMG;
-		case "sgb":  return SGB;
-		case "sgb2": return SGB2;
-		case "cgb":  return CGB;
-		default:     return NOT_FOUND~;
-	}
+fn mmu::CgbRevision Mode.revision(self) => self == CGB_E ? mmu::CgbRevision.E : mmu::CgbRevision.C;
+
+// The mode after `m` (dir = +1 / -1).
+fn Mode cycle_mode(Mode m, int dir) {
+	int n = (int)MODE_NAMES.len;
+	return (Mode)((m.ordinal + (dir > 0 ? 1 : n - 1)) % n);
 }
 
-fn String model_name(mmu::Model m) {
-	switch (m) {
-		case DMG:  return "dmg";
-		case SGB:  return "sgb";
-		case SGB2: return "sgb2";
-		case CGB:  return "cgb";
-	}
+// A mode's name in the settings and on the command line ("cgb-c" is "cgb").
+fn Mode? mode_from(String name) {
+	if (name == "cgb-c") return CGB;
+	foreach (i, n : MODE_NAMES) if (name == n) return (Mode)(i);
+	return NOT_FOUND~;
 }
 
 // Store the current settings in ~/.wer/wer.conf.
-fn void save_settings(config::Config* cfg, mmu::Model model, int pal, int scale) {
-	cfg.set("mode", model_name(model));
+fn void save_settings(config::Config* cfg, Mode mode, int pal, int scale) {
+	cfg.set("mode", MODE_NAMES[mode.ordinal]);
 	cfg.set("palette", PALETTE_NAMES[pal]);
 	cfg.scale = scale;
 	if (catch cfg.save()) io::eprintfn("could not save %s", config::tpath());
@@ -235,7 +246,7 @@ fn int main(String[] args)
 	// Settings from ~/.wer/wer.conf; the command line overrides them.
 	config::Config cfg = config::load();
 	defer cfg.free();
-	mmu::Model model = model_from(cfg.mode) ?? DMG;
+	Mode mode = mode_from(cfg.mode) ?? DMG;
 	int scale = cfg.scale;
 	int pal = palette_index(cfg.palette);
 	if (pal < 0) pal = 0; // 1-A
@@ -253,19 +264,19 @@ fn int main(String[] args)
 					io::eprintfn("unknown scale '%s': use 1, 2, 3 or 4", a[8..]);
 					return 1;
 				}
-			case a == "--mode=dmg": model = DMG;
-			case a == "--mode=sgb": model = SGB;
-			case a == "--mode=sgb2": model = SGB2;
-			case a == "--mode=cgb": model = CGB;
 			case a.starts_with("--mode="):
-				io::eprintfn("unknown mode '%s': use dmg, sgb, sgb2 or cgb", a[7..]);
-				return 1;
+				if (try m = mode_from(a[7..])) {
+					mode = m;
+				} else {
+					io::eprintfn("unknown mode '%s': use dmg, sgb, sgb2, cgb (= cgb-c) or cgb-e", a[7..]);
+					return 1;
+				}
 			default: rom = a;
 		}
 	}
 
 	if (palette.len) {
-		if (!model.is_sgb()) {
+		if (!mode.model().is_sgb()) {
 			io::eprintn("--palette only applies to --mode=sgb/sgb2 (DMG mode is always green)");
 			return 1;
 		}
@@ -275,16 +286,17 @@ fn int main(String[] args)
 			return 1;
 		}
 	}
-	char[12] colors = mode_colors(model, pal);
+	char[12] colors = mode_colors(mode, pal);
 
-	gameboy::GameBoy gb = gameboy::new(false, model);
+	gameboy::GameBoy gb = gameboy::new(false, mode.model());
+	gb.set_cgb_revision(mode.revision());
 	defer gb.destroy();
 	apply_preset(&gb, pal);
 
 	gameboy::Cartridge cart;
 	bool has_rom = false;
 	if (rom.len) {
-		gameboy::Cartridge? loaded = load_game(&gb, rom, boot, model, pal);
+		gameboy::Cartridge? loaded = load_game(&gb, rom, boot, mode, pal);
 		if (catch loaded) return 1;
 		cart = loaded;
 		has_rom = true;
@@ -313,7 +325,7 @@ fn int main(String[] args)
 	// results don't live that long).
 	String rom_path = has_rom ? rom.copy(mem) : "";
 	defer if (rom_path.len) free(rom_path.ptr);
-	if (has_rom) screen.set_title(window_title(&cart, gb.mmu.model));
+	if (has_rom) screen.set_title(window_title(&cart, &gb));
 
 	// Without a ROM there is nothing to run: start in the menu.
 	bool menu = !has_rom;
@@ -337,13 +349,13 @@ fn int main(String[] args)
 		// A ROM chosen in the file dialog (menu or Ctrl+O) replaces the game.
 		String chosen = screen.take_dialog_result();
 		if (chosen.len) {
-			if (try loaded = load_game(&gb, chosen, boot, model, pal)) {
+			if (try loaded = load_game(&gb, chosen, boot, mode, pal)) {
 				cart = loaded;
 				has_rom = true;
 				menu = false;
 				if (rom_path.len) free(rom_path.ptr);
 				rom_path = chosen.copy(mem);
-				screen.set_title(window_title(&cart, gb.mmu.model));
+				screen.set_title(window_title(&cart, &gb));
 				screen.clear_audio();
 				paused = false;
 				next = clock::now();
@@ -361,7 +373,7 @@ fn int main(String[] args)
 				cfg.set(string::tformat("pad.%s", config::BUTTON_NAMES[binding]), display::pad_button_name(in.pad_button));
 			}
 			screen.bindings = display::bindings_from(&cfg);
-			save_settings(&cfg, model, pal, scale);
+			save_settings(&cfg, mode, pal, scale);
 			binding = -1;
 			in.pressed = 0;
 		}
@@ -420,7 +432,7 @@ fn int main(String[] args)
 								cfg.set(string::tformat("pad.%s", config::BUTTON_NAMES[i]), config::DEFAULT_PADS[i]);
 							}
 							screen.bindings = display::bindings_from(&cfg);
-							save_settings(&cfg, model, pal, scale);
+							save_settings(&cfg, mode, pal, scale);
 						default:
 							binding = selected;
 					}
@@ -448,7 +460,7 @@ fn int main(String[] args)
 			}
 			items[count++] = OPEN;
 			items[count++] = MODE;
-			if (model.is_sgb()) items[count++] = PALETTE;
+			if (mode.model().is_sgb()) items[count++] = PALETTE;
 			items[count++] = SCALE;
 			items[count++] = CONTROLS;
 			if (has_rom) items[count++] = RESET;
@@ -466,26 +478,27 @@ fn int main(String[] args)
 
 			// Switching the model restarts the running game on the other hardware.
 			if (item == MODE && (step != 0 || enter)) {
-				model = cycle_model(model, step < 0 ? -1 : 1);
-				colors = mode_colors(model, pal);
+				mode = cycle_mode(mode, step < 0 ? -1 : 1);
+				colors = mode_colors(mode, pal);
 				apply_preset(&gb, pal);
 				if (has_rom) {
-					if (try loaded = load_game(&gb, rom_path, boot, model, pal)) {
+					if (try loaded = load_game(&gb, rom_path, boot, mode, pal)) {
 						cart = loaded;
-						screen.set_title(window_title(&cart, gb.mmu.model));
+						screen.set_title(window_title(&cart, &gb));
 					}
 				} else {
 					gb.destroy();
-					gb = gameboy::new(false, model);
+					gb = gameboy::new(false, mode.model());
+					gb.set_cgb_revision(mode.revision());
 					apply_preset(&gb, pal);
 				}
-				save_settings(&cfg, model, pal, scale);
+				save_settings(&cfg, mode, pal, scale);
 			}
 			if (item == SCALE && (step != 0 || enter)) {
 				int n = display::MAX_SCALE - display::MIN_SCALE + 1;
 				scale = (scale - display::MIN_SCALE + (step < 0 ? n - 1 : 1)) % n + display::MIN_SCALE;
 				screen.set_scale(scale);
-				save_settings(&cfg, model, pal, scale);
+				save_settings(&cfg, mode, pal, scale);
 			}
 			if ((item == SAVE_STATE || item == LOAD_STATE) && step != 0) {
 				slot = (slot - 1 + step + STATE_SLOTS) % STATE_SLOTS + 1;
@@ -493,9 +506,9 @@ fn int main(String[] args)
 			if (item == PALETTE && step != 0) {
 				int n = (int)PALETTE_NAMES.len;
 				pal = (pal + step + n) % n;
-				colors = mode_colors(model, pal);
+				colors = mode_colors(mode, pal);
 				apply_preset(&gb, pal);
-				save_settings(&cfg, model, pal, scale);
+				save_settings(&cfg, mode, pal, scale);
 			}
 			if (enter) {
 				switch (item) {
@@ -513,7 +526,7 @@ fn int main(String[] args)
 						controls = true;
 						selected = 0;
 					case RESET:
-						if (try loaded = load_game(&gb, rom_path, boot, model, pal)) {
+						if (try loaded = load_game(&gb, rom_path, boot, mode, pal)) {
 							cart = loaded;
 							menu = false;
 							paused = false;
@@ -542,7 +555,7 @@ fn int main(String[] args)
 							lines[i] = screen.dialog_open() ? "Open ROM...  (dialog open)" : "Open ROM...  (Ctrl+O)";
 						}
 					case SCALE:   lines[i] = string::tformat("Scale:   < %dx >", scale);
-					case MODE:    lines[i] = string::tformat("Mode:    < %s >", model);
+					case MODE:    lines[i] = string::tformat("Mode:    < %s >", MODE_LABELS[mode.ordinal]);
 					case PALETTE: lines[i] = string::tformat("Palette: < %s >", PALETTE_NAMES[pal]);
 					case CONTROLS: lines[i] = "Controls...";
 					case RESET:   lines[i] = "Reset";

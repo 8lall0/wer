@@ -125,7 +125,7 @@ fn Outcome run_rom(String path) {
 	mmu::Model model = path.starts_with("sgb/") ? mmu::Model.SGB : mmu::Model.CGB;
 	gameboy::GameBoy gb = gameboy::new(false, model);
 	// SameSuite targets a CGB-E unless a test names an older revision.
-	gb.set_cgb_revision_e(!path.contains("-cgb0BC") && !path.contains("-cgb0B"));
+	gb.set_cgb_revision(path.contains("-cgb0BC") || path.contains("-cgb0B") ? mmu::CgbRevision.C : mmu::CgbRevision.E);
 	defer gb.destroy();
 	gb.load_rom(data);
 	if (gb.mmu.cart) gb.mmu.cart.has_battery = false;

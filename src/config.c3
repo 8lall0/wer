@@ -40,7 +40,7 @@ const String[8] DEFAULT_KEYS = { "Z", "X", "Right Shift", "Return", "Up", "Down"
 const String[8] DEFAULT_PADS = { "b", "a", "back", "start", "dpup", "dpdown", "dpleft", "dpright" };
 
 struct Config {
-	String    mode;     // "dmg", "sgb", "sgb2", "cgb"
+	String    mode;     // "dmg", "sgb", "sgb2", "cgb" (= "cgb-c"), "cgb-e"
 	String    palette;  // SGB palette "1-A" .. "4-H"
 	int       scale;    // 1-4
 	String[8] keys;
@@ -75,7 +75,7 @@ fn void replace(String* field, String value) {
 fn bool Config.set(&self, String name, String value) {
 	switch {
 		case name == "mode":
-			if (value != "dmg" && value != "sgb" && value != "sgb2" && value != "cgb") return false;
+			if (value != "dmg" && value != "sgb" && value != "sgb2" && value != "cgb" && value != "cgb-c" && value != "cgb-e") return false;
 			replace(&self.mode, value);
 		case name == "palette":
 			replace(&self.palette, value);

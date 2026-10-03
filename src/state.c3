@@ -108,12 +108,16 @@ fn void StateCursor.get(&self, void* p, usz n) {
 	self.pos += n;
 }
 
+// The model in a state's header, with the CGB revision (0 for C, so states
+// from before revisions still load).
+fn uint GameBoy.state_model(&self) => (uint)self.mmu.model.ordinal | (uint)self.mmu.cgb_rev.ordinal << 8;
+
 fn char[] GameBoy.save_state(&self, Allocator alloc) {
 	StateHeader h = {
 		.magic = STATE_MAGIC,
 		.version = STATE_VERSION,
 		.layout = state_layout(),
-		.model = (uint)self.mmu.model.ordinal,
+		.model = self.state_model(),
 		.flags = self.state_flags(),
 	};
 	h.rom_header[..] = self.rom_header()[..];
@@ -143,7 +147,7 @@ fn void? GameBoy.load_state(&self, char[] data) {
 	mem::copy(&h, data.ptr, StateHeader::size);
 	if (h.magic != STATE_MAGIC) return STATE_INVALID~;
 	if (h.version != STATE_VERSION || h.layout != state_layout()) return STATE_OTHER_BUILD~;
-	if (h.model != (uint)self.mmu.model.ordinal) return STATE_OTHER_MODEL~;
+	if (h.model != self.state_model()) return STATE_OTHER_MODEL~;
 	if (h.rom_header[..] != self.rom_header()) return STATE_OTHER_GAME~;
 	if (h.flags != self.state_flags() || data.len != self.state_size()) return STATE_INVALID~;
 
