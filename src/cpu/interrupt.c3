@@ -62,6 +62,7 @@ fn bool Cpu.service_interrupt(&self, mmu::Mmu *mmu) {
 
 	if (io_trace) io::eprintfn("INT if %02X ly %d lc %d", pending, mmu.ppu.line, mmu.ppu.dot);
 	self.prefetched = false; // a dispatch undoes the prefetch
+	self.prefetch_keeps_pc = false;
 	self.ime = false;
 	self.ime_delay = 0;  // a pending EI must not re-enable IME inside the handler
 	// EI; HALT with an interrupt already pending: HALT hits the HALT bug (IME
@@ -122,6 +123,14 @@ fn void Cpu.halt(&self, mmu::Mmu *mmu) {
 		self.halted = true;
 		self.just_halted = true;
 		self.halt_dma_ran = false;
+		// With an HBlank DMA block requested, the byte after HALT is read now
+		// and runs first, without PC moving on: the same address is fetched
+		// again after it (Gambatte CPU 0x76: prefetched = Memory::halt()).
+		if (mmu.cgb_mode && mmu.hdma_due) {
+			self.prefetch_op = self.bus_value(mmu, self.pc);
+			self.prefetched = true;
+			self.prefetch_keeps_pc = true;
+		}
 		mmu.hdma_halt();
 	}
 }

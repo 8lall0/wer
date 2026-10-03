@@ -122,6 +122,7 @@ struct Cpu {
 	bool just_halted; // the first M-cycle in HALT (samples interrupts like a CGB)
 	bool prefetched;  // the next opcode was read already (before an HBlank DMA block): prefetch_op
 	char prefetch_op;
+	bool prefetch_keeps_pc; // ... by HALT: PC doesn't move on past it
 	bool no_prefetch; // the HBlank DMA block due was released by a HALT wake-up: no prefetch
 	bool halt_first_ran; // the M-cycle just run was HALT's first (a DMG can't wake before the next one ends)
 	bool halt_dma_ran;   // the OAM DMA already had its extra M-cycle (a speed switch's STOP)

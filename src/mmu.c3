@@ -130,6 +130,7 @@ struct Mmu {
 	bool   hdma_due;    // an HBlank DMA block goes at the next instruction boundary (Cpu.step)
 	char   halt_hdma;   // HDMA state as HALT began: 0 low, 1 in HBlank, 2 a block was due, 3 the same at a speed switch (Gambatte)
 	int    vdma_stall;  // M-cycles the CPU is held off the bus (Cpu.step)
+	int    vdma_copying; // ... of them the copy itself (HBlank DMA requests are lost meanwhile)
 	ushort vdma_feed_src; // the bytes the VRAM DMA copied that are still "passing" (Mmu.dma_step)
 	int    vdma_feed_len;
 	int    vdma_feed_pos;
@@ -245,6 +246,7 @@ fn void Mmu.vdma_block(&self) {
 		self.vdma_dst++;
 	}
 	self.vdma_stall += self.vdma_block_mcycles();
+	self.vdma_copying += self.vdma_block_mcycles();
 }
 
 // A write to $FF55: bits 0-6 = blocks - 1, bit 7 = HBlank DMA.
@@ -317,10 +319,10 @@ fn void Mmu.hdma_stop(&self, bool to_double) {
 fn void Mmu.hdma_unhalt(&self) {
 	if (!self.cgb_mode) return;
 	if ((self.vdma_hblank && self.hdma_period() && self.halt_hdma == 0) || self.halt_hdma >= 2) self.hdma_due = true;
-	// A block held back by a speed switch gives the CPU an M-cycle back
-	// (Gambatte Memory::event, intevent_dma: cc -= 4; after a plain HALT our
-	// wake-up cycle already accounts for it).
-	if (self.halt_hdma == 3) self.hdma_refund = true;
+	// A block held back by HALT or a speed switch gives the CPU an M-cycle
+	// back: the opcode read at the HALT doesn't cost its fetch again
+	// (Gambatte Memory::event, intevent_dma: cc -= 4).
+	if (self.halt_hdma >= 2) self.hdma_refund = true;
 	self.halt_hdma = 0;
 }
 

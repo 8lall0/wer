@@ -13,6 +13,8 @@ fn char Cpu.execute_one(&self, mmu::Mmu *mmu) {
 	if (self.prefetched) {
 		op = self.prefetch_op;
 		self.prefetched = false;
+		if (self.prefetch_keeps_pc) self.pc--;
+		self.prefetch_keeps_pc = false;
 	}
 	if (self.halt_bug) {
 		// The HALT bug: the byte after HALT is read without advancing PC.
@@ -36,6 +38,9 @@ fn char Cpu.execute_one(&self, mmu::Mmu *mmu) {
 fn char Cpu.step(&self, mmu::Mmu *mmu) {
 	// An HBlank DMA block is copied between instructions (Gambatte: a DMA
 	// event), and holds the CPU off the bus while it runs.
+	// A block HALT held back: the next instruction runs before any interrupt
+	// is taken (Gambatte intevent_dma: setMinIntTime).
+	bool held_block = mmu.hdma_due && mmu.hdma_refund;
 	if (mmu.hdma_due) {
 		if (io_trace) io::eprintfn("DMA ly %d lc %d", mmu.ppu.line, mmu.ppu.dot);
 		mmu.hdma_due = false;
@@ -59,15 +64,17 @@ fn char Cpu.step(&self, mmu::Mmu *mmu) {
 		int n = mmu.vdma_stall;
 		mmu.vdma_stall = 0;
 		// While it copies (not in its closing cycle) HBlank DMA requests are lost.
+		int copying = mmu.vdma_copying;
+		mmu.vdma_copying = 0;
 		for (int i = 0; i < n; i++) {
-			mmu.vdma_busy = i < n - mmu::VDMA_OVERHEAD;
+			mmu.vdma_busy = i < copying;
 			mmu.tick(1);
 		}
 		mmu.vdma_busy = false;
 		self.clk += (ulong)n; // too long for bus_cycles
 	}
 	self.bus_cycles = 0;
-	if (!self.service_interrupt(mmu)) {
+	if (held_block || !self.service_interrupt(mmu)) {
 		if (self.halted || self.stopped) {
 			bool first = self.just_halted;
 			mmu.cpu_halted = self.halted;
