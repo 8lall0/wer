@@ -71,6 +71,7 @@ fn GameBoy new(bool boot = true, mmu::Model model = DMG) {
 		gb.mmu.set(0xFF48, 0xFF); // OBP0
 		gb.mmu.set(0xFF49, 0xFF); // OBP1
 		gb.mmu.set(0xFF40, 0x91); // LCDC: on, BG on, tile data $8000
+		gb.mmu.io[0x46] = 0xFF;   // DMA reads $FF (Pan Docs; gbmicrotest poweron_dma_000), no transfer
 		// The boot ROM turned the LCD on long ago, and hands over in VBlank:
 		// a CGB at line 144 dot 164, a DMG at line 153 dot 396 (Gambatte
 		// setPostBiosState; display_startstate).
