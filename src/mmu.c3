@@ -127,6 +127,9 @@ struct Mmu {
 	bool   hdma_due;    // an HBlank DMA block goes at the next instruction boundary (Cpu.step)
 	char   halt_hdma;   // HDMA state as HALT began: 0 low, 1 in HBlank, 2 a block was due, 3 the same at a speed switch (Gambatte)
 	int    vdma_stall;  // M-cycles the CPU is held off the bus (Cpu.step)
+	ushort vdma_feed_src; // the bytes the VRAM DMA copied that are still "passing" (Mmu.dma_step)
+	int    vdma_feed_len;
+	int    vdma_feed_pos;
 	char   ack_bit;     // the interrupt just acknowledged: dropped if raised again within a cycle or two
 	bool   if_written;  // the CPU wrote IF: it overrides what the PPU raises in the next dot (Gambatte)
 	bool   irq_early;   // the PPU raised an interrupt early enough in the last tick
@@ -209,15 +212,26 @@ fn char* Mmu.wram_at(&self, ushort off) {
 // Each VRAM DMA run (a whole general purpose one, or one HBlank block) holds
 // the CPU this much longer than its blocks (Gambatte Memory::dma: + 4 cycles).
 const int VDMA_OVERHEAD = 1;
+const int VDMA_FEED_PHASE = 1; // which byte of each pair an OAM DMA step sees (normal speed)
 fn int Mmu.vdma_block_mcycles(&self) => self.double_speed ? 16 : 8;
 
 // Copy one 16-byte block, advancing source and destination.
+// From VRAM or $E000 on a VRAM DMA reads the cartridge bus, pulled up to
+// $FF by then (Gambatte Memory::dma, cartBus).
+fn char Mmu.vdma_read(&self, ushort src) => (src >= 0x8000 && src < 0xA000) || src >= 0xE000 ? 0xFF : self.get(src);
+
 fn void Mmu.vdma_block(&self) {
+	// The bytes go now, but an OAM DMA running meanwhile sees them pass
+	// while the CPU waits (Mmu.dma_step).
+	if (self.vdma_feed_len == 0 || self.vdma_feed_src + (ushort)self.vdma_feed_len != self.vdma_src) {
+		self.vdma_feed_src = self.vdma_src;
+		self.vdma_feed_len = 0;
+		self.vdma_feed_pos = 0;
+	}
+	self.vdma_feed_len += 16;
 	for (int i = 0; i < 16; i++) {
-		// From VRAM or $E000 on the DMA reads the cartridge bus, pulled up
-		// to $FF by then (Gambatte Memory::dma, cartBus).
 		ushort src = self.vdma_src;
-		char b = (src >= 0x8000 && src < 0xA000) || src >= 0xE000 ? 0xFF : self.get(src);
+		char b = self.vdma_read(src);
 		*self.vram_at(self.vdma_dst & 0x1FFF) = b;
 		self.vdma_src++;
 		self.vdma_dst++;
@@ -588,6 +602,25 @@ fn void Mmu.dma_step(&self) {
 		self.dma.source = self.dma.pending_source;
 		self.dma.index = 0;
 		return;
+	}
+	// While a VRAM DMA copies (a byte per 2 cycles), each OAM DMA step writes
+	// the byte the VRAM DMA reads, at OAM index source & $FF (Gambatte
+	// Memory::dma; oamdmasrcC000_hdmasrc0000).
+	if (self.vdma_feed_pos < self.vdma_feed_len) {
+		int step = self.double_speed ? 1 : 2;
+		int k = self.vdma_feed_pos + VDMA_FEED_PHASE * (step - 1);
+		self.vdma_feed_pos += step;
+		if (self.vdma_feed_pos >= self.vdma_feed_len) self.vdma_feed_len = self.vdma_feed_pos = 0;
+		if (self.dma.active) {
+			ushort src = self.vdma_feed_src + (ushort)k;
+			char b = self.vdma_read(src);
+			if ((src & 0xFF) < DMA_LEN) self.ppu.oam[src & 0xFF] = b;
+			if (++self.dma.index == DMA_LEN) {
+				self.dma.active = false;
+				self.ppu.oam_dma_until = self.ppu.cc;
+			}
+			return;
+		}
 	}
 	if (!self.dma.active) return;
 	// The byte goes before a CPU write in the same M-cycle (Gambatte updates
