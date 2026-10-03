@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Fetch the small screenshot-checked test ROMs of c-sp/game-boy-test-roms
 # (cgb-acid-hell, bully, strikethrough, turtle-tests, scribbltests,
-# little-things-gb firstwhite) into test/screens/ for test/screens_test.c3.
+# little-things-gb firstwhite, Mooneye's manual-only sprite_priority) into
+# test/screens/ for test/screens_test.c3.
 #
 #   scripts/fetch-screens.sh
 #
@@ -19,11 +20,12 @@ trap 'rm -rf "$TMP"' EXIT
 curl -sfL -o "$TMP/roms.zip" \
 	"https://github.com/c-sp/game-boy-test-roms/releases/download/$VERSION/game-boy-test-roms-$VERSION.zip"
 unzip -q "$TMP/roms.zip" 'cgb-acid-hell/*' 'bully/*' 'strikethrough/*' 'turtle-tests/*' \
-	'scribbltests/*' 'little-things-gb/*' -d "$TMP"
+	'scribbltests/*' 'little-things-gb/*' 'mooneye-test-suite/manual-only/*' -d "$TMP"
 rm -rf "$DEST"
 mkdir -p "$DEST"
 mv "$TMP"/cgb-acid-hell "$TMP"/bully "$TMP"/strikethrough "$TMP"/turtle-tests \
 	"$TMP"/scribbltests "$TMP"/little-things-gb "$DEST/"
+mv "$TMP/mooneye-test-suite/manual-only" "$DEST/mooneye-manual"
 
 python3 - "$DEST" <<'EOF'
 import os, sys, struct, zlib
@@ -103,6 +105,8 @@ dmg c 270 scribbltests/statcount/statcount-auto.gb scribbltests/statcount/statco
 cgb d 270 scribbltests/statcount/statcount-auto.gb scribbltests/statcount/statcount_auto-cgb-dmg.rgb
 dmg c 30 little-things-gb/firstwhite.gb little-things-gb/firstwhite-dmg-cgb.rgb
 cgb c 30 little-things-gb/firstwhite.gb little-things-gb/firstwhite-dmg-cgb.rgb
+dmg c 0 mooneye-manual/sprite_priority.gb mooneye-manual/sprite_priority-dmg.rgb
+cgb c 0 mooneye-manual/sprite_priority.gb mooneye-manual/sprite_priority-cgb.rgb
 """
 lines = [l for l in CHECKS.strip().splitlines()]
 open(os.path.join(root, "index.txt"), "w").write("\n".join(lines) + "\n")

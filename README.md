@@ -44,7 +44,7 @@ the common hardware test suites check; results below.
 | [AGE test ROMs](https://github.com/c-sp/age-test-roms) | 114/119 on the revisions each test names (DMG, CGB-B, C, E) |
 | [gbmicrotest](https://github.com/aappleby/GBMicrotest) | 480/482 |
 | [Mooneye, wilbertpol's 2016 fork](https://github.com/wilbertpol/mooneye-gb) | 186/186 (CGB tests on a CGB-E) |
-| cgb-acid-hell, bully, turtle-tests, scribbltests, little-things-gb firstwhite, strikethrough | 18/20 (strikethrough fails on both models) |
+| cgb-acid-hell, bully, turtle-tests, scribbltests, little-things-gb firstwhite, Mooneye sprite_priority, strikethrough | 20/22 (strikethrough fails on both models) |
 | [rtc3test](https://github.com/aaaaaa123456789/rtc3test), [MBC3 Tester](https://github.com/EricKirschenmann/MBC3-Tester-gb) | pass |
 | [SingleStepTests sm83](https://github.com/SingleStepTests/sm83) | every case, including bus timing |
 
