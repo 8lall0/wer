@@ -573,6 +573,9 @@ fn void Mmu.dma_request(&self, char page) {
 	if (src >= 0xE000 && self.model != CGB) src -= 0x2000;
 	self.dma.pending_source = src;
 	self.dma.pending = DMA_STARTUP;
+	// A transfer already running copies from the new page at once (its
+	// position restarts only at the takeover; Gambatte oamDmaInitSetup).
+	if (self.dma.active) self.dma.source = src;
 }
 
 fn void Mmu.dma_step(&self) {
