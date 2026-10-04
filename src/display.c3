@@ -20,6 +20,14 @@ const char[12] PALETTE = {
 	0x08, 0x18, 0x20,
 };
 
+// The Game Boy Pocket's grey screen.
+const char[12] PALETTE_MGB = {
+	0xE4, 0xE4, 0xDC,
+	0xA4, 0xA4, 0x9C,
+	0x5C, 0x5C, 0x54,
+	0x14, 0x14, 0x10,
+};
+
 // The 32 built-in Super Game Boy palettes, 1-A .. 4-H, in the SGB's own 15-bit
 // BGR format. Colour 0 is the lightest, so a DMG shade (0-3) indexes it
 // directly: SGB_PALETTES[palette][shade]. Values from mGBA (src/gb/overrides.c).
@@ -499,11 +507,16 @@ fn int Display.audio_queued(&self) {
 	return sdl::get_audio_stream_queued(self.audio);
 }
 
-// RGB for shades 0-3 of a named palette: "dmg" (the default green), or an SGB
+// RGB for shades 0-3 of a named palette: "dmg" (the default green), "mgb"
+// (the Pocket's grey), or an SGB
 // palette "1-A" .. "4-H" (case-insensitive). False for an unknown name.
 fn bool palette_rgb(String name, char[12]* out) {
 	if (name == "dmg") {
 		*out = PALETTE;
+		return true;
+	}
+	if (name == "mgb") {
+		*out = PALETTE_MGB;
 		return true;
 	}
 	if (name.len != 3 || name[1] != '-') return false;

@@ -108,9 +108,10 @@ fn void StateCursor.get(&self, void* p, usz n) {
 	self.pos += n;
 }
 
-// The model in a state's header, with the CGB revision (0 for C, so states
-// from before revisions still load).
-fn uint GameBoy.state_model(&self) => (uint)self.mmu.model.ordinal | (uint)((self.mmu.cgb_rev.ordinal + 3) % 6) << 8;
+// The model in a state's header, with the CGB and DMG revisions (0 for C and
+// A/B/C, so states from before revisions still load).
+fn uint GameBoy.state_model(&self) => (uint)self.mmu.model.ordinal | (uint)((self.mmu.cgb_rev.ordinal + 3) % 6) << 8
+	| (uint)((self.mmu.dmg_rev.ordinal + 2) % 3) << 12;
 
 fn char[] GameBoy.save_state(&self, Allocator alloc) {
 	StateHeader h = {

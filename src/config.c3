@@ -40,7 +40,7 @@ const String[8] DEFAULT_KEYS = { "Z", "X", "Right Shift", "Return", "Up", "Down"
 const String[8] DEFAULT_PADS = { "b", "a", "back", "start", "dpup", "dpdown", "dpleft", "dpright" };
 
 struct Config {
-	String    mode;     // "dmg", "sgb", "sgb2", "cgb" (= "cgb-c"), "cgb-0" ... "cgb-e"
+	String    mode;     // "dmg", "dmg-0", "mgb", "sgb", "sgb2", "cgb" (= "cgb-c"), "cgb-0" ... "cgb-e"
 	String    palette;  // SGB palette "1-A" .. "4-H"
 	int       scale;    // 1-4
 	String[8] keys;
@@ -76,7 +76,7 @@ fn bool Config.set(&self, String name, String value) {
 	switch {
 		case name == "mode":
 			switch (value) {
-				case "dmg": case "sgb": case "sgb2": case "cgb":
+				case "dmg": case "dmg-0": case "mgb": case "sgb": case "sgb2": case "cgb":
 				case "cgb-0": case "cgb-a": case "cgb-b": case "cgb-c": case "cgb-d": case "cgb-e":
 					break;
 				default:

@@ -92,6 +92,7 @@ struct Apu {
 	bool   defer_write;
 	bool   clock_ds;      // the 2 MHz clock's view of double speed (it switches at its own time)
 	char   rev;          // CGB revision (REV_*, mmu::CgbRevision's ordinal)
+	bool   mgb;          // Game Boy Pocket / Light
 	bool   double_speed;
 	ushort div_counter;  // the timer's 16-bit counter, for power-on
 
@@ -143,6 +144,7 @@ fn void Apu.clear_state(&self) {
 	self.io = keep.io;
 	self.cgb = keep.cgb;
 	self.rev = keep.rev;
+	self.mgb = keep.mgb;
 	self.gcc = keep.gcc;
 	self.glu = keep.glu;
 	self.gspu = keep.gspu;

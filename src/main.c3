@@ -66,6 +66,7 @@ fn gameboy::Cartridge? load_game(gameboy::GameBoy* gb, String path, bool boot, M
 	gb.destroy();
 	*gb = gameboy::new(boot, model);
 	gb.set_cgb_revision(mode.revision());
+	gb.set_dmg_revision(mode.dmg_revision());
 	apply_preset(gb, pal);
 	gb.mmu.serial_echo = true; // Blargg-style test ROMs report over serial
 	if (gb.mmu.sgb) gb.mmu.sgb.log = sgb_log;
@@ -79,7 +80,7 @@ const String[6] REV_LETTERS = { "0", "A", "B", "C", "D", "E" };
 fn String window_title(gameboy::Cartridge* cart, gameboy::GameBoy* gb) {
 	String tag;
 	switch (gb.mmu.model) {
-		case DMG:  tag = "";
+		case DMG:  tag = gb.mmu.dmg_rev == ABC ? "" : gb.mmu.dmg_rev == MGB ? " [Pocket]" : " [DMG-0]";
 		case SGB:  tag = " [SGB]";
 		case SGB2: tag = " [SGB2]";
 		case CGB:  tag = gb.mmu.cgb_rev == C ? " [CGB]" : string::tformat(" [CGB-%s]", REV_LETTERS[gb.mmu.cgb_rev.ordinal]);
@@ -116,14 +117,16 @@ fn void apply_preset(gameboy::GameBoy* gb, int pal) {
 
 fn char[12] mode_colors(Mode mode, int pal) {
 	char[12] colors;
-	display::palette_rgb(mode.model().is_sgb() ? PALETTE_NAMES[pal] : "dmg", &colors);
+	display::palette_rgb(mode.model().is_sgb() ? PALETTE_NAMES[pal] : mode == MGB ? "mgb" : "dmg", &colors);
 	return colors;
 }
 
 // What the player picks: a model, and for a CGB its chip revision. In the
 // menu's order (Left/Right cycles through them).
 enum Mode : char {
-	DMG,
+	DMG_0,  // CPU DMG 0, the first DMGs
+	DMG,    // CPU DMG A, B or C
+	MGB,    // Game Boy Pocket / Light
 	SGB,
 	SGB2,
 	CGB_0,  // CPU CGB 0 ... E: the CGB's chip revisions
@@ -134,12 +137,14 @@ enum Mode : char {
 	CGB_E,
 }
 
-const String[9] MODE_NAMES = { "dmg", "sgb", "sgb2", "cgb-0", "cgb-a", "cgb-b", "cgb", "cgb-d", "cgb-e" };
-const String[9] MODE_LABELS = { "DMG", "SGB", "SGB2", "CGB (0)", "CGB (A)", "CGB (B)", "CGB (C)", "CGB (D)", "CGB (E)" };
+const String[11] MODE_NAMES = { "dmg-0", "dmg", "mgb", "sgb", "sgb2", "cgb-0", "cgb-a", "cgb-b", "cgb", "cgb-d", "cgb-e" };
+const String[11] MODE_LABELS = { "DMG (0)", "DMG", "Pocket", "SGB", "SGB2", "CGB (0)", "CGB (A)", "CGB (B)", "CGB (C)", "CGB (D)", "CGB (E)" };
 
 fn mmu::Model Mode.model(self) {
 	switch (self) {
-		case DMG:   return mmu::Model.DMG;
+		case DMG_0:
+		case DMG:
+		case MGB:   return mmu::Model.DMG;
 		case SGB:   return mmu::Model.SGB;
 		case SGB2:  return mmu::Model.SGB2;
 		default:    return mmu::Model.CGB;
@@ -154,6 +159,14 @@ fn mmu::CgbRevision Mode.revision(self) {
 		case CGB_D: return mmu::CgbRevision.D;
 		case CGB_E: return mmu::CgbRevision.E;
 		default:    return mmu::CgbRevision.C;
+	}
+}
+
+fn mmu::DmgRevision Mode.dmg_revision(self) {
+	switch (self) {
+		case DMG_0: return mmu::DmgRevision.DMG0;
+		case MGB:   return mmu::DmgRevision.MGB;
+		default:    return mmu::DmgRevision.ABC;
 	}
 }
 
@@ -282,7 +295,7 @@ fn int main(String[] args)
 				if (try m = mode_from(a[7..])) {
 					mode = m;
 				} else {
-					io::eprintfn("unknown mode '%s': use dmg, sgb, sgb2, cgb (= cgb-c), cgb-0, cgb-a, cgb-b, cgb-d or cgb-e", a[7..]);
+					io::eprintfn("unknown mode '%s': use dmg, dmg-0, mgb, sgb, sgb2, cgb (= cgb-c), cgb-0, cgb-a, cgb-b, cgb-d or cgb-e", a[7..]);
 					return 1;
 				}
 			default: rom = a;
@@ -304,6 +317,7 @@ fn int main(String[] args)
 
 	gameboy::GameBoy gb = gameboy::new(false, mode.model());
 	gb.set_cgb_revision(mode.revision());
+	gb.set_dmg_revision(mode.dmg_revision());
 	defer gb.destroy();
 	apply_preset(&gb, pal);
 
@@ -504,6 +518,7 @@ fn int main(String[] args)
 					gb.destroy();
 					gb = gameboy::new(false, mode.model());
 					gb.set_cgb_revision(mode.revision());
+					gb.set_dmg_revision(mode.dmg_revision());
 					apply_preset(&gb, pal);
 				}
 				save_settings(&cfg, mode, pal, scale);

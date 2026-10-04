@@ -38,6 +38,8 @@ const char[64] CGB_POWER_ON_OBJ_PAL = {
 	0x0E, 0x08, 0xFE, 0xAF, 0x20, 0x02, 0xD7, 0xFF, 0x07, 0x6A, 0x55, 0xEC, 0x83, 0x40, 0x0B, 0x77,
 };
 
+const ushort DMG0_BOOT_DIV = 0x1830; // Mooneye boot_div-dmg0
+const int DMG0_BOOT_DOT = 168; // on line 145
 const int DMG_BOOT_DOT = 396; // post-boot DMG PPU dot on line 153 (Gambatte; gbmicrotest poweron_*)
 fn GameBoy new(bool boot = true, mmu::Model model = DMG) {
 	GameBoy gb;
@@ -49,6 +51,7 @@ fn GameBoy new(bool boot = true, mmu::Model model = DMG) {
 	gb.mmu.apu.cgb = model == CGB;
 	gb.mmu.ppu.cgb_hw = model == CGB;
 	gb.set_cgb_revision(C);
+	gb.mmu.dmg_rev = ABC;
 	gb.mmu.ppu.sgb_hw = model.is_sgb();
 	gb.mmu.apu.set_ring(mem::new_array(short, 16384));
 	if (model == CGB) {
@@ -155,6 +158,34 @@ fn void GameBoy.set_cgb_revision(&self, mmu::CgbRevision rev) {
 	self.mmu.cgb_rev = rev;
 	self.mmu.apu.rev = (char)rev.ordinal;
 	self.mmu.ppu.rev = (char)rev.ordinal;
+}
+
+// Which DMG revision to emulate (A/B/C unless set). Call it right after new():
+// without the boot ROM it sets the registers that revision's boot ROM leaves.
+fn void GameBoy.set_dmg_revision(&self, mmu::DmgRevision rev) {
+	if (self.mmu.model != DMG) return;
+	self.mmu.dmg_rev = rev;
+	self.mmu.ppu.mgb = rev == MGB;
+	self.mmu.apu.mgb = rev == MGB;
+	if (self.mmu.boot_active) return;
+	switch (rev) {
+		case DMG0:
+			self.cpu = cpu::init_dmg0();
+			self.mmu.timer.div = DMG0_BOOT_DIV;
+			// Its boot ROM hands over earlier in the frame: Mooneye
+			// boot_hwio-dmg0 passes from line 145 dot 88 to 252.
+			self.mmu.ppu.line = 145;
+			self.mmu.ppu.ly = 145;
+			self.mmu.ppu.dot = DMG0_BOOT_DOT;
+			self.mmu.ppu.irq_reschedule(true);
+		case ABC:
+			self.cpu = cpu::init();
+			self.mmu.timer.div = 0xABCC;
+		case MGB:
+			self.cpu = cpu::init();
+			self.cpu.af.hi = 0xFF; // how games tell a Pocket (Mooneye boot_regs-mgb)
+			self.mmu.timer.div = 0xABCC;
+	}
 }
 
 fn void GameBoy.destroy(&self) {

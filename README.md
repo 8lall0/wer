@@ -10,8 +10,9 @@ the common hardware test suites check; results below.
 
 ## Features
 
-- **Models**: Game Boy (DMG), Super Game Boy and Super Game Boy 2, Game Boy
-  Color. CGB-only games switch to the Game Boy Color automatically.
+- **Models**: Game Boy (DMG, also the first CPU DMG 0), Game Boy Pocket,
+  Super Game Boy and Super Game Boy 2, Game Boy Color in each chip revision
+  (CPU CGB 0 to E). CGB-only games switch to the Game Boy Color automatically.
 - **Super Game Boy**: game-controlled colours and borders, the 32 built-in
   palettes, the original SGB running about 2.4% fast like the real one.
 - **Game Boy Color**: colour games, double speed, VRAM DMA, and original Game
@@ -33,7 +34,7 @@ the common hardware test suites check; results below.
 
 | Suite | Result |
 |---|---|
-| [Mooneye Test Suite](https://github.com/Gekkio/mooneye-test-suite) | 105/105 (every test for DMG, SGB, SGB2 and CGB) |
+| [Mooneye Test Suite](https://github.com/Gekkio/mooneye-test-suite) | 112/112 (every test for DMG, DMG-0, Pocket, SGB, SGB2 and CGB) |
 | [Mealybug Tearoom](https://github.com/mattcurrie/mealybug-tearoom-tests) | DMG 24/24, CGB 27/27 |
 | [dmg-acid2](https://github.com/mattcurrie/dmg-acid2), [cgb-acid2](https://github.com/mattcurrie/cgb-acid2) | pixel-exact |
 | Blargg `cpu_instrs`, `instr_timing`, `mem_timing`, `mem_timing-2`, `halt_bug`, `interrupt_time` | pass |
@@ -43,7 +44,7 @@ the common hardware test suites check; results below.
 | [Gambatte test suite](https://github.com/pokemon-speedrunning/gambatte-core) | 5217/5225 (99.8%) |
 | [AGE test ROMs](https://github.com/c-sp/age-test-roms) | 119/119 on the revisions each test names (DMG, CGB-B, C, E) |
 | [gbmicrotest](https://github.com/aappleby/GBMicrotest) | 480/482 (the other two are disabled in its own runner) |
-| [Mooneye, wilbertpol's 2016 fork](https://github.com/wilbertpol/mooneye-gb) | 186/186 (CGB tests on a CGB-E) |
+| [Mooneye, wilbertpol's 2016 fork](https://github.com/wilbertpol/mooneye-gb) | 190/190 (CGB tests on a CGB-E) |
 | cgb-acid-hell, bully, turtle-tests, scribbltests, little-things-gb firstwhite, Mooneye sprite_priority, strikethrough | 22/22 |
 | [rtc3test](https://github.com/aaaaaa123456789/rtc3test), [MBC3 Tester](https://github.com/EricKirschenmann/MBC3-Tester-gb) | pass |
 | [SingleStepTests sm83](https://github.com/SingleStepTests/sm83) | every case, including bus timing |
@@ -68,7 +69,7 @@ wer --mode=cgb game.gbc
 
 | Option | |
 |---|---|
-| `--mode=dmg\|sgb\|sgb2\|cgb` | the model to emulate; `cgb` is a CPU CGB C, the others with `cgb-0`, `cgb-a`, `cgb-b`, `cgb-c`, `cgb-d`, `cgb-e` |
+| `--mode=dmg\|mgb\|sgb\|sgb2\|cgb` | the model to emulate: `dmg` is a CPU DMG A/B/C (`dmg-0` the first DMGs), `mgb` a Game Boy Pocket, `cgb` a CPU CGB C (the others with `cgb-0`, `cgb-a`, `cgb-b`, `cgb-c`, `cgb-d`, `cgb-e`) |
 | `--palette=1-A` … `4-H` | SGB built-in palette (SGB modes) |
 | `--scale=1..4` | window size, multiples of 160x144 |
 | `--no-boot` | skip the boot ROM |

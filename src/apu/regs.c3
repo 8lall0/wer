@@ -299,10 +299,12 @@ fn void Apu.write_nr34(&self, char value) {
 	w.sample_length = (w.sample_length & 0xFF) | ((value & 7) << 8);
 	if (value & 0x80) {
 		// DMG bug: retriggering in the tick the channel fetches corrupts the
-		// start of wave RAM with the bytes it was about to read.
+		// start of wave RAM with the bytes it was about to read: one byte from
+		// the first four, else their block of four; always the block on a
+		// Pocket (SameBoy's Game Boy Light).
 		if (!self.cgb && self.active[WAV] && w.sample_countdown == 0) {
 			int offset = ((w.current_sample_index + 1) >> 1) & 0xF;
-			if (offset < 4) {
+			if (offset < 4 && !self.mgb) {
 				self.io[WAVE_RAM] = self.io[WAVE_RAM + offset];
 			} else {
 				int block = offset & ~3;

@@ -20,7 +20,7 @@ const ulong TIMEOUT = 4194304UL / 4 * 20; // 20 s of M-cycles
 const char[6] PASS_REGS = { 3, 5, 8, 13, 21, 34 };
 
 struct Check {
-	bool   cgb;
+	String model; // dmg, mgb, sgb, sgb2 or cgb
 	String rom;
 	bool   passed;
 	bool   missing;
@@ -32,9 +32,17 @@ fn void Check.run(&self) {
 		self.missing = true;
 		return;
 	}
-	gameboy::GameBoy gb = gameboy::new(false, self.cgb ? mmu::Model.CGB : mmu::Model.DMG);
+	mmu::Model model;
+	switch (self.model) {
+		case "cgb":  model = CGB;
+		case "sgb":  model = SGB;
+		case "sgb2": model = SGB2;
+		default:     model = DMG;
+	}
+	gameboy::GameBoy gb = gameboy::new(false, model);
 	defer gb.destroy();
 	gb.set_cgb_revision(E);
+	if (self.model == "mgb") gb.set_dmg_revision(MGB);
 	gb.load_rom(data);
 	if (gb.mmu.cart) gb.mmu.cart.has_battery = false;
 	ulong limit = gb.cpu.clk + TIMEOUT;
@@ -63,7 +71,7 @@ fn void run_all() @test
 	foreach (line : ((String)index).tsplit("\n")) {
 		String[] f = line.trim().tsplit(" ");
 		if (f.len < 2) continue;
-		list.push({ .cgb = f[0] == "cgb", .rom = f[1] });
+		list.push({ .model = f[0], .rom = f[1] });
 	}
 	Check[] checks = list.array_view();
 	parallel::run(checks.len, &run_job, checks.ptr);
@@ -76,7 +84,7 @@ fn void run_all() @test
 		if (c.passed) {
 			passed++;
 		} else {
-			io::eprintfn("  FAIL %s %s", c.cgb ? "cgb" : "dmg", c.rom);
+			io::eprintfn("  FAIL %s %s", c.model, c.rom);
 		}
 	}
 	io::eprintfn("  wilbertpol: %d/%d pass", passed, present);

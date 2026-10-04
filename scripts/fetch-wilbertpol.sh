@@ -9,7 +9,7 @@
 # name ends in the hardware it was checked on: G = DMG, S = SGB, C = CGB,
 # A = GBA, mgb/sgb/dmg/cgb; no suffix = all. Only acceptance/,
 # emulator-only/ and misc/ are self-checking.
-# test/wilbertpol/index.txt gets one line per check: <dmg|cgb> <rom>
+# test/wilbertpol/index.txt gets one line per check: <dmg|mgb|sgb|sgb2|cgb> <rom>
 set -euo pipefail
 
 VERSION=v7.0
@@ -41,8 +41,12 @@ for d, _, files in sorted(os.walk(root)):
             models = ["dmg"]
         elif tag in ("C", "cgb"):
             models = ["cgb"]
-        elif tag in ("S", "sgb", "sgb2", "A", "mgb"):
-            models = []   # not emulated here (SGB timing tests, GBA, Pocket)
+        elif tag in ("S", "sgb"):
+            models = ["sgb"]
+        elif tag in ("sgb2", "mgb"):
+            models = [tag]
+        elif tag == "A":
+            models = []   # not emulated (GBA)
         else:
             models = ["dmg", "cgb"]
         rom = os.path.relpath(os.path.join(d, f), root)

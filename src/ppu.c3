@@ -64,6 +64,7 @@ struct Ppu {
 	bool     compat;  // CGB running a DMG game: DMG renderer, colours from palette RAM
 	bool     cgb_hw;  // CGB hardware, in either mode (timing differences)
 	char     rev;     // ... its revision (REV_*, mmu::CgbRevision's ordinal)
+	bool     mgb;     // Game Boy Pocket / Light
 
 	char lcdc;
 	char stat;
@@ -614,12 +615,12 @@ fn void Ppu.apply(&self, RegWrite w) {
 			// The new LCDC, except that the BG and object enable bits and a
 			// window enable (not a disable) take a dot longer. Disabling objects
 			// during an object fetch or at the first pixel, and disabling the BG
-			// at the first pixel, are immediate. (SameBoy's DMG LCDC conflict,
-			// reworked against the Mealybug DMG screenshots.)
+			// at the first pixel (not on a Pocket), are immediate. (SameBoy's
+			// DMG LCDC conflict, reworked against the Mealybug DMG screenshots.)
 			char keep = LCDC_OBJ_ENABLE | LCDC_BG_ENABLE;
 			if ((w.value & LCDC_BG_ENABLE) == 0 && self.r.pos == 0) keep &= (char)~LCDC_BG_ENABLE;
 			if ((w.old & LCDC_WIN_ENABLE) == 0) keep |= LCDC_WIN_ENABLE;
-			if ((w.value & LCDC_OBJ_ENABLE) == 0 && (self.r.pos == 0 || self.during_object_fetch())) keep &= (char)~LCDC_OBJ_ENABLE;
+			if ((w.value & LCDC_OBJ_ENABLE) == 0 && ((self.r.pos == 0 && !self.mgb) || self.during_object_fetch())) keep &= (char)~LCDC_OBJ_ENABLE;
 			if ((w.old & LCDC_OBJ_ENABLE) && (w.value & LCDC_OBJ_ENABLE) == 0 && self.during_object_fetch()) self.r.obj_abort = true;
 			self.dmg_we_change(((w.value & ~keep) | (w.old & keep)));
 			self.r_lcdc = (self.r_lcdc & LCDC_ENABLE) | (((w.value & ~keep) | (w.old & keep)) & 0x7F);

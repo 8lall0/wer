@@ -16,7 +16,8 @@ import std::core::test;
 // that never gets there within TIMEOUT counts as a timeout.
 //
 // ROMS lists every test that applies to a DMG: no model suffix, -GS, -dmgABC
-// or -dmgABCmgb. Skipped: dmg0/mgb/sgb/S/A/C/cgb variants, manual-only/,
+// or -dmgABCmgb; DMG0_ROMS / MGB_ROMS / SGB_ROMS / ... the revision- and
+// model-specific ones. Skipped: A (AGB) and cgb variants, manual-only/,
 // madness/, misc/ (CGB) and utils/.
 //
 // Entries marked `true` are known to pass and must keep passing: the test
@@ -149,6 +150,21 @@ const Rom[*] SGB_ROMS = {
 	{ "acceptance/boot_hwio-S.gb", true  },
 };
 
+// Run on a CPU DMG 0.
+const Rom[*] DMG0_ROMS = {
+	{ "acceptance/boot_regs-dmg0.gb", true  },
+	{ "acceptance/boot_div-dmg0.gb", true  },
+	{ "acceptance/boot_hwio-dmg0.gb", true  },
+};
+
+// Run on a Game Boy Pocket (MGB); the -dmgABCmgb tests run on it too.
+const Rom[*] MGB_ROMS = {
+	{ "acceptance/boot_regs-mgb.gb", true  },
+	{ "acceptance/boot_div-dmgABCmgb.gb", true  },
+	{ "acceptance/boot_hwio-dmgABCmgb.gb", true  },
+	{ "acceptance/serial/boot_sclk_align-dmgABCmgb.gb", true  },
+};
+
 // Run on a Game Boy Color (misc/: CGB-only tests).
 const Rom[*] CGB_ROMS = {
 	{ "misc/boot_regs-cgb.gb", true  },
@@ -165,12 +181,13 @@ const Rom[*] SGB2_ROMS = {
 	{ "acceptance/boot_hwio-S.gb", true  },
 };
 
-fn Outcome run_rom(String path, mmu::Model model = DMG) {
+fn Outcome run_rom(String path, mmu::Model model = DMG, mmu::DmgRevision rev = ABC) {
 	char[]? data = file::load_temp(path);
 	if (catch data) return MISSING;
 
 	gameboy::GameBoy gb = gameboy::new(false, model);
 	defer gb.destroy();
+	gb.set_dmg_revision(rev);
 	gb.load_rom_named(data, path);
 	if (gb.mmu.cart) gb.mmu.cart.has_battery = false; // never write .sav files
 
@@ -194,10 +211,10 @@ struct Tally {
 	uint new_pass;
 }
 
-fn void report(Tally* t, Rom rom, mmu::Model model, Outcome o) {
+fn void report(Tally* t, Rom rom, mmu::Model model, mmu::DmgRevision rev, Outcome o) {
 	if (o == MISSING) return;
 	t.present++;
-	String tag = model == DMG ? "" : string::tformat(" [%s]", model);
+	String tag = model == DMG ? (rev == ABC ? "" : string::tformat(" [%s]", rev)) : string::tformat(" [%s]", model);
 
 	if (o == PASS) {
 		t.passed++;
@@ -219,27 +236,30 @@ struct Job {
 	Rom        rom;
 	mmu::Model model;
 	Outcome    outcome;
+	mmu::DmgRevision rev;
 }
 
 fn void run_job(void* ctx, usz i) {
 	Job* j = &((Job*)ctx)[i];
-	j.outcome = run_rom(string::tformat("%s%s", DIR, j.rom.path), j.model);
+	j.outcome = run_rom(string::tformat("%s%s", DIR, j.rom.path), j.model, j.rev);
 }
 
 fn void run_all() @test
 {
-	usz n = ROMS.len + SGB_ROMS.len + SGB2_ROMS.len + CGB_ROMS.len;
+	usz n = ROMS.len + DMG0_ROMS.len + MGB_ROMS.len + SGB_ROMS.len + SGB2_ROMS.len + CGB_ROMS.len;
 	Job[] jobs = mem::new_array(Job, (sz)n);
 	defer free(jobs.ptr);
 	usz k = 0;
-	foreach (rom : ROMS) jobs[k++] = { rom, DMG, MISSING };
-	foreach (rom : SGB_ROMS) jobs[k++] = { rom, SGB, MISSING };
-	foreach (rom : SGB2_ROMS) jobs[k++] = { rom, SGB2, MISSING };
-	foreach (rom : CGB_ROMS) jobs[k++] = { rom, CGB, MISSING };
+	foreach (rom : ROMS) jobs[k++] = { rom, DMG, MISSING, ABC };
+	foreach (rom : DMG0_ROMS) jobs[k++] = { rom, DMG, MISSING, DMG0 };
+	foreach (rom : MGB_ROMS) jobs[k++] = { rom, DMG, MISSING, MGB };
+	foreach (rom : SGB_ROMS) jobs[k++] = { rom, SGB, MISSING, ABC };
+	foreach (rom : SGB2_ROMS) jobs[k++] = { rom, SGB2, MISSING, ABC };
+	foreach (rom : CGB_ROMS) jobs[k++] = { rom, CGB, MISSING, ABC };
 	parallel::run(n, &run_job, jobs.ptr);
 
 	Tally t;
-	foreach (&j : jobs) report(&t, j.rom, j.model, j.outcome);
+	foreach (&j : jobs) report(&t, j.rom, j.model, j.rev, j.outcome);
 
 	if (t.present == 0) {
 		io::eprintn("  mooneye: no ROMs in test/mooneye — run scripts/fetch-mooneye.sh");

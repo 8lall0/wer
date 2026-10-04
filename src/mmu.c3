@@ -45,6 +45,19 @@ enum CgbRevision : char {
 	E,
 }
 
+// A DMG's revision, where it matters: the CPU DMG 0's boot ROM leaves other
+// registers and DIV (Mooneye *-dmg0); CPU DMG A, B and C behave the same;
+// MGB = Game Boy Pocket / Light (Mooneye *-mgb, SameBoy's MGB model).
+enum DmgRevision : char {
+	DMG0,
+	ABC,
+	MGB,
+}
+
+// Where wer's DMG boot ROM keeps the A it hands over with (bootrom/wer_dmg.asm
+// Handoff: ld hl, $01B0 / push hl / pop af).
+const ushort BOOT_HANDOFF_A = 0x00F2;
+
 // The DMG's clock, 4 194 304 Hz.
 const uint DMG_HZ = 4194304;
 // The original SGB derives its Game Boy clock from the SNES master clock
@@ -113,6 +126,7 @@ struct Mmu {
 	bool boot_active;
 	Model model;
 	CgbRevision cgb_rev; // CGB only
+	DmgRevision dmg_rev; // DMG only
 	// CGB features on: model CGB and a game that supports them. Every CGB
 	// register reads $FF and ignores writes otherwise.
 	bool  cgb_mode;
@@ -165,6 +179,9 @@ fn char Mmu.get(&self, ushort addr) {
 		if (self.model == CGB) {
 			if (addr < 0x100 || (addr >= 0x200 && addr < 0x900)) return bootrom::CGB[addr];
 		} else if (addr < 0x100) {
+			// The Pocket's and the SGB2's own boot ROMs hand over with A = $FF:
+			// the byte its hand-over loads into A.
+			if (addr == BOOT_HANDOFF_A && (self.dmg_rev == MGB || self.model == SGB2)) return 0xFF;
 			return bootrom::DMG[addr];
 		}
 	}

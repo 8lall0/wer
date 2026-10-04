@@ -148,6 +148,18 @@ fn Cpu init() {
 	};
 }
 
+// The same after a CPU DMG 0's boot ROM (Mooneye boot_regs-dmg0).
+fn Cpu init_dmg0() {
+	return (Cpu) {
+		.af.reg = 0x0100,
+		.bc.reg = 0xFF13,
+		.de.reg = 0x00C1,
+		.hl.reg = 0x8403,
+		.sp = 0xFFFE,
+		.pc = 0x0100,
+	};
+}
+
 // Post-boot register state on a Super Game Boy (Mooneye boot_regs-sgb).
 fn Cpu init_sgb() {
 	return (Cpu) {
