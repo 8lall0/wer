@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
 # Fetch the small screenshot-checked test ROMs of c-sp/game-boy-test-roms
 # (cgb-acid-hell, bully, strikethrough, turtle-tests, scribbltests,
-# little-things-gb firstwhite, Mooneye's manual-only sprite_priority) into
-# test/screens/ for test/screens_test.c3.
+# little-things-gb firstwhite and tellinglys, Mooneye's manual-only
+# sprite_priority, rtc3test, mbc3-tester) into test/screens/ for
+# test/screens_test.c3.
 #
 #   scripts/fetch-screens.sh
 #
 # Needs curl, unzip and python3. test/screens/index.txt gets one line per
-# check: <dmg|cgb> <revision> <frames, or 0 = until LD B,B> <rom> <.rgb>.
+# check: <dmg|cgb> <revision> <frames, or 0 = until LD B,B> <rom> <.rgb>
+# [buttons: frame[.line]:key,... with key one of a b s(elect) t(start) u d l r,
+# each held 6 frames].
 # The reference PNGs get .rgb twins (160x144, 3 bytes per pixel).
 set -euo pipefail
 
@@ -20,11 +23,12 @@ trap 'rm -rf "$TMP"' EXIT
 curl -sfL -o "$TMP/roms.zip" \
 	"https://github.com/c-sp/game-boy-test-roms/releases/download/$VERSION/game-boy-test-roms-$VERSION.zip"
 unzip -q "$TMP/roms.zip" 'cgb-acid-hell/*' 'bully/*' 'strikethrough/*' 'turtle-tests/*' \
-	'scribbltests/*' 'little-things-gb/*' 'mooneye-test-suite/manual-only/*' -d "$TMP"
+	'scribbltests/*' 'little-things-gb/*' 'mooneye-test-suite/manual-only/*' \
+	'rtc3test/*' 'mbc3-tester/*' -d "$TMP"
 rm -rf "$DEST"
 mkdir -p "$DEST"
 mv "$TMP"/cgb-acid-hell "$TMP"/bully "$TMP"/strikethrough "$TMP"/turtle-tests \
-	"$TMP"/scribbltests "$TMP"/little-things-gb "$DEST/"
+	"$TMP"/scribbltests "$TMP"/little-things-gb "$TMP"/rtc3test "$TMP"/mbc3-tester "$DEST/"
 mv "$TMP/mooneye-test-suite/manual-only" "$DEST/mooneye-manual"
 
 python3 - "$DEST" <<'EOF'
@@ -84,6 +88,10 @@ for d, _, files in os.walk(root):
 
 # scribbltests were checked on a CPU CGB D; scxly's CGB screenshot shows the
 # CGB boot ROM's colours for a DMG game, so only its DMG one is used.
+# mbc3-tester's CGB screenshot has light green #7BFF4A, where the CGB boot
+# ROM's default palette (and the collection's own notes) have #7BFF31; the
+# picture is otherwise the same, so only the DMG one is used. The test runs
+# about 40 frames.
 CHECKS = """
 cgb c 0 cgb-acid-hell/cgb-acid-hell.gbc cgb-acid-hell/cgb-acid-hell.rgb
 dmg c 30 bully/bully.gb bully/bully.rgb
@@ -107,6 +115,15 @@ dmg c 30 little-things-gb/firstwhite.gb little-things-gb/firstwhite-dmg-cgb.rgb
 cgb c 30 little-things-gb/firstwhite.gb little-things-gb/firstwhite-dmg-cgb.rgb
 dmg c 0 mooneye-manual/sprite_priority.gb mooneye-manual/sprite_priority-dmg.rgb
 cgb c 0 mooneye-manual/sprite_priority.gb mooneye-manual/sprite_priority-cgb.rgb
+dmg c 60 mbc3-tester/mbc3-tester.gb mbc3-tester/mbc3-tester-dmg.rgb
+dmg c 960 rtc3test/rtc3test.gb rtc3test/rtc3test-basic-tests-dmg.rgb 60:a
+cgb c 960 rtc3test/rtc3test.gb rtc3test/rtc3test-basic-tests-cgb.rgb 60:a
+dmg c 700 rtc3test/rtc3test.gb rtc3test/rtc3test-range-tests-dmg.rgb 60:d,80:a
+cgb c 700 rtc3test/rtc3test.gb rtc3test/rtc3test-range-tests-cgb.rgb 60:d,80:a
+dmg c 1800 rtc3test/rtc3test.gb rtc3test/rtc3test-sub-second-writes-dmg.rgb 60:d,80:d,100:a
+cgb c 1800 rtc3test/rtc3test.gb rtc3test/rtc3test-sub-second-writes-cgb.rgb 60:d,80:d,100:a
+dmg c 700 little-things-gb/tellinglys.gb little-things-gb/tellinglys-dmg.rgb 60.3:u,80.41:d,100.97:l,120.130:r,140.12:a,160.77:b,180.150:s,200.60:t
+cgb c 700 little-things-gb/tellinglys.gb little-things-gb/tellinglys-cgb.rgb 60.3:u,80.41:d,100.97:l,120.130:r,140.12:a,160.77:b,180.150:s,200.60:t
 """
 lines = [l for l in CHECKS.strip().splitlines()]
 open(os.path.join(root, "index.txt"), "w").write("\n".join(lines) + "\n")

@@ -39,14 +39,13 @@ the common hardware test suites check; results below.
 | [dmg-acid2](https://github.com/mattcurrie/dmg-acid2), [cgb-acid2](https://github.com/mattcurrie/cgb-acid2) | pixel-exact |
 | Blargg `cpu_instrs`, `instr_timing`, `mem_timing`, `mem_timing-2`, `halt_bug`, `interrupt_time` | pass |
 | Blargg `dmg_sound`, `cgb_sound` | 12/12, 12/12 |
-| Blargg `oam_bug` | 7/8 (`7-timing_effect` writes past its own text buffer, on SameBoy too) |
+| Blargg `oam_bug` | 8/8 (`7-timing_effect` prints more than its 8 KB text buffer: the harness empties it) |
 | [SameSuite](https://github.com/LIJI32/SameSuite) | 77/78 (the other is for a Game Boy Advance) |
 | [Gambatte test suite](https://github.com/pokemon-speedrunning/gambatte-core) | 5217/5225 (99.8%) |
 | [AGE test ROMs](https://github.com/c-sp/age-test-roms) | 119/119 on the revisions each test names (DMG, CGB-B, C, E) |
 | [gbmicrotest](https://github.com/aappleby/GBMicrotest) | 480/482 (the other two are disabled in its own runner) |
 | [Mooneye, wilbertpol's 2016 fork](https://github.com/wilbertpol/mooneye-gb) | 190/190 (CGB tests on a CGB-E) |
-| cgb-acid-hell, bully, turtle-tests, scribbltests, little-things-gb firstwhite, Mooneye sprite_priority, strikethrough | 22/22 |
-| [rtc3test](https://github.com/aaaaaa123456789/rtc3test), [MBC3 Tester](https://github.com/EricKirschenmann/MBC3-Tester-gb) | pass |
+| cgb-acid-hell, bully, turtle-tests, scribbltests, little-things-gb firstwhite and tellinglys, Mooneye sprite_priority, strikethrough, [rtc3test](https://github.com/aaaaaa123456789/rtc3test), [MBC3 Tester](https://github.com/EricKirschenmann/MBC3-Tester-gb) | 31/31 |
 | [SingleStepTests sm83](https://github.com/SingleStepTests/sm83) | every case, including bus timing |
 
 ## Building

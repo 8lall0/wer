@@ -93,8 +93,7 @@ const Rom[*] OAM_BUG = {
 	{ "4-scanline_timing", true  },
 	{ "5-timing_bug", true  },
 	{ "6-timing_no_bug", true  },
-	{ "7-timing_effect", false }, // prints more than its 8 KB text buffer holds and
-	                              // runs over its own code, here as in SameBoy
+	{ "7-timing_effect", true  }, // prints more than its 8 KB text buffer holds: drain_text
 	{ "8-instr_effect", true  },
 };
 
@@ -103,6 +102,28 @@ enum Outcome : char {
 	PASS,
 	FAIL,
 	TIMEOUT,
+}
+
+// A long report (oam_bug 7-timing_effect prints over 8 KB) would run past
+// cartridge RAM into the test's code at $C000; Blargg checked it with a
+// devcart that prints elsewhere. Once the text passes 4 KB, empty it: reset
+// the shell's text pointer (in its variables at $D800-$DFFF, the word holding
+// the text's end address) to $A004. The ROM's CRC of what it printed still
+// decides the result.
+fn void drain_text(gameboy::GameBoy* gb, char[] ram) {
+	if (ram[1] != 0xDE || ram[2] != 0xB0 || ram[3] != 0x61 || ram[0x1000] == 0) return;
+	usz end = 4;
+	while (end < ram.len && ram[end] != 0) end++;
+	ushort at = (ushort)(0xA000 + end);
+	for (ushort a = 0xD800; a < 0xDFFF; a++) {
+		if (gb.mmu.get(a) == (char)at && gb.mmu.get(a + 1) == (char)(at >> 8)) {
+			gb.mmu.set(a, 0x04);
+			gb.mmu.set(a + 1, 0xA0);
+			ram[4] = 0;
+			ram[0x1000] = 0;
+			return;
+		}
+	}
 }
 
 // Runs one ROM; on failure `text` gets the ROM's own explanation.
@@ -131,7 +152,10 @@ fn Outcome run_rom(String path, mmu::Model model, char* code, String* text, mmu:
 			*text = ((String)ram[4:end - 4]).tcopy();
 			return FAIL;
 		}
-		if (ram.len >= 0x100) continue; // it reports there: wait for it
+		if (ram.len >= 0x100) { // it reports there: wait for it
+			drain_text(&gb, ram);
+			continue;
+		}
 		// Serial report.
 		String serial = (String)gb.mmu.serial_log[:gb.mmu.serial_log_len];
 		if (serial.contains("Passed")) return PASS;
