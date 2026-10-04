@@ -45,7 +45,6 @@ struct Apu {
 	char[4] samples;     // each channel's digital output (0-15)
 
 	int div_divider;     // frame sequencer step counter (8 bits)
-	char div_step_age;   // Apu.tick calls since div_divider last moved (saturates)
 	// CGB-C and older: PCM12/PCM34 read in the M-cycle a channel's output
 	// changes give a glitched value (SameBoy pcm_mask); reset every M-cycle.
 	char[2] pcm_mask;
@@ -300,7 +299,6 @@ fn void Apu.div_event(&self) {
 		self.skip_div_event = SKIP_INACTIVE;
 	} else {
 		self.div_divider = (self.div_divider + 1) & 0xFF;
-		self.div_step_age = 0;
 	}
 
 	if ((self.div_divider & 7) == 7) {
@@ -556,7 +554,6 @@ fn int Apu.duty_start_ticks(&self, int i, bool was_active) {
 // switch), only the output keeps going. `ticks`: the 2 MHz ticks (Apu.clock),
 // else half of `t`.
 fn void Apu.tick(&self, uint t, uint div_events, uint div_secondary = 0, bool div_write = false, bool frozen = false, int ticks = -1) {
-	if (self.div_step_age < 255) self.div_step_age++;
 	self.pcm_mask = { 0xFF, 0xFF };
 	if (frozen) {
 		self.output(t);

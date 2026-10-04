@@ -13,10 +13,9 @@ import std::core::test;
 //   scripts/fetch-samesuite.sh
 // into test/samesuite/ . With none present the test prints one line and
 // passes. Names ending in revisions (-cgb0B, -cgbDE, -A, ...) target that
-// hardware; they run on the first revision named (see revision_of). The APU follows SameBoy's
-// CGB-E model; channel_1_sweep, _sweep_restart and channel_1/2 _stop_div and
-// _volume_div give the same results as SameBoy (1.0.3 and its current core),
-// not the expected ones.
+// hardware; they run on the first revision named (see revision_of). The
+// script restores the instruction encoding the tests were checked with on
+// hardware (RGBDS of the time turned `ld [rXX]` into `ldh`).
 //
 // Entries marked `true` must keep passing; the others are reported only.
 //   c3c test && ./build/testrun --test-nocapture --test-filter samesuite
@@ -45,13 +44,13 @@ const Rom[*] ROMS = {
 	{ "apu/channel_1/channel_1_nrx2_speed_change", true },
 	{ "apu/channel_1/channel_1_restart", true },
 	{ "apu/channel_1/channel_1_restart_nrx2_glitch", true },
-	{ "apu/channel_1/channel_1_stop_div", false },
+	{ "apu/channel_1/channel_1_stop_div", true },
 	{ "apu/channel_1/channel_1_stop_restart", true },
-	{ "apu/channel_1/channel_1_sweep", false },
-	{ "apu/channel_1/channel_1_sweep_restart", false },
+	{ "apu/channel_1/channel_1_sweep", true },
+	{ "apu/channel_1/channel_1_sweep_restart", true },
 	{ "apu/channel_1/channel_1_sweep_restart_2", true },
 	{ "apu/channel_1/channel_1_volume", true },
-	{ "apu/channel_1/channel_1_volume_div", false },
+	{ "apu/channel_1/channel_1_volume_div", true },
 	{ "apu/channel_2/channel_2_align", true },
 	{ "apu/channel_2/channel_2_align_cpu", true },
 	{ "apu/channel_2/channel_2_delay", true },
@@ -63,14 +62,14 @@ const Rom[*] ROMS = {
 	{ "apu/channel_2/channel_2_nrx2_speed_change", true },
 	{ "apu/channel_2/channel_2_restart", true },
 	{ "apu/channel_2/channel_2_restart_nrx2_glitch", true },
-	{ "apu/channel_2/channel_2_stop_div", false },
+	{ "apu/channel_2/channel_2_stop_div", true },
 	{ "apu/channel_2/channel_2_stop_restart", true },
 	{ "apu/channel_2/channel_2_volume", true },
-	{ "apu/channel_2/channel_2_volume_div", false },
+	{ "apu/channel_2/channel_2_volume_div", true },
 	{ "apu/channel_3/channel_3_and_glitch", true  },
 	{ "apu/channel_3/channel_3_delay", true  },
 	{ "apu/channel_3/channel_3_extra_length_clocking-cgb0", true },
-	{ "apu/channel_3/channel_3_extra_length_clocking-cgbB", false },
+	{ "apu/channel_3/channel_3_extra_length_clocking-cgbB", true },
 	{ "apu/channel_3/channel_3_first_sample", true  },
 	{ "apu/channel_3/channel_3_freq_change_delay", true  },
 	{ "apu/channel_3/channel_3_restart_delay", true  },

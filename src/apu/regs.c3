@@ -169,11 +169,16 @@ fn void Apu.write(&self, ushort addr, char value) {
 // *_extra_length_clocking-cgb0B; noise too, unlike SameBoy).
 fn void Apu.length_enable_glitch(&self, int* length, bool* enabled, int ch, char value, int max) {
 	bool always = self.cgb && self.rev <= REV_B;
-	// ... and in double speed the square and noise channels still see the
-	// frame sequencer as it was before a step in this M-cycle.
-	int lsb = self.div_divider & 1;
-	if (always && self.double_speed && ch != WAV && self.div_step_age == 0) lsb ^= 1;
-	if (((value & 0x40) || always) && !*enabled && lsb && *length) {
+	bool clock = ((value & 0x40) || always) && !*enabled && (self.div_divider & 1) && *length;
+	// A CGB-B's wave channel clocks it at the next NR34 write instead, a
+	// trigger starting afresh (SameSuite channel_3_extra_length_clocking-cgbB;
+	// a CGB-0's clocks at once).
+	if (always && self.rev == REV_B && ch == WAV) {
+		bool now = self.wave.extra_clock_due && *length;
+		self.wave.extra_clock_due = clock && (value & 0x80) == 0;
+		clock = now;
+	}
+	if (clock) {
 		(*length)--;
 		if (*length == 0) {
 			if (value & 0x80) {

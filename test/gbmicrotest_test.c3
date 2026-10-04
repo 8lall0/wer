@@ -18,7 +18,8 @@ const String DIR = "test/gbmicrotest/";
 const int FRAMES = 4;
 const int LONG_FRAMES = 30; // is_if_set_during_ime0 needs ~380 ms
 
-// Failing, with reasons:
+// Failing; both are inside `#if 0` in GateBoy's own runner (MetroBoyTests.cpp),
+// and SameBoy gives the same results as wer:
 //  - halt_op_dupe_delay: expects DIV = $55 a line after resetting it.
 //  - stat_write_glitch_l154_d: expects no VBlank flag a frame after LCD on,
 //    against stat_write_glitch_l143_d (same setup, flag set).

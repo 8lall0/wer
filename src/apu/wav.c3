@@ -13,6 +13,7 @@ module apu;
 //   position 0, but keeps the current sample until the next fetch.
 struct Wave {
 	bool enable;               // NR30 bit 7 (the DAC)
+	bool extra_clock_due;      // CGB-B: the last NR34 write's extra length clock, done at the next one
 	int  pulse_length;
 	int  shift;                // NR32: 4 = mute, else right shift
 	int  sample_length;
