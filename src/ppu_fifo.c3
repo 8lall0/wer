@@ -214,6 +214,7 @@ fn int Ppu.oam_scan_index(&self) {
 fn void Ppu.render_start(&self) {
 	Renderer* r = &self.r;
 	self.win_abortable = false;
+	self.win_late_off = false;
 	r.x158_dot = -1;
 	r.active = true;
 	r.pos = -16;
@@ -248,6 +249,14 @@ fn bool Ppu.objects_fetched(&self) => (self.r_lcdc & LCDC_OBJ_ENABLE) != 0 || se
 // One dot of mode 3.
 fn void Ppu.render_dot(&self) {
 	Renderer* r = &self.r;
+	// DMG: a window started as WIN_EN went off takes its fetch's time, then
+	// the background goes on as it was (Gambatte late_disable; Mealybug
+	// m3_lcdc_win_en_change_multiple_wx shows no pixel of it).
+	if (self.win_late_off && !r.window_fetching) {
+		*r = self.win_save;
+		r.prev_win_en = false;
+		self.win_late_off = false;
+	}
 	if (self.win_abortable) {
 		if (!r.window_fetching) {
 			self.win_abortable = false;
@@ -425,15 +434,18 @@ fn bool Ppu.window_check(&self) {
 	// CGB: a window enable starts the window from the next dot on (Gambatte
 	// window/late_reenable*).
 	if (self.cgb_hw && !was_en) win_en = false;
+	// A DMG still matches WX exactly in the dot WIN_EN goes off (Gambatte
+	// window/late_disable_scx5_1).
+	bool exact_en = win_en || (!self.cgb_hw && was_en);
 	bool wy_ok = r.wy_triggered || self.wy2 == u8(self.line);
-	if (!r.wx_triggered && wy_ok && win_en) {
+	if (!r.wx_triggered && wy_ok && exact_en) {
 		bool start = false;
 		if (self.wx == 0) {
-			start = r.pos == -7 || (r.pos == -16 && (self.scx & 7) != 0) || (r.pos >= -15 && r.pos <= -8);
+			start = win_en && (r.pos == -7 || (r.pos == -16 && (self.scx & 7) != 0) || (r.pos >= -15 && r.pos <= -8));
 		} else if (self.wx < 166 + (self.cgb_hw ? 1 : 0)) {
 			if (self.wx == u8(r.pos + 7)) {
 				start = true;
-			} else if (!self.cgb_hw && self.wx == u8(r.pos + 6) && !self.wx_just_changed) {
+			} else if (!self.cgb_hw && win_en && self.wx == u8(r.pos + 6) && !self.wx_just_changed) {
 				// DMG: WX is also matched a pixel late (WIN_EN turned on right
 				// after the exact match). SameBoy also shifts the LCD back a
 				// pixel here, which only some DMGs do; the DMG-blob screenshots
@@ -448,6 +460,9 @@ fn bool Ppu.window_check(&self) {
 			if (self.cgb_hw) {
 				self.win_save = *r;
 				self.win_abortable = true;
+			} else if (!win_en) {
+				self.win_save = *r;
+				self.win_late_off = true;
 			}
 			r.window_tile_x = 0;
 			r.bg.clear();

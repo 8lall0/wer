@@ -4765,6 +4765,7 @@ dmg hex window/late_disable_early_scx03_wx10_2_dmg08_cgb04c_out3.gbc
 cgb hex window/late_disable_early_scx03_wx10_2_dmg08_cgb04c_out3.gbc
 dmg hex window/late_disable_early_scx03_wx11_1_dmg08_cgb04c_out0.gbc
 cgb hex window/late_disable_early_scx03_wx11_1_dmg08_cgb04c_out0.gbc
+dmg hex window/late_disable_early_scx03_wx11_2_dmg08_cgb04c_out3.gbc
 cgb hex window/late_disable_early_scx03_wx11_2_dmg08_cgb04c_out3.gbc
 dmg hex window/late_disable_early_scx03_wx12_1_dmg08_cgb04c_out0.gbc
 cgb hex window/late_disable_early_scx03_wx12_1_dmg08_cgb04c_out0.gbc
@@ -4790,6 +4791,7 @@ dmg hex window/late_disable_late_scx03_wx10_3_dmg08_cgb04c_out3.gbc
 cgb hex window/late_disable_late_scx03_wx10_3_dmg08_cgb04c_out3.gbc
 dmg hex window/late_disable_late_scx03_wx11_1_dmg08_cgb04c_out0.gbc
 cgb hex window/late_disable_late_scx03_wx11_1_dmg08_cgb04c_out0.gbc
+dmg hex window/late_disable_late_scx03_wx11_2_dmg08_out3_cgb04c_out0.gbc
 cgb hex window/late_disable_late_scx03_wx11_2_dmg08_out3_cgb04c_out0.gbc
 dmg hex window/late_disable_late_scx03_wx11_3_dmg08_cgb04c_out3.gbc
 cgb hex window/late_disable_late_scx03_wx11_3_dmg08_cgb04c_out3.gbc
@@ -4811,6 +4813,7 @@ dmg hex window/late_disable_scx3_2_dmg08_cgb04c_out3.gbc
 cgb hex window/late_disable_scx3_2_dmg08_cgb04c_out3.gbc
 dmg hex window/late_disable_scx5_0_dmg08_cgb04c_out0.gbc
 cgb hex window/late_disable_scx5_0_dmg08_cgb04c_out0.gbc
+dmg hex window/late_disable_scx5_1_dmg08_out3_cgb04c_out0.gbc
 cgb hex window/late_disable_scx5_1_dmg08_out3_cgb04c_out0.gbc
 dmg hex window/late_disable_scx5_2_dmg08_cgb04c_out3.gbc
 cgb hex window/late_disable_scx5_2_dmg08_cgb04c_out3.gbc

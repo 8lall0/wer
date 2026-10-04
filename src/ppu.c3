@@ -107,6 +107,7 @@ struct Ppu {
 	Renderer r;
 	Renderer win_save;     // the renderer as the window started (CGB abort, see render_dot)
 	bool     win_abortable;
+	bool     win_late_off;  // DMG: a window started as WIN_EN went off (see render_dot)
 	char     r_lcdc;
 	bool     wx_just_changed;
 	bool     sgb_hw;       // Super Game Boy: slightly different write timing
