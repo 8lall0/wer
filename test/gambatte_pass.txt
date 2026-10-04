@@ -5202,6 +5202,7 @@ dmg png window/on_screen/wxA6_wy00.gbc
 cgb png window/on_screen/wxA6_wy01.gbc
 dmg png window/on_screen/wxA6_wy01.gbc
 cgb png window/on_screen/wxA6_wy01_weoff_ly02.gbc
+dmg png window/on_screen/wxA6_wy01_weoff_ly02.gbc
 cgb png window/on_screen/wxA6_wy01_weoff_ly02_weon_ly60.gbc
 cgb png window/on_screen/wxA6_wy01_wxA5_ly02.gbc
 dmg png window/on_screen/wxA6_wy01_wxA5_ly02.gbc

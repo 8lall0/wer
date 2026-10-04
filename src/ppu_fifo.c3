@@ -229,6 +229,15 @@ fn void Ppu.render_start(&self) {
 	r.obj_step = NONE;
 	r.insert_bg_pixel = false;
 	r.prev_win_en = (self.r_lcdc & LCDC_WIN_ENABLE) != 0;
+	// A window carried over from a WX 166 match starts only if WIN_EN is set
+	// now (Gambatte M3Start: win_draw_start && lcdcWinEn).
+	if (r.wx_triggered && !self.cgb_hw) {
+		if (r.prev_win_en) {
+			r.window_y++;
+		} else {
+			r.wx_triggered = false;
+		}
+	}
 
 	if (self.first_line) r.n_obj = 0; // no OAM scan on the first line after LCD on
 }
@@ -726,10 +735,12 @@ fn void Ppu.render_end(&self) {
 		r.lcd_x++;
 	}
 	if (self.line == VBLANK_LINE - 1) r.window_y = -1;
-	if (!self.cgb_hw && r.wy_triggered && (self.r_lcdc & LCDC_WIN_ENABLE) && self.wx == 166) {
+	// DMG: WX 166 matched (WIN_EN or not) leaves the window to start with
+	// the next line, if WIN_EN is set then (Gambatte win_draw_start; see
+	// render_start).
+	if (!self.cgb_hw && r.wy_triggered && self.wx == 166) {
 		r.wx_triggered = true;
 		r.window_tile_x = 1;
-		r.window_y++;
 	} else {
 		r.wx_triggered = false;
 	}
@@ -761,6 +772,6 @@ fn void Ppu.wy_check(&self) {
 fn void Ppu.render_frame_start(&self, bool keep_carry = false) {
 	bool carry = keep_carry && self.r.wx_triggered && !self.cgb_hw;
 	self.r.wy_triggered = false;
-	self.r.window_y = carry ? 0 : -1;
+	self.r.window_y = -1;
 	self.r.wx_triggered = carry;
 }
