@@ -30,7 +30,15 @@ fn bool header_checksum_ok(char[] rom) {
 	return x == rom[0x14D];
 }
 
-int dmg_boot_dot = 396;
+// A CGB-C's object palette RAM at power-on (measured by Gambatte's author).
+const char[64] CGB_POWER_ON_OBJ_PAL = {
+	0x00, 0x00, 0xF2, 0xAB, 0x61, 0xC2, 0xD9, 0xBA, 0x88, 0x6E, 0xDD, 0x63, 0x28, 0x27, 0xFB, 0x9F,
+	0x35, 0x42, 0xD6, 0xD4, 0x50, 0x48, 0x57, 0x5E, 0x23, 0x3E, 0x3D, 0xCA, 0x71, 0x21, 0x37, 0xC0,
+	0xC6, 0xB3, 0xFB, 0xF9, 0x08, 0x00, 0x8D, 0x29, 0xA3, 0x20, 0xDB, 0x87, 0x62, 0x05, 0x5D, 0xD4,
+	0x0E, 0x08, 0xFE, 0xAF, 0x20, 0x02, 0xD7, 0xFF, 0x07, 0x6A, 0x55, 0xEC, 0x83, 0x40, 0x0B, 0x77,
+};
+
+const int DMG_BOOT_DOT = 396; // post-boot DMG PPU dot on line 153 (Gambatte; gbmicrotest poweron_*)
 fn GameBoy new(bool boot = true, mmu::Model model = DMG) {
 	GameBoy gb;
 	gb.mmu.model = model;
@@ -81,7 +89,7 @@ fn GameBoy new(bool boot = true, mmu::Model model = DMG) {
 		// setPostBiosState; display_startstate).
 		gb.mmu.ppu.first_line = false;
 		gb.mmu.ppu.line = model == CGB ? 144 : 153;
-		gb.mmu.ppu.dot = model == CGB ? 164 : dmg_boot_dot;
+		gb.mmu.ppu.dot = model == CGB ? 164 : DMG_BOOT_DOT;
 		gb.mmu.ppu.ly = model == CGB ? 144 : 0;
 		gb.mmu.ppu.mode = 1;
 		gb.mmu.ppu.stat = (gb.mmu.ppu.stat & 0xFC) | 1;
@@ -105,6 +113,10 @@ fn GameBoy new(bool boot = true, mmu::Model model = DMG) {
 				gb.mmu.ppu.bg_pal[i] = 0xFF;
 				gb.mmu.ppu.bg_pal[i + 1] = 0x7F;
 			}
+			// It leaves object palette RAM as it powered up: random, per unit;
+			// these are a CPU CGB C's (Gambatte's cgbObjpDump; its
+			// scx_during_m3_spx2 screenshots show one of them).
+			gb.mmu.ppu.obj_pal = CGB_POWER_ON_OBJ_PAL;
 			// The palette indices after the last colour the boot ROM wrote
 			// (Mooneye boot_hwio-C).
 			gb.mmu.ppu.bcps = 0xC8;

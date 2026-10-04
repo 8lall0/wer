@@ -3098,11 +3098,14 @@ dmg png scx_during_m3/scx2_scx0_during_m3_1.gbc
 cgb png scx_during_m3/scx2_scx1_during_m3_1.gbc
 dmg png scx_during_m3/scx2_scx1_during_m3_1.gbc
 cgb png scx_during_m3/scx_attrib_during_m3_spx1_ds.gbc
+cgb png scx_during_m3/scx_attrib_during_m3_spx2_ds.gbc
 cgb png scx_during_m3/scx_during_m3_spx0.gbc
 dmg png scx_during_m3/scx_during_m3_spx0.gbc
 cgb png scx_during_m3/scx_during_m3_spx1.gbc
 dmg png scx_during_m3/scx_during_m3_spx1.gbc
+cgb png scx_during_m3/scx_during_m3_spx2.gbc
 dmg png scx_during_m3/scx_during_m3_spx2.gbc
+cgb png scx_during_m3/scx_during_m3_spx2_ds.gbc
 dmg hex scx_during_m3/scx_m3_extend_1_dmg08_cgb04c_out3.gbc
 cgb hex scx_during_m3/scx_m3_extend_1_dmg08_cgb04c_out3.gbc
 dmg hex scx_during_m3/scx_m3_extend_2_dmg08_cgb04c_out0.gbc
