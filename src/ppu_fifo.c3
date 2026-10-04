@@ -215,6 +215,7 @@ fn void Ppu.render_start(&self) {
 	Renderer* r = &self.r;
 	self.win_abortable = false;
 	self.win_late_off = false;
+	self.win_armed = false;
 	r.x158_dot = -1;
 	r.active = true;
 	r.pos = -16;
@@ -741,6 +742,7 @@ fn void Ppu.render_end(&self) {
 	if (!self.cgb_hw && r.wy_triggered && self.wx == 166) {
 		r.wx_triggered = true;
 		r.window_tile_x = 1;
+		self.win_armed = (self.r_lcdc & LCDC_WIN_ENABLE) == 0;
 	} else {
 		r.wx_triggered = false;
 	}

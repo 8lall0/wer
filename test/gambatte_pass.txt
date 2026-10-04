@@ -5197,6 +5197,7 @@ dmg png window/on_screen/wxA6_late_we_reenable_4.gbc
 cgb png window/on_screen/wxA6_scx7.gbc
 dmg png window/on_screen/wxA6_scx7.gbc
 cgb png window/on_screen/wxA6_weoff_at_xposA6.gbc
+dmg png window/on_screen/wxA6_weoff_at_xposA6.gbc
 cgb png window/on_screen/wxA6_wy00.gbc
 dmg png window/on_screen/wxA6_wy00.gbc
 cgb png window/on_screen/wxA6_wy01.gbc
@@ -5204,6 +5205,7 @@ dmg png window/on_screen/wxA6_wy01.gbc
 cgb png window/on_screen/wxA6_wy01_weoff_ly02.gbc
 dmg png window/on_screen/wxA6_wy01_weoff_ly02.gbc
 cgb png window/on_screen/wxA6_wy01_weoff_ly02_weon_ly60.gbc
+dmg png window/on_screen/wxA6_wy01_weoff_ly02_weon_ly60.gbc
 cgb png window/on_screen/wxA6_wy01_wxA5_ly02.gbc
 dmg png window/on_screen/wxA6_wy01_wxA5_ly02.gbc
 cgb png window/on_screen/wxA6_wy01_wxA7_ly02.gbc

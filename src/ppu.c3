@@ -108,6 +108,7 @@ struct Ppu {
 	Renderer win_save;     // the renderer as the window started (CGB abort, see render_dot)
 	bool     win_abortable;
 	bool     win_late_off;  // DMG: a window started as WIN_EN went off (see render_dot)
+	bool     win_armed;     // DMG: WX 166 matched with WIN_EN off, the window not started
 	char     r_lcdc;
 	bool     wx_just_changed;
 	bool     sgb_hw;       // Super Game Boy: slightly different write timing
@@ -578,6 +579,13 @@ fn void Ppu.apply(&self, RegWrite w) {
 		case 0x48: self.obp0 = w.value;
 		case 0x49: self.obp1 = w.value;
 		case 0x40:
+			// DMG: WIN_EN going on with the window armed but not started (a WX
+			// 166 match while it was off) starts it: a window line (Gambatte
+			// PPU::setLcdc; window/on_screen/wxA6_weoff_at_xposA6).
+			if (self.win_armed && (self.r_lcdc & LCDC_WIN_ENABLE) == 0 && (w.value & LCDC_WIN_ENABLE)) {
+				self.r.window_y++;
+				self.win_armed = false;
+			}
 			self.r_lcdc = (self.r_lcdc & LCDC_ENABLE) | (w.value & 0x7F);
 		case LCDC_PART:
 			self.r_lcdc = (self.r_lcdc & LCDC_ENABLE) | (((w.value & ~w.keep) | (w.old & w.keep)) & 0x7F);
