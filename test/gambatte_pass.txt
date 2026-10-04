@@ -5157,6 +5157,7 @@ dmg hex window/arg/late_wy_FFto2_ly2_scx3_1_dmg08_cgb04c_out3.gbc
 cgb hex window/arg/late_wy_FFto2_ly2_scx3_1_dmg08_cgb04c_out3.gbc
 dmg hex window/arg/late_wy_FFto2_ly2_scx3_2_dmg08_out3_cgb04c_out0.gbc
 cgb hex window/arg/late_wy_FFto2_ly2_scx3_2_dmg08_out3_cgb04c_out0.gbc
+dmg hex window/arg/late_wy_FFto2_ly2_scx3_3_dmg08_cgb04c_out0.gbc
 cgb hex window/arg/late_wy_FFto2_ly2_scx3_3_dmg08_cgb04c_out0.gbc
 dmg hex window/arg/late_wy_FFto2_ly2_scx5_1_dmg08_cgb04c_out3.gbc
 cgb hex window/arg/late_wy_FFto2_ly2_scx5_1_dmg08_cgb04c_out3.gbc

@@ -142,7 +142,7 @@ const char LCDC_DMG   = 0x01; // DMG LCDC write: mixed old/new value for a dot (
 const char LCDC_PART  = 0x04; // LCDC write where the bits in `keep` land later
 const int[3] WYD = { 2, 3, 2 };
 const int[3] WE_DELAY = { 0, 3, 2 }; // DMG, CGB, CGB double speed (window/late_enable_afterVblank*)
-const int[3] WY2D = { 9, 13, 9 };
+const int[3] WY2D = { 10, 13, 9 };
 const char WY2        = 0x08;
 const char WE_LINE    = 0x09; // LCDC as the window line checks see it (Gambatte p.lcdc) // WY as the WX-time window check sees it (Gambatte wy2)
 
