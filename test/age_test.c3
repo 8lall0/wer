@@ -29,10 +29,8 @@ const ushort[4] NCM_BG = { 0x7FFF, 0x1BEF, 0x6180, 0x0000 };
 const ushort[4] NCM_OBJ = { 0x7FFF, 0x421F, 0x1CF2, 0x0000 };
 
 // Expected to pass but failing (`model rev rom`):
-//  - m3-bg-bgp (DMG): the BGP write glitch that Mealybug's DMG screenshots
-//    don't show (different DMG revisions).
 const String[*] KNOWN_FAIL = {
-	"dmg c m3-bg-bgp/m3-bg-bgp.gb",
+	"",
 };
 
 struct Check {

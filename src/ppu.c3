@@ -494,7 +494,7 @@ fn void Ppu.write_render_reg(&self, char reg, char value) {
 		case 0x48:
 		case 0x49:
 			// DMG: for one dot the palette reads as old | new.
-			if (dmg && !self.sgb_hw) self.schedule(reg, old | value, 6);
+			if (dmg && !self.sgb_hw) self.queue({ .reg = reg, .value = old | value, .old = value, .keep = 0xFF, .delay = 6 });
 			// A CGB-D/E's renderer sees them a dot sooner (AGE m3-bg-bgp-ncmE;
 			// SameBoy GB_CONFLICT_PALETTE_CGB, model >= CGB_D).
 			self.schedule(reg, value, self.after_c() ? 6 : 7);
@@ -573,6 +573,15 @@ fn void Ppu.dmg_we_change(&self, char lcdc) {
 	}
 }
 
+// The palette in a DMG write's glitch dot (RegWrite.keep $FF marks it,
+// .old holds the new value): old | new, except for a line's first pixel,
+// which has the new value already (AGE m3-bg-bgp-dmgC).
+fn char Ppu.pal_glitch_value(&self, RegWrite w) {
+	if (w.keep != 0xFF) return w.value;
+	if (self.r.active && self.r.lcd_x == 0) return w.old;
+	return w.value;
+}
+
 fn void Ppu.apply(&self, RegWrite w) {
 	switch (w.reg) {
 		case WX_SETTLED: self.wx_just_changed = false;
@@ -590,9 +599,9 @@ fn void Ppu.apply(&self, RegWrite w) {
 		case 0x4B:
 			self.wx = w.value;
 			if (!self.cgb_hw) self.wx_just_changed = true;
-		case 0x47: self.bgp = w.value;
-		case 0x48: self.obp0 = w.value;
-		case 0x49: self.obp1 = w.value;
+		case 0x47: self.bgp = self.pal_glitch_value(w);
+		case 0x48: self.obp0 = self.pal_glitch_value(w);
+		case 0x49: self.obp1 = self.pal_glitch_value(w);
 		case 0x40:
 			// DMG: WIN_EN going on with the window armed but not started (a WX
 			// 166 match while it was off) starts it: a window line (Gambatte
