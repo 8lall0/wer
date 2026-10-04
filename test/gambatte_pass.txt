@@ -5190,8 +5190,11 @@ dmg png window/on_screen/wxA5_weoff_at_xposA5.gbc
 cgb png window/on_screen/wxA6_3.gbc
 dmg png window/on_screen/wxA6_3.gbc
 cgb png window/on_screen/wxA6_late_we_reenable_1.gbc
+dmg png window/on_screen/wxA6_late_we_reenable_1.gbc
 cgb png window/on_screen/wxA6_late_we_reenable_2.gbc
+dmg png window/on_screen/wxA6_late_we_reenable_2.gbc
 cgb png window/on_screen/wxA6_late_we_reenable_3.gbc
+dmg png window/on_screen/wxA6_late_we_reenable_3.gbc
 cgb png window/on_screen/wxA6_late_we_reenable_4.gbc
 dmg png window/on_screen/wxA6_late_we_reenable_4.gbc
 cgb png window/on_screen/wxA6_scx7.gbc

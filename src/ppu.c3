@@ -558,6 +558,21 @@ fn void Ppu.apply_writes(&self) {
 	self.n_writes = kept;
 }
 
+// DMG window state on a WIN_EN change (Gambatte PPU::setLcdc), for a window
+// carried over from a WX 166 match: going off between lines leaves it armed
+// but not started; going on while armed starts it, a window line
+// (window/on_screen/wxA6_weoff_at_xposA6, wxA6_late_we_reenable).
+fn void Ppu.dmg_we_change(&self, char lcdc) {
+	if (self.cgb_hw) return;
+	bool was = (self.r_lcdc & LCDC_WIN_ENABLE) != 0;
+	bool now = (lcdc & LCDC_WIN_ENABLE) != 0;
+	if (was && !now && self.r.wx_triggered && !self.r.active) self.win_armed = true;
+	if (!was && now && self.win_armed) {
+		self.r.window_y++;
+		self.win_armed = false;
+	}
+}
+
 fn void Ppu.apply(&self, RegWrite w) {
 	switch (w.reg) {
 		case WX_SETTLED: self.wx_just_changed = false;
@@ -582,10 +597,7 @@ fn void Ppu.apply(&self, RegWrite w) {
 			// DMG: WIN_EN going on with the window armed but not started (a WX
 			// 166 match while it was off) starts it: a window line (Gambatte
 			// PPU::setLcdc; window/on_screen/wxA6_weoff_at_xposA6).
-			if (self.win_armed && (self.r_lcdc & LCDC_WIN_ENABLE) == 0 && (w.value & LCDC_WIN_ENABLE)) {
-				self.r.window_y++;
-				self.win_armed = false;
-			}
+			self.dmg_we_change(w.value);
 			self.r_lcdc = (self.r_lcdc & LCDC_ENABLE) | (w.value & 0x7F);
 		case LCDC_PART:
 			self.r_lcdc = (self.r_lcdc & LCDC_ENABLE) | (((w.value & ~w.keep) | (w.old & w.keep)) & 0x7F);
@@ -600,6 +612,7 @@ fn void Ppu.apply(&self, RegWrite w) {
 			if ((w.old & LCDC_WIN_ENABLE) == 0) keep |= LCDC_WIN_ENABLE;
 			if ((w.value & LCDC_OBJ_ENABLE) == 0 && (self.r.pos == 0 || self.during_object_fetch())) keep &= (char)~LCDC_OBJ_ENABLE;
 			if ((w.old & LCDC_OBJ_ENABLE) && (w.value & LCDC_OBJ_ENABLE) == 0 && self.during_object_fetch()) self.r.obj_abort = true;
+			self.dmg_we_change(((w.value & ~keep) | (w.old & keep)));
 			self.r_lcdc = (self.r_lcdc & LCDC_ENABLE) | (((w.value & ~keep) | (w.old & keep)) & 0x7F);
 			if ((w.old & LCDC_WIN_ENABLE) && (w.value & LCDC_WIN_ENABLE) == 0 && self.r.window_fetching) {
 				self.r.no_insert_glitch = true;
