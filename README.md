@@ -8,6 +8,9 @@ A Game Boy, Super Game Boy and Game Boy Color emulator written in
 It aims at accuracy: the CPU, timer, PPU and APU are modelled at the level
 the common hardware test suites check; results below.
 
+**Play it in your browser:** https://8lall0.github.io/wer/ (bring your own
+ROMs: they never leave the browser; touch controls on phones).
+
 ## Features
 
 - **Models**: Game Boy (DMG, also the first CPU DMG 0), Game Boy Pocket,
@@ -99,6 +102,7 @@ In a web browser (WebAssembly), with [Emscripten](https://emscripten.org)
 ```sh
 scripts/build-web.sh                 # build/web/: index.html, wer.js, wer.wasm
 python3 -m http.server -d build/web  # then open http://localhost:8000
+scripts/deploy-web.sh                # publish it on GitHub Pages (gh-pages)
 ```
 
 It runs at full speed in the page; ROMs open through the page's button and
