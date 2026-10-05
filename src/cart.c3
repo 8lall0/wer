@@ -23,6 +23,10 @@ enum Mbc : char {
 	MBC3, // types $0F/$10 also carry the real-time clock (see rtc.c3)
 	MBC5,
 	MBC7, // $22: accelerometer and a serial EEPROM (Kirby Tilt 'n' Tumble, Command Master)
+	MMM01, // $0B-$0D: multicarts (mappers.c3)
+	HUC1, // $FF: infrared port (mappers.c3)
+	HUC3, // $FE: clock and infrared (mappers.c3)
+	TAMA5, // $FD: Tamagotchi 3's clock and RAM (tama5.c3)
 }
 
 // MBC7's own state (SameBoy's model, MIT: see LICENSE-sameboy). $A000-$AFFF
@@ -76,6 +80,17 @@ struct Cartridge {
 	// the writes to it since the frontend last looked, and how many ran it.
 	uint  rumble_writes;
 	uint  rumble_on;
+
+	// A clock other than MBC3's (HuC3, TAMA5), counted in emulated seconds.
+	bool  has_clock;
+	uint  clock_subsec;
+	// HuC1 / HuC3 infrared: $0000 = $0E (HuC1) or mode $E (HuC3).
+	bool  ir_mode;
+	bool  ir_out;    // the LED
+	bool  ir_in;     // light seen
+	Huc3  huc3;
+	Mmm01 mmm01;
+	Tama5 tama5;
 }
 
 fn Mbc mbc_of(char type) {
@@ -90,6 +105,14 @@ fn Mbc mbc_of(char type) {
 			return MBC5;
 		case 0x22:
 			return MBC7;
+		case 0x0B: case 0x0C: case 0x0D:
+			return MMM01;
+		case 0xFD:
+			return TAMA5;
+		case 0xFE:
+			return HUC3;
+		case 0xFF:
+			return HUC1;
 		default:
 			return NONE;
 	}
@@ -97,7 +120,8 @@ fn Mbc mbc_of(char type) {
 
 fn bool has_battery(char type) {
 	switch (type) {
-		case 0x03: case 0x06: case 0x0F: case 0x10: case 0x13: case 0x1B: case 0x1E: case 0x22:
+		case 0x03: case 0x06: case 0x0D: case 0x0F: case 0x10: case 0x13: case 0x1B: case 0x1E: case 0x22:
+		case 0xFD: case 0xFE: case 0xFF:
 			return true;
 		default:
 			return false;
@@ -113,6 +137,18 @@ fn Cartridge* new(char[] image, String path) {
 	foreach (i, b : image) c.rom[i] = b;
 
 	char type = image.len > 0x147 ? image[0x147] : 0;
+	// MMM01: the menu, with the cartridge's own header, goes last.
+	if (mbc_of(type) == MMM01) {
+		mmm01_arrange(c.rom);
+	} else if (mmm01_at_end(c.rom)) {
+		type = 0x0B;
+	}
+	char ram_code = image.len > 0x149 ? image[0x149] : 0;
+	if (mbc_of(type) == MMM01) {
+		usz menu = c.rom.len - 0x8000;
+		type = c.rom[menu + 0x147] == 0x11 ? 0x0B : c.rom[menu + 0x147];
+		ram_code = c.rom[menu + 0x149];
+	}
 	c.mbc = mbc_of(type);
 	c.has_battery = has_battery(type);
 	c.has_rtc = type == 0x0F || type == 0x10;
@@ -126,9 +162,10 @@ fn Cartridge* new(char[] image, String path) {
 		ram_len = 0x200; // built-in 512 x 4 bits
 	} else if (c.mbc == MBC7) {
 		ram_len = 0x100; // the 93LC56 EEPROM
+	} else if (c.mbc == TAMA5) {
+		ram_len = 0x20;
 	} else {
-		char code = image.len > 0x149 ? image[0x149] : 0;
-		ram_len = code < 6 ? RAM_SIZE[code] : 0;
+		ram_len = ram_code < 6 ? RAM_SIZE[ram_code] : 0;
 	}
 	if (ram_len > 0) c.ram = mem::new_array(char, (sz)ram_len);
 	c.has_rumble = type >= 0x1C && type <= 0x1E;
@@ -142,14 +179,24 @@ fn Cartridge* new(char[] image, String path) {
 
 	c.rom_bank = 1;
 	c.bank1 = 1;
+	c.has_clock = c.mbc == HUC3 || c.mbc == TAMA5;
+	if (c.mbc == HUC3) c.huc3.unset();
+	if (c.mbc == TAMA5) c.tama5.init();
+	if (c.mbc == MMM01) c.mmm01.ram_mask = 3;
 
-	if (c.has_battery && (c.ram.len > 0 || c.has_rtc)) {
+	if (c.has_battery && (c.ram.len > 0 || c.has_rtc || c.has_clock)) {
 		c.save_path = string::format(mem, "%s.sav", path);
 		if (try saved = file::load_temp(c.save_path)) {
 			usz n = saved.len < c.ram.len ? saved.len : c.ram.len;
 			for (usz i = 0; i < n; i++) c.ram[i] = saved[i];
-			if (c.has_rtc && saved.len >= c.ram.len + RTC_SAVE_LEN) {
-				c.rtc.deserialize(saved[c.ram.len : RTC_SAVE_LEN], unix_now());
+			usz clock_len = c.clock_save_len();
+			if (clock_len && saved.len >= c.ram.len + clock_len) {
+				char[] block = saved[c.ram.len : (sz)clock_len];
+				switch (c.mbc) {
+					case HUC3:  c.huc3.deserialize(block, unix_now());
+					case TAMA5: c.tama5.deserialize(block, unix_now());
+					default:    c.rtc.deserialize(block, unix_now());
+				}
 			}
 		}
 	}
@@ -165,15 +212,33 @@ fn void Cartridge.free(&self) {
 
 fn long unix_now() => (long)time::now() / (long)time::SEC;
 
-// RAM, followed by the 48-byte RTC block for clock cartridges.
+// The clock's block after the RAM in a battery save (0 without a clock).
+fn usz Cartridge.clock_save_len(&self) {
+	switch {
+		case self.has_rtc:      return RTC_SAVE_LEN;
+		case self.mbc == HUC3:  return HUC3_SAVE_LEN;
+		case self.mbc == TAMA5: return TAMA5_SAVE_LEN;
+		default:                return 0;
+	}
+}
+
+// RAM, followed by the clock's block for clock cartridges (MBC3: 48 bytes,
+// as other emulators write it; HuC3 as SameBoy, TAMA5 as mGBA does).
 fn void Cartridge.save(&self) {
 	if (!self.has_battery || self.save_path.len == 0) return;
-	if (self.ram.len == 0 && !self.has_rtc) return;
-	sz rtc_len = self.has_rtc ? (sz)RTC_SAVE_LEN : 0;
-	char[] out = mem::new_array(char, self.ram.len + rtc_len);
+	usz clock_len = self.clock_save_len();
+	if (self.ram.len == 0 && clock_len == 0) return;
+	char[] out = mem::new_array(char, (sz)(self.ram.len + clock_len));
 	defer free(out.ptr);
 	foreach (i, b : self.ram) out[i] = b;
-	if (self.has_rtc) self.rtc.serialize(out[self.ram.len : RTC_SAVE_LEN], unix_now());
+	if (clock_len) {
+		char[] block = out[self.ram.len : (sz)clock_len];
+		switch (self.mbc) {
+			case HUC3:  self.huc3.serialize(block, unix_now());
+			case TAMA5: self.tama5.serialize(block, unix_now());
+			default:    self.rtc.serialize(block, unix_now());
+		}
+	}
 	if (catch file::save(self.save_path, out)) {
 		io::eprintfn("could not write %s", self.save_path);
 	}
@@ -201,6 +266,7 @@ fn usz Cartridge.mbc1_rom_offset(&self, ushort addr) {
 
 fn usz Cartridge.rom_offset(&self, ushort addr) {
 	if (self.mbc == MBC1) return self.mbc1_rom_offset(addr);
+	if (self.mbc == MMM01) return self.mmm01_rom_offset(addr);
 
 	if (addr < 0x4000) return addr;
 	uint bank = self.rom_bank;
@@ -220,13 +286,50 @@ fn char Cartridge.read(&self, ushort addr) {
 		return off < self.rom.len ? self.rom[off] : 0xFF;
 	}
 	// $A000-$BFFF
-	if (self.mbc == MBC7) return self.mbc7_read(addr);
+	switch (self.mbc) {
+		case MBC7:  return self.mbc7_read(addr);
+		case HUC1:  return self.huc1_read(addr);
+		case HUC3:  return self.huc3_read(addr);
+		case TAMA5: return self.tama5_read(addr);
+		default:    break;
+	}
 	if (!self.ram_enabled) return 0xFF;
 	if (self.rtc_selected()) return self.rtc.read(self.ram_bank);
 	if (self.ram.len == 0) return 0xFF;
 	usz off = self.ram_offset(addr);
 	char v = off < self.ram.len ? self.ram[off] : 0xFF;
 	return self.mbc == MBC2 ? (char)(v | 0xF0) : v;
+}
+
+// RAM at $A000-$BFFF in the current bank, whatever enables it.
+fn char Cartridge.ram_byte(&self, ushort addr) {
+	if (self.ram.len == 0) return 0xFF;
+	usz off = self.ram_offset(addr);
+	return off < self.ram.len ? self.ram[off] : 0xFF;
+}
+
+fn void Cartridge.set_ram_byte(&self, ushort addr, char value) {
+	if (self.ram.len == 0) return;
+	usz off = self.ram_offset(addr);
+	if (off < self.ram.len) self.ram[off] = value;
+}
+
+// Emulated time for the cartridge's clock, if it has one.
+fn void Cartridge.tick(&self, uint tcycles) {
+	if (self.has_rtc) {
+		self.rtc.tick(tcycles);
+		return;
+	}
+	uint hz = self.rtc.cpu_hz ? self.rtc.cpu_hz : RTC_CPU_HZ;
+	self.clock_subsec += tcycles;
+	while (self.clock_subsec >= hz) {
+		self.clock_subsec -= hz;
+		if (self.mbc == HUC3) {
+			self.huc3.tick_second();
+		} else {
+			self.tama5.pending++;
+		}
+	}
 }
 
 fn usz Cartridge.ram_offset(&self, ushort addr) {
@@ -246,9 +349,12 @@ fn void Cartridge.write(&self, ushort addr, char value) {
 		return;
 	}
 	// $A000-$BFFF
-	if (self.mbc == MBC7) {
-		self.mbc7_write(addr, value);
-		return;
+	switch (self.mbc) {
+		case MBC7:  self.mbc7_write(addr, value); return;
+		case HUC1:  self.huc1_write(addr, value); return;
+		case HUC3:  self.huc3_write(addr, value); return;
+		case TAMA5: self.tama5_write(addr, value); return;
+		default:    break;
 	}
 	if (!self.ram_enabled) return;
 	if (self.rtc_selected()) {
@@ -317,6 +423,10 @@ fn void Cartridge.write_control(&self, ushort addr, char value) {
 					}
 				default: break;
 			}
+		case MMM01: self.mmm01_control(addr, value);
+		case HUC1:  self.huc1_control(addr, value);
+		case HUC3:  self.huc3_control(addr, value);
+		case TAMA5: break; // everything goes through $A000/$A001
 		case MBC7:
 			switch {
 				case addr < 0x2000: self.ram_enabled = value == 0x0A;

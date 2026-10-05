@@ -970,7 +970,7 @@ fn void Mmu.tick(&self, char mcycles) {
 	int apu_ticks = self.apu.clock(mcycles);
 	self.apu.tick(rt, tr.apu_steps, tr.apu_rises, tr.apu_div_write, false, apu_ticks);
 
-	if (self.cart && self.cart.has_rtc) self.cart.rtc.tick(rt);
+	if (self.cart && (self.cart.has_rtc || self.cart.has_clock)) self.cart.tick(rt);
 }
 
 // PPU interrupt bits (ppu::INT_VBLANK / INT_STAT) -> IF.

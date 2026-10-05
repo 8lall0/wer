@@ -25,8 +25,9 @@ ROMs: they never leave the browser; touch controls on phones).
   where they happen.
 - **Cartridges**: MBC1 (including multicarts), MBC2, MBC3 with the real-time
   clock, MBC5 (with rumble), MBC7 (Kirby Tilt 'n' Tumble's accelerometer and
-  EEPROM); battery saves (`.sav`, with the RTC in the format other emulators
-  use).
+  EEPROM), MMM01 multicarts, HuC1 and HuC3 (with HuC3's clock), TAMA5
+  (Tamagotchi 3); battery saves (`.sav`, with the clocks in the formats other
+  emulators use).
 - **Tilt and rumble**: tilt with a gamepad's left stick, I/J/K/L, or by
   tilting the phone (Android, and in a browser); rumble cartridges shake the
   gamepad, or vibrate the phone.
@@ -207,3 +208,6 @@ the author's direction and review.
 The sound (`src/apu/`) is a port of [SameBoy](https://github.com/LIJI32/SameBoy)'s
 APU and the pixel renderer follows SameBoy's; those parts also carry
 SameBoy's MIT licence ([LICENSE-sameboy](LICENSE-sameboy)).
+
+`src/tama5.c3` is a port of [mGBA](https://mgba.io)'s TAMA5 mapper and is
+under the [Mozilla Public License 2.0](https://mozilla.org/MPL/2.0/) instead.

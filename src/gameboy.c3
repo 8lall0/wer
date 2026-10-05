@@ -320,7 +320,15 @@ fn Cartridge? GameBoy.load_rom_file(&self, String path) {
 }
 
 fn void Cartridge.print(&self) {
-	String extra = self.type == 0x22 ? "  (tilt, 256-byte EEPROM)" : self.type >= 0x1C && self.type <= 0x1E ? "  (rumble)" : "";
+	String extra;
+	switch (self.type) {
+		case 0x22:             extra = "  (tilt, 256-byte EEPROM)";
+		case 0x1C..0x1E:       extra = "  (rumble)";
+		case 0x0B..0x0D:       extra = "  (MMM01)";
+		case 0xFD:             extra = "  (TAMA5 with clock)";
+		case 0xFE:             extra = "  (HuC3 with clock, infrared)";
+		case 0xFF:             extra = "  (HuC1, infrared)";
+	}
 	io::printfn("cartridge: \"%s\"  type=$%02x  rom=%dKiB  ram=%dKiB%s%s%s",
 		(ZString)&self.title[0], self.type, self.rom_kib, self.ram_kib,
 		self.battery ? "  (battery)" : "", extra, self.cgb ? "  (CGB)" : "");
