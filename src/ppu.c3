@@ -65,6 +65,7 @@ struct Ppu {
 	bool     cgb_hw;  // CGB hardware, in either mode (timing differences)
 	char     rev;     // ... its revision (REV_*, mmu::CgbRevision's ordinal)
 	bool     mgb;     // Game Boy Pocket / Light
+	char     pal_written; // DMG: BGP/OBP0/OBP1 (bits 0-2) written during this line
 
 	char lcdc;
 	char stat;
@@ -288,6 +289,7 @@ fn char Ppu.tick(&self, uint tcycles) {
 			self.dot = 0;
 			if (self.r.active) self.render_end(); // never happens with sane timing
 			self.line = (self.line + 1) % TOTAL_LINES;
+			self.pal_written = 0;
 			if (self.line == 0) self.render_frame_start(true);
 			// Line 153 reads LY 0 almost all along (2 dots later in double speed).
 			if (self.line == TOTAL_LINES - 1 && !self.double_speed) self.ly = 0;
@@ -494,8 +496,21 @@ fn void Ppu.write_render_reg(&self, char reg, char value) {
 		case 0x47:
 		case 0x48:
 		case 0x49:
-			// DMG: for one dot the palette reads as old | new.
-			if (dmg && !self.sgb_hw) self.queue({ .reg = reg, .value = old | value, .old = value, .keep = 0xFF, .delay = 6 });
+			// DMG: the renderer sees the new value 6 dots on; for that first
+			// dot it reads as old | new when the palette was already written
+			// earlier in the line (Mealybug m3_bgp_change, AGE
+			// m3-bg-bgp: 12-60 dots before), not after a line or more
+			// (Gambatte dmgpalette_during_m3: 300+ dots).
+			char bit = (char)(1 << (reg - 0x47));
+			bool glitch = (self.pal_written & bit) != 0;
+			self.pal_written |= bit;
+			if (dmg && !self.sgb_hw) {
+				if (glitch) {
+					self.queue({ .reg = reg, .value = old | value, .old = value, .keep = 0xFF, .delay = 6 });
+				} else {
+					self.queue({ .reg = reg, .value = value, .delay = 6 });
+				}
+			}
 			// A CGB-D/E's renderer sees them a dot sooner (AGE m3-bg-bgp-ncmE;
 			// SameBoy GB_CONFLICT_PALETTE_CGB, model >= CGB_D).
 			self.schedule(reg, value, self.after_c() ? 6 : 7);
