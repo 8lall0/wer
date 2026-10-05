@@ -83,6 +83,12 @@ struct Display {
 	Bindings          bindings;
 	sdl::Gamepad*[MAX_PADS] pads; // open gamepads (any of them plays)
 	int               stick_dir; // menu navigation by stick: last KEY_* direction held
+
+	// Touch screens (Android): on-screen controls (touch.c3).
+	bool              touch_ui;
+	Finger[MAX_FINGERS] fingers;
+	ushort            touch_held; // T_* held at the last poll
+	ushort            touch_tap;  // T_* touched since the last poll (a tap may end before it)
 }
 
 // Gamepads used at once; all of them control the game.
@@ -182,6 +188,10 @@ const char[8] JOYPAD_BIT = {
 };
 
 fn Display? open(ZString title, int scale = DEFAULT_SCALE) {
+	// Android's Back comes as a key (it opens the menu) instead of leaving;
+	// the phone may be held either way (touch.c3 lays out both).
+	sdl::set_hint("SDL_ANDROID_TRAP_BACK_BUTTON", "1");
+	sdl::set_hint("SDL_ORIENTATIONS", "LandscapeLeft LandscapeRight Portrait");
 	if (sdl::init(sdl::INIT_VIDEO | sdl::INIT_EVENTS | sdl::INIT_AUDIO | sdl::INIT_GAMEPAD) == 0) {
 		io::eprintfn("SDL_Init failed: %s", sdl::get_error().str_view());
 		return SDL_FAILED~;
@@ -189,7 +199,9 @@ fn Display? open(ZString title, int scale = DEFAULT_SCALE) {
 
 	Display d;
 	d.scale = scale;
-	d.window = sdl::create_window(title, ppu::WIDTH * scale, ppu::HEIGHT * scale, 0);
+	d.touch_ui = env::ANDROID;
+	// Android: resizable lets SDL follow the phone's rotation.
+	d.window = sdl::create_window(title, ppu::WIDTH * scale, ppu::HEIGHT * scale, env::ANDROID ? sdl::WINDOW_RESIZABLE : 0);
 	d.renderer = d.window ? sdl::create_renderer(d.window, null) : null;
 	if (!d.renderer) {
 		io::eprintfn("SDL window/renderer failed: %s", sdl::get_error().str_view());
@@ -197,6 +209,9 @@ fn Display? open(ZString title, int scale = DEFAULT_SCALE) {
 		return SDL_FAILED~;
 	}
 	sdl::set_render_vsync(d.renderer, 0);
+	sdl::add_event_watch(&on_app_event, null);
+	// Android: the whole screen, without the status and navigation bars.
+	if (env::ANDROID) sdl::set_window_fullscreen(d.window, true);
 	// On Windows SDL's window class already has wer.exe's own icon, every
 	// size (resources/windows/wer.ico); one set here would replace it.
 	$if !env::WIN32:
@@ -215,6 +230,24 @@ fn Display? open(ZString title, int scale = DEFAULT_SCALE) {
 		io::eprintfn("audio unavailable: %s", sdl::get_error().str_view());
 	}
 	return d;
+}
+
+// Called when the app goes to the background (Android, which may end it
+// there without another word): the main loop's chance to write saves.
+alias BackgroundHook = fn void(void* ctx);
+BackgroundHook background_hook;
+void* background_ctx;
+
+// SDL calls watches as it queues an event: on Android the app blocks right
+// after the background event is queued, so the hook runs here (on the
+// thread that polls, so the emulator is between frames).
+fn bool on_app_event(void* userdata, sdl::Event* e) {
+	switch (e.type) {
+		case sdl::EVENT_WILL_ENTER_BACKGROUND:
+		case sdl::EVENT_TERMINATING:
+			if (background_hook) background_hook(background_ctx);
+	}
+	return true;
 }
 
 // The window's icon: the 32x32 pixel art at 4x, so a desktop that shows it
@@ -267,14 +300,14 @@ fn void Display.resize(&self, int w, int h) {
 	self.texture = sdl::create_texture(self.renderer, sdl::PIXELFORMAT_ABGR8888,
 		sdl::TEXTUREACCESS_STREAMING, w, h);
 	sdl::set_texture_scale_mode(self.texture, sdl::SCALEMODE_NEAREST);
-	sdl::set_window_size(self.window, w * self.scale, h * self.scale);
+	if (!env::ANDROID) sdl::set_window_size(self.window, w * self.scale, h * self.scale);
 	self.width = w;
 	self.height = h;
 }
 
 fn void Display.set_scale(&self, int scale) {
 	self.scale = scale;
-	sdl::set_window_size(self.window, self.width * scale, self.height * scale);
+	if (!env::ANDROID) sdl::set_window_size(self.window, self.width * scale, self.height * scale);
 }
 
 fn void Display.present(&self, char[] rgb, int w, int h, String[] menu = {}, int selected = -1, String message = "") {
@@ -289,28 +322,37 @@ fn void Display.present(&self, char[] rgb, int w, int h, String[] menu = {}, int
 	}
 	sdl::update_texture(self.texture, null, self.pixels.ptr, w * 4);
 	sdl::render_clear(self.renderer);
-	sdl::render_texture(self.renderer, self.texture, null, null);
-	if (menu.len) self.draw_menu(menu, selected);
-	if (message.len && !menu.len) self.draw_message(message);
+	Layout l = self.layout();
+	sdl::render_texture(self.renderer, self.texture, null, &l.screen);
+	if (self.touch_ui) self.draw_touch(&l);
+	if (menu.len) self.draw_menu(menu, selected, l.screen);
+	if (message.len && !menu.len) self.draw_message(message, l.screen);
 	sdl::render_present(self.renderer);
 }
 
 // A one-line notice ("Saved state 1", "Paused") in the bottom left corner,
 // on a dark strip.
-fn void Display.draw_message(&self, String text) {
-	float font = self.scale >= 3 ? 2 : 1;
+fn void Display.draw_message(&self, String text, sdl::FRect area) {
+	float font = ui_font(area);
 	float pad = 4 * font;
 	float h = 8 * font + pad * 2;
-	float y = (float)(self.height * self.scale) - h;
+	float y = area.y + area.h - h;
 	sdl::set_render_draw_blend_mode(self.renderer, sdl::BLENDMODE_BLEND);
 	sdl::set_render_draw_color(self.renderer, 0x08, 0x18, 0x20, 0xC0);
-	sdl::FRect strip = { 0, y, (float)text.len * 8 * font + pad * 2, h };
+	sdl::FRect strip = { area.x, y, (float)text.len * 8 * font + pad * 2, h };
 	sdl::render_fill_rect(self.renderer, &strip);
 	sdl::set_render_scale(self.renderer, font, font);
 	sdl::set_render_draw_color(self.renderer, 0xE0, 0xF8, 0xD0, 0xFF);
-	sdl::render_debug_text(self.renderer, pad / font, (y + pad) / font, text.zstr_tcopy());
+	sdl::render_debug_text(self.renderer, (area.x + pad) / font, (y + pad) / font, text.zstr_tcopy());
 	sdl::set_render_scale(self.renderer, 1, 1);
 	sdl::set_render_draw_color(self.renderer, 0, 0, 0, 0xFF);
+}
+
+// The 8x8 font's size for text over `area` (the picture): 2x from 3x
+// picture scale up, more on a phone.
+fn float ui_font(sdl::FRect area) {
+	float f = (float)(int)(area.h / 216);
+	return f < 1 ? 1 : f;
 }
 
 // Menu layout in window pixels per unit of window scale (so at 4x: 48 px in,
@@ -318,15 +360,15 @@ fn void Display.draw_message(&self, String text) {
 const int MENU_MARGIN = 12;
 const int MENU_LINE   = 7;
 
-fn void Display.draw_menu(&self, String[] lines, int selected) {
+fn void Display.draw_menu(&self, String[] lines, int selected, sdl::FRect area) {
 	sdl::set_render_draw_blend_mode(self.renderer, sdl::BLENDMODE_BLEND);
 	sdl::set_render_draw_color(self.renderer, 0x08, 0x18, 0x20, 0xD0);
-	sdl::FRect all = { 0, 0, (float)(self.width * self.scale), (float)(self.height * self.scale) };
-	sdl::render_fill_rect(self.renderer, &all);
+	sdl::render_fill_rect(self.renderer, &area);
 
-	float font = self.scale >= 3 ? 2 : 1;
-	float margin = (float)(MENU_MARGIN * self.scale) / font;
-	float line_h = (float)(MENU_LINE * self.scale) / font;
+	float font = ui_font(area);
+	float scale = area.h / (float)self.height; // picture pixels to output pixels
+	float margin = MENU_MARGIN * scale / font;
+	float line_h = MENU_LINE * scale / font;
 	if (line_h < 10) line_h = 10;           // never closer than the 8 px font
 	sdl::set_render_scale(self.renderer, font, font);
 	foreach (i, line : lines) {
@@ -337,7 +379,7 @@ fn void Display.draw_menu(&self, String[] lines, int selected) {
 			sdl::set_render_draw_color(self.renderer, 0x88, 0xC0, 0x70, 0xFF);
 		}
 		String text = string::tformat("%s%s", sel ? "> " : "  ", line);
-		sdl::render_debug_text(self.renderer, margin, margin + (float)i * line_h, text.zstr_tcopy());
+		sdl::render_debug_text(self.renderer, area.x / font + margin, area.y / font + margin + (float)i * line_h, text.zstr_tcopy());
 	}
 	sdl::set_render_scale(self.renderer, 1, 1);
 	sdl::set_render_draw_color(self.renderer, 0, 0, 0, 0xFF);
@@ -381,7 +423,9 @@ fn bool Display.dialog_open(&self) {
 fn void Display.open_rom_dialog(&self) {
 	if (dialog_state.load() == DIALOG_OPEN) return;
 	dialog_state.store(DIALOG_OPEN);
-	sdl::show_open_file_dialog(&on_dialog, null, self.window, &rom_filters, 1, null, false);
+	// Android's picker filters by MIME type, and .gb/.gbc files have none:
+	// show every file there.
+	sdl::show_open_file_dialog(&on_dialog, null, self.window, &rom_filters, env::ANDROID ? 0 : 1, null, false);
 }
 
 // The chosen path once the dialog has closed with a file; empty otherwise.
@@ -416,7 +460,8 @@ fn Input Display.poll(&self) {
 					}
 				}
 				switch (k.scancode) {
-					case sdl::SC_ESCAPE: if (!k.repeat) in.pressed |= KEY_MENU;
+					case sdl::SC_ESCAPE:
+					case sdl::SC_AC_BACK: if (!k.repeat) in.pressed |= KEY_MENU;
 					case sdl::SC_UP:     in.pressed |= KEY_UP;
 					case sdl::SC_DOWN:   in.pressed |= KEY_DOWN;
 					case sdl::SC_LEFT:   in.pressed |= KEY_LEFT;
@@ -424,6 +469,11 @@ fn Input Display.poll(&self) {
 					case sdl::SC_RETURN: if (!k.repeat) in.pressed |= KEY_ENTER;
 					case sdl::SC_O:      if (!k.repeat && (k.mod & sdl::KMOD_CTRL) != 0) in.pressed |= KEY_OPEN;
 				}
+			case sdl::EVENT_FINGER_DOWN:
+			case sdl::EVENT_FINGER_UP:
+			case sdl::EVENT_FINGER_MOTION:
+			case sdl::EVENT_FINGER_CANCELED:
+				if (self.touch_ui) self.finger_event((sdl::TouchFingerEvent*)&e);
 			case sdl::EVENT_GAMEPAD_ADDED:
 				self.add_pad(((sdl::GamepadDeviceEvent*)&e).which);
 			case sdl::EVENT_GAMEPAD_REMOVED:
@@ -455,6 +505,7 @@ fn Input Display.poll(&self) {
 			in.dpad |= JOYPAD_BIT[i];
 		}
 	}
+	if (self.touch_ui) self.touch_input(&in);
 	switch (dir) {
 		case KEY_UP:    in.dpad |= joypad::PAD_UP;
 		case KEY_DOWN:  in.dpad |= joypad::PAD_DOWN;

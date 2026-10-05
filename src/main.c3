@@ -364,6 +364,13 @@ fn int main(String[] args) @winmain
 		return 1;
 	}
 	defer screen.close();
+	// Going to the background (Android may end the app there): write the
+	// battery save now.
+	display::background_hook = fn (ctx) {
+		gameboy::GameBoy* g = ctx;
+		if (g.mmu.cart) g.mmu.cart.save();
+	};
+	display::background_ctx = &gb;
 	screen.bindings = display::bindings_from(&cfg);
 
 	// The path of the running ROM, kept for Reset (heap copy: args and dialog
@@ -506,7 +513,7 @@ fn int main(String[] args) @winmain
 			items[count++] = OPEN;
 			items[count++] = MODE;
 			if (mode.model().is_sgb()) items[count++] = PALETTE;
-			items[count++] = SCALE;
+			if (!env::ANDROID) items[count++] = SCALE; // the picture fills the screen there
 			items[count++] = CONTROLS;
 			if (has_rom) items[count++] = RESET;
 			items[count++] = QUIT;
@@ -598,7 +605,7 @@ fn int main(String[] args) @winmain
 						if (scale == 1) {
 							lines[i] = "Open ROM...";
 						} else {
-							lines[i] = screen.dialog_open() ? "Open ROM...  (dialog open)" : "Open ROM...  (Ctrl+O)";
+							lines[i] = screen.dialog_open() ? "Open ROM...  (dialog open)" : env::ANDROID ? "Open ROM..." : "Open ROM...  (Ctrl+O)";
 						}
 					case SCALE:   lines[i] = string::tformat("Scale:   < %dx >", scale);
 					case MODE:    lines[i] = string::tformat("Mode:    < %s >", MODE_LABELS[mode.ordinal]);

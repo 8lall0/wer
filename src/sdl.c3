@@ -26,7 +26,12 @@ struct AudioSpec {
 }
 
 // SDL_EventType
+const ulong WINDOW_RESIZABLE = 0x20;
+
 const uint EVENT_QUIT     = 0x100;
+const uint EVENT_TERMINATING           = 0x101;
+const uint EVENT_WILL_ENTER_BACKGROUND = 0x103;
+const uint EVENT_DID_ENTER_BACKGROUND  = 0x104;
 const uint EVENT_KEY_DOWN = 0x300;
 const uint EVENT_KEY_UP   = 0x301;
 const uint EVENT_GAMEPAD_AXIS_MOTION = 0x650;
@@ -34,6 +39,10 @@ const uint EVENT_GAMEPAD_BUTTON_DOWN = 0x651;
 const uint EVENT_GAMEPAD_BUTTON_UP   = 0x652;
 const uint EVENT_GAMEPAD_ADDED       = 0x653;
 const uint EVENT_GAMEPAD_REMOVED     = 0x654;
+const uint EVENT_FINGER_DOWN     = 0x700;
+const uint EVENT_FINGER_UP       = 0x701;
+const uint EVENT_FINGER_MOTION   = 0x702;
+const uint EVENT_FINGER_CANCELED = 0x703;
 
 // SDL_GamepadButton / SDL_GamepadAxis values used directly
 const int GAMEPAD_BUTTON_INVALID    = -1;
@@ -71,6 +80,7 @@ const int SC_O      = 18;
 const int SC_N      = 17;
 const int SC_P      = 19;
 const int SC_TAB    = 43;
+const int SC_AC_BACK = 282; // Android's Back
 const int SC_F1     = 58; // F1-F9 are consecutive
 const int SC_F9     = 66;
 
@@ -121,6 +131,20 @@ struct GamepadAxisEvent {
 	char  padding3;
 	short value;
 	ushort padding4;
+}
+
+struct TouchFingerEvent {
+	uint  type;
+	uint  reserved;
+	ulong timestamp;
+	ulong touch_id;
+	ulong finger_id;
+	float x;          // 0..1 of the window
+	float y;
+	float dx;
+	float dy;
+	float pressure;
+	uint  window_id;
 }
 
 struct GamepadDeviceEvent {
@@ -179,6 +203,12 @@ extern fn bool      set_render_scale(Renderer* r, float sx, float sy) @cname("SD
 extern fn bool      set_render_draw_color(Renderer* r, char red, char green, char blue, char alpha) @cname("SDL_SetRenderDrawColor");
 extern fn bool      set_render_draw_blend_mode(Renderer* r, uint mode) @cname("SDL_SetRenderDrawBlendMode");
 extern fn bool      render_fill_rect(Renderer* r, FRect* rect)      @cname("SDL_RenderFillRect");
+extern fn bool      render_rect(Renderer* r, FRect* rect)           @cname("SDL_RenderRect");
+extern fn bool      get_render_output_size(Renderer* r, int* w, int* h) @cname("SDL_GetRenderOutputSize");
+extern fn bool      set_hint(ZString name, ZString value)          @cname("SDL_SetHint");
+extern fn bool      set_window_fullscreen(Window* w, bool on)       @cname("SDL_SetWindowFullscreen");
+alias EventFilter = fn bool(void* userdata, Event* event);
+extern fn bool      add_event_watch(EventFilter filter, void* userdata) @cname("SDL_AddEventWatch");
 extern fn bool      render_debug_text(Renderer* r, float x, float y, ZString text) @cname("SDL_RenderDebugText");
 
 extern fn Texture*  create_texture(Renderer* r, uint format, int access, int w, int h) @cname("SDL_CreateTexture");
