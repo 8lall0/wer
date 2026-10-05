@@ -257,7 +257,7 @@ fn char Ppu.tick(&self, uint tcycles) {
 	self.irq_dot = -1;
 	for (uint i = 0; i < tcycles; i++) {
 		// HBlank after drawing, and VBlank: dots with nothing to do but count.
-		if (self.n_writes == 0 && !self.r.active) {
+		if (self.n_writes == 0 && !self.r.active && (self.mode == 0 || self.line >= VBLANK_LINE)) {
 			long k = self.quiet_dots(tcycles - i);
 			if (k > 0) {
 				self.scx_landed = false;
@@ -269,10 +269,12 @@ fn char Ppu.tick(&self, uint tcycles) {
 		}
 		self.scx_landed = false;
 		self.apply_writes();
-		self.window_line_checks();
+		// (Only dots 1-2 of line 0, 450 and 454 matter.)
+		if (self.dot >= 450 || (self.line == 0 && self.dot <= 2)) self.window_line_checks();
 		// Mode 3 drawing for this dot (before the counters move on).
 		if (self.line < VBLANK_LINE) {
-			int scan = self.oam_scan_index();
+			// (The scan is over by dot 86.)
+			int scan = self.dot < 88 ? self.oam_scan_index() : -1;
 			if (scan >= 0) {
 				self.oam_scan(scan);
 			} else if (self.cgb_hw && self.r.scan_tall_only > 0) {
@@ -450,6 +452,17 @@ fn char Ppu.update_mode(&self) {
 	}
 
 	char want;
+	// Lines 0-142: modes 2, 3 and 0 only.
+	if (self.line < VBLANK_LINE - 1) {
+		if (self.dot < MODE3_START_DOT || self.dot >= MODE2_START_DOT) {
+			want = 2;
+		} else if (self.surely_mode3() || self.dot < self.pipe_end() - self.mode3_tail()) {
+			want = 3;
+		} else {
+			want = 0;
+		}
+		return self.set_mode(want);
+	}
 	int vblank_end = VBLANK_END_DOT + (self.double_speed ? 1 : 0);
 	// A CGB-D/E has no mode-0 M-cycle between VBlank and line 0's mode 2
 	// (AGE stat-mode-cgbE; SameBoy: model > CGB_C).
@@ -469,6 +482,10 @@ fn char Ppu.update_mode(&self) {
 		want = 0;
 	}
 
+	return self.set_mode(want);
+}
+
+fn char Ppu.set_mode(&self, char want) {
 	// Right after LCD on STAT reads mode 0 for a while (Gambatte getStat:
 	// inactivePeriodAfterDisplayEnable; mode 3 too in double speed).
 	if (self.first_line && (want == 2 || want == 3) && self.inactive_after_enable(1)) {
