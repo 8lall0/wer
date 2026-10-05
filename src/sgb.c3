@@ -83,7 +83,6 @@ const char MASK_BLACK  = 2;
 const char MASK_COLOR0 = 3;
 
 struct Sgb {
-	bool   curve;       // colours through SGB_CURVE (gameboy::color_correction on)
 	// packet receiver
 	char   p1;          // last P1 select bits written (bits 4-5)
 	bool   receiving;   // a start pulse was seen
@@ -426,8 +425,12 @@ fn void bgr555_to_rgb(ushort c, char[] out) {
 const char[32] SGB_CURVE = { 0, 2, 5, 9, 15, 20, 27, 34, 42, 50, 58, 67, 76, 85, 94, 104,
 	114, 123, 133, 143, 153, 163, 173, 182, 192, 202, 211, 220, 229, 238, 247, 255 };
 
+// Colours through SGB_CURVE (gameboy::color_correction on). Not in Sgb: a
+// display setting, not saved state.
+bool color_curve;
+
 fn void Sgb.to_rgb(&self, ushort c, char[] out) {
-	if (!self.curve) {
+	if (!color_curve) {
 		bgr555_to_rgb(c, out);
 		return;
 	}

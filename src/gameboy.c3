@@ -344,7 +344,7 @@ fn FrameSize GameBoy.frame_rgb(&self, char[] rgb, char[12] colors) {
 	}
 	char[] fb = self.framebuffer();
 	if (self.mmu.sgb) {
-		self.mmu.sgb.curve = color_correction != OFF;
+		sgb::color_curve = color_correction != OFF;
 		self.mmu.sgb.render(fb, rgb);
 		return { self.mmu.sgb.width(), self.mmu.sgb.height() };
 	}
