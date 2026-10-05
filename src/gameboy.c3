@@ -228,6 +228,18 @@ fn float GameBoy.rumble(&self) {
 	return level;
 }
 
+// The Game Boy Camera: whether the cartridge is one, and the picture its
+// sensor sees, 128x112 brightness values (0 black - 255 white) row by row.
+// Without one it sees noise.
+fn bool GameBoy.has_camera(&self) => self.mmu.cart != null && self.mmu.cart.mbc == CAMERA;
+
+fn void GameBoy.set_camera_image(&self, char[] gray) {
+	cart::Cartridge* c = self.mmu.cart;
+	if (!c || gray.len < c.camera.sensor.len) return;
+	c.camera.sensor[..] = gray[:c.camera.sensor.len];
+	c.camera.has_image = true;
+}
+
 fn bool GameBoy.has_rumble(&self) => self.mmu.cart != null && self.mmu.cart.has_rumble;
 
 fn void GameBoy.destroy(&self) {

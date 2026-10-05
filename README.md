@@ -25,9 +25,12 @@ ROMs: they never leave the browser; touch controls on phones).
   where they happen.
 - **Cartridges**: MBC1 (including multicarts), MBC2, MBC3 with the real-time
   clock, MBC5 (with rumble), MBC7 (Kirby Tilt 'n' Tumble's accelerometer and
-  EEPROM), MMM01 multicarts, HuC1 and HuC3 (with HuC3's clock), TAMA5
+  EEPROM), the Game Boy Camera, MMM01 multicarts, HuC1 and HuC3 (with HuC3's clock), TAMA5
   (Tamagotchi 3); battery saves (`.sav`, with the clocks in the formats other
   emulators use).
+- **Game Boy Camera**: the camera sees through your webcam, the phone's
+  front camera or the browser's camera (the system asks first; without a
+  camera it sees noise). Photos are kept in the battery save.
 - **Tilt and rumble**: tilt with a gamepad's left stick, I/J/K/L, or by
   tilting the phone (Android, and in a browser); rumble cartridges shake the
   gamepad, or vibrate the phone.

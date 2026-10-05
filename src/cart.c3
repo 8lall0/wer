@@ -27,6 +27,7 @@ enum Mbc : char {
 	HUC1, // $FF: infrared port (mappers.c3)
 	HUC3, // $FE: clock and infrared (mappers.c3)
 	TAMA5, // $FD: Tamagotchi 3's clock and RAM (tama5.c3)
+	CAMERA, // $FC: the Game Boy Camera (camera.c3)
 }
 
 // MBC7's own state (SameBoy's model, MIT: see LICENSE-sameboy). $A000-$AFFF
@@ -91,6 +92,7 @@ struct Cartridge {
 	Huc3  huc3;
 	Mmm01 mmm01;
 	Tama5 tama5;
+	Camera camera;
 }
 
 fn Mbc mbc_of(char type) {
@@ -107,6 +109,8 @@ fn Mbc mbc_of(char type) {
 			return MBC7;
 		case 0x0B: case 0x0C: case 0x0D:
 			return MMM01;
+		case 0xFC:
+			return CAMERA;
 		case 0xFD:
 			return TAMA5;
 		case 0xFE:
@@ -121,7 +125,7 @@ fn Mbc mbc_of(char type) {
 fn bool has_battery(char type) {
 	switch (type) {
 		case 0x03: case 0x06: case 0x0D: case 0x0F: case 0x10: case 0x13: case 0x1B: case 0x1E: case 0x22:
-		case 0xFD: case 0xFE: case 0xFF:
+		case 0xFC: case 0xFD: case 0xFE: case 0xFF:
 			return true;
 		default:
 			return false;
@@ -291,6 +295,7 @@ fn char Cartridge.read(&self, ushort addr) {
 		case HUC1:  return self.huc1_read(addr);
 		case HUC3:  return self.huc3_read(addr);
 		case TAMA5: return self.tama5_read(addr);
+		case CAMERA: return self.camera_read(addr);
 		default:    break;
 	}
 	if (!self.ram_enabled) return 0xFF;
@@ -354,6 +359,7 @@ fn void Cartridge.write(&self, ushort addr, char value) {
 		case HUC1:  self.huc1_write(addr, value); return;
 		case HUC3:  self.huc3_write(addr, value); return;
 		case TAMA5: self.tama5_write(addr, value); return;
+		case CAMERA: self.camera_write(addr, value); return;
 		default:    break;
 	}
 	if (!self.ram_enabled) return;
@@ -427,6 +433,7 @@ fn void Cartridge.write_control(&self, ushort addr, char value) {
 		case HUC1:  self.huc1_control(addr, value);
 		case HUC3:  self.huc3_control(addr, value);
 		case TAMA5: break; // everything goes through $A000/$A001
+		case CAMERA: self.camera_control(addr, value);
 		case MBC7:
 			switch {
 				case addr < 0x2000: self.ram_enabled = value == 0x0A;

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Linked into wer_macos (__TEXT,__info_plist): macOS needs the camera
+     description before it lets a program use the camera. -->
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>io.github.8lall0.wer</string>
+	<key>CFBundleName</key>
+	<string>wer</string>
+	<key>NSCameraUsageDescription</key>
+	<string>The Game Boy Camera sees through your camera.</string>
+</dict>
+</plist>

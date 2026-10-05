@@ -107,6 +107,13 @@ struct Display {
 	int               rumble_frames; // since it was last sent
 	sdl::Haptic*      haptic;     // Android's vibrator
 	bool              haptic_tried;
+
+	// The Game Boy Camera's view (webcam.c3).
+	sdl::Camera*      cam;
+	bool              cam_tried;
+	bool              cam_mirror;  // it faces the player
+	bool              cam_have;    // cam_image holds a picture
+	char[128 * 112]   cam_image;
 }
 
 // Gamepads used at once; all of them control the game.
@@ -295,6 +302,7 @@ fn void Display.close(&self) {
 	foreach (p : self.pads) if (p) sdl::close_gamepad(p);
 	if (self.accel)  sdl::close_sensor(self.accel);
 	if (self.haptic) sdl::close_haptic(self.haptic);
+	if (self.cam)    sdl::close_camera(self.cam);
 	if (self.pixels.len) free(self.pixels.ptr);
 	if (self.prev.len) free(self.prev.ptr);
 	if (self.mixed.len) free(self.mixed.ptr);

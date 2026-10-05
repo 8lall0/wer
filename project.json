@@ -106,6 +106,8 @@
         // in SDL3's static lib. It lives in macOS libSystem at runtime; -U lets
         // ld64.lld leave it undefined so the OS resolves it correctly on the target.
         "-U", "___isPlatformVersionAtLeast",
+        // The Info.plist macOS asks for before a program may use the camera.
+        "-sectcreate", "__TEXT", "__info_plist", "resources/macos/Info.plist",
         "-framework", "Cocoa",
         "-framework", "IOKit",
         "-framework", "CoreAudio",

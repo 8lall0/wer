@@ -553,6 +553,8 @@ fn bool frame() {
 	// MBC7 tilt in; a rumble cartridge's motor out (still while stopped).
 	float[<2>] tilt = screen.tilt(has_rom && gb.has_tilt());
 	gb.set_tilt(tilt.x, tilt.y);
+	char[] view = screen.camera(has_rom && gb.has_camera());
+	if (view.len) gb.set_camera_image(view);
 	if (running && in.fast && !paused) {
 		// Fast forward: as many frames as fit in most of a frame's time,
 		// the last one shown, without sound.

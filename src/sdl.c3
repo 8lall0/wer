@@ -7,7 +7,6 @@ alias Renderer = void;
 alias Texture = void;
 alias AudioStream = void;
 alias Gamepad = void;
-alias Surface = void;
 
 // SDL_Init flags
 const uint INIT_AUDIO  = 0x00000010;
@@ -16,6 +15,7 @@ const uint INIT_EVENTS = 0x00004000;
 const uint INIT_GAMEPAD = 0x00002000;
 const uint INIT_HAPTIC  = 0x00001000;
 const uint INIT_SENSOR  = 0x00008000;
+const uint INIT_CAMERA  = 0x00010000;
 
 // SDL_AudioFormat / default playback device
 const uint AUDIO_S16                     = 0x8010; // little-endian
@@ -254,6 +254,42 @@ const int ORIENTATION_PORTRAIT_FLIPPED  = 4;
 extern fn uint     get_display_for_window(Window* w)             @cname("SDL_GetDisplayForWindow");
 extern fn int      get_current_display_orientation(uint display) @cname("SDL_GetCurrentDisplayOrientation");
 extern fn int      get_natural_display_orientation(uint display) @cname("SDL_GetNaturalDisplayOrientation");
+
+// Cameras (SDL_camera.h): webcams, a phone's cameras, the browser's.
+alias Camera = void;
+struct CameraSpec {
+	uint format;
+	int  colorspace;
+	int  width;
+	int  height;
+	int  framerate_numerator;
+	int  framerate_denominator;
+}
+struct Surface {
+	uint  flags;
+	uint  format;
+	int   w;
+	int   h;
+	int   pitch;
+	void* pixels;
+	int   refcount;
+	void* reserved;
+}
+const uint PIXELFORMAT_XRGB8888 = 0x16161804;
+const uint PIXELFORMAT_MJPG     = 0x47504a4d;
+const int  CAMERA_POSITION_FRONT_FACING = 1;
+const ZString PROP_SURFACE_ROTATION_FLOAT = "SDL.surface.rotation";
+extern fn bool     init_subsystem(uint flags)                   @cname("SDL_InitSubSystem");
+extern fn uint*    get_cameras(int* count)                      @cname("SDL_GetCameras");
+extern fn int      get_camera_position(uint id)                 @cname("SDL_GetCameraPosition");
+extern fn CameraSpec** get_camera_supported_formats(uint id, int* count) @cname("SDL_GetCameraSupportedFormats");
+extern fn Camera*  open_camera(uint id, CameraSpec* spec)       @cname("SDL_OpenCamera");
+extern fn void     close_camera(Camera* c)                      @cname("SDL_CloseCamera");
+extern fn Surface* acquire_camera_frame(Camera* c, ulong* timestamp_ns) @cname("SDL_AcquireCameraFrame");
+extern fn void     release_camera_frame(Camera* c, Surface* frame) @cname("SDL_ReleaseCameraFrame");
+extern fn Surface* convert_surface(Surface* s, uint format)     @cname("SDL_ConvertSurface");
+extern fn uint     get_surface_properties(Surface* s)           @cname("SDL_GetSurfaceProperties");
+extern fn float    get_float_property(uint props, ZString name, float default_value) @cname("SDL_GetFloatProperty");
 
 // Force feedback (SDL_haptic.h): a phone's vibration motor.
 alias Haptic = void;

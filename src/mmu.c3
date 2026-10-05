@@ -971,6 +971,8 @@ fn void Mmu.tick(&self, char mcycles) {
 	self.apu.tick(rt, tr.apu_steps, tr.apu_rises, tr.apu_div_write, false, apu_ticks);
 
 	if (self.cart && (self.cart.has_rtc || self.cart.has_clock)) self.cart.tick(rt);
+	// The camera runs on the CPU's clock pin, which stops in HALT.
+	if (self.cart && self.cart.camera.countdown && !self.cpu_halted) self.cart.camera_tick(rt);
 }
 
 // PPU interrupt bits (ppu::INT_VBLANK / INT_STAT) -> IF.
