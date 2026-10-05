@@ -81,7 +81,19 @@ needs nothing else. It is signed ad hoc only: macOS asks to confirm the first
 start of a downloaded copy (right-click > Open, or
 `xattr -d com.apple.quarantine wer_macos`).
 
-Both use SDL 3.4.18 (`SDL_VERSION=x.y.z` picks another release).
+Android (arm64, Android 5 or newer), with the Android SDK (platform 37,
+build-tools 37.0.0, NDK 30.0.16248370) and a JDK 17 or 21 for Gradle:
+
+```sh
+scripts/build-android.sh            # build/wer-<version>-android-arm64.apk
+```
+
+It builds SDL as `libSDL3.so` and wer as `libmain.so`, and packages them with
+`android/` (Gradle) and SDL's Java side. On a phone wer shows touch controls
+around the picture (Back opens the menu), opens ROMs through Android's file
+picker, and keeps settings, battery saves and save states in its own folder.
+
+These all use SDL 3.4.18 (`SDL_VERSION=x.y.z` picks another release).
 
 Prebuilt Linux x86-64 binaries are on the
 [releases page](https://github.com/8lall0/wer/releases).
