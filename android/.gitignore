@@ -1,0 +1,7 @@
+# Filled in by scripts/build-android.sh
+/app/src/main/jniLibs/
+/app/src/main/java/org/libsdl/
+/local.properties
+/.gradle/
+/build/
+/app/build/

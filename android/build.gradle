@@ -1,0 +1,20 @@
+// wer for Android: SDL's activity around build/main.so (libmain.so).
+// Built by scripts/build-android.sh, which puts the native libraries and
+// SDL's Java sources in place first.
+
+buildscript {
+    repositories {
+        mavenCentral()
+        google()
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:9.4.1'
+    }
+}
+
+allprojects {
+    repositories {
+        mavenCentral()
+        google()
+    }
+}

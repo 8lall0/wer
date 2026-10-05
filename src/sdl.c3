@@ -153,6 +153,9 @@ extern fn int      init(uint flags)          @cname("SDL_Init");
 extern fn void     quit()                    @cname("SDL_Quit");
 extern fn ZString  get_error()               @cname("SDL_GetError");
 extern fn void     delay(uint ms)            @cname("SDL_Delay");
+extern fn void*    load_file(ZString file, usz* size) @cname("SDL_LoadFile");
+extern fn void     free(void* mem)           @cname("SDL_free");
+extern fn ZString  get_pref_path(ZString org, ZString app) @cname("SDL_GetPrefPath");
 
 extern fn Window*   create_window(ZString title, int w, int h, ulong flags) @cname("SDL_CreateWindow");
 extern fn void      destroy_window(Window* window)                          @cname("SDL_DestroyWindow");

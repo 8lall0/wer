@@ -142,12 +142,16 @@ fn String Config.to_text(&self, Allocator allocator) {
 	return out.str_view();
 }
 
-// ~/.wer/wer.conf (%USERPROFILE%\.wer on Windows), or "" when there is no
-// home directory.
+// Where wer.conf goes without a home directory (Android: the app's folder,
+// ending in '/').
+String fallback_dir;
+
+// ~/.wer/wer.conf (%USERPROFILE%\.wer on Windows), else in fallback_dir, or
+// "" without either.
 fn String tpath() {
 	String? home = env::tget_var("HOME");
 	if (catch home) home = env::tget_var("USERPROFILE");
-	if (catch home) return "";
+	if (catch home) return fallback_dir.len ? fallback_dir.tconcat(FILE) : "";
 	return string::tformat("%s/%s/%s", home, DIR, FILE);
 }
 

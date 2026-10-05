@@ -8,8 +8,12 @@ if [[ "$TARGET" == "macos" ]]; then
     TARGET="macos-aarch64"
 fi
 
-if [[ "$TARGET" != "linux" && "$TARGET" != "windows" && "$TARGET" != "macos-aarch64" && "$TARGET" != "macos-x64" ]]; then
-    echo "Usage: $0 <linux|windows|macos-aarch64|macos-x64>"
+if [[ "$TARGET" == "android" ]]; then
+    TARGET="android-arm64"
+fi
+
+if [[ "$TARGET" != "linux" && "$TARGET" != "windows" && "$TARGET" != "macos-aarch64" && "$TARGET" != "macos-x64" && "$TARGET" != "android-arm64" ]]; then
+    echo "Usage: $0 <linux|windows|macos-aarch64|macos-x64|android>"
     exit 1
 fi
 
@@ -61,6 +65,28 @@ elif [ "$TARGET" = "windows" ]; then
     cp "$TMP/SDL3-$VERSION/LICENSE.txt" "$INSTALL_DIR/"
     echo "SDL3 $VERSION for Windows x64 at: $INSTALL_DIR"
     exit 0
+
+elif [ "$TARGET" = "android-arm64" ]; then
+    # A shared libSDL3.so for arm64-v8a, built with the NDK (ANDROID_NDK_HOME,
+    # else the newest one in /opt/android-sdk/ndk or ~/Android/Sdk/ndk).
+    NDK="${ANDROID_NDK_HOME:-$( (ls -d /opt/android-sdk/ndk/* "$HOME"/Android/Sdk/ndk/* 2>/dev/null || true) | sort -V | tail -1)}"
+    if [ ! -f "$NDK/build/cmake/android.toolchain.cmake" ]; then
+        echo "Error: no Android NDK found (set ANDROID_NDK_HOME)"
+        exit 1
+    fi
+    cmake "$SDL_SRC" \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" \
+        -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
+        -DANDROID_ABI=arm64-v8a \
+        -DANDROID_PLATFORM="android-${ANDROID_API:-21}" \
+        -DSDL_SHARED=ON \
+        -DSDL_STATIC=OFF \
+        -DSDL_TESTS=OFF \
+        -DSDL_EXAMPLES=OFF
+
+    cmake --build . -j"$(nproc)"
+    cmake --install .
 
 elif [[ "$TARGET" =~ ^macos ]]; then
     MACOS_SDK="${HOME}/.cache/c3/MacOSX.sdk"
@@ -119,4 +145,4 @@ elif [[ "$TARGET" =~ ^macos ]]; then
     cmake --install .
 fi
 
-echo "SDL3 $TARGET static build completed at: $INSTALL_DIR"
+echo "SDL3 $TARGET build completed at: $INSTALL_DIR"

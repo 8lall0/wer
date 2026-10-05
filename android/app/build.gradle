@@ -1,0 +1,42 @@
+plugins {
+    id 'com.android.application'
+}
+
+// From project.json, via scripts/build-android.sh.
+def werVersion = project.findProperty('werVersion') ?: '0.0.0'
+def werVersionCode = werVersion.tokenize('.').inject(0) { n, p -> n * 100 + (p as int) }
+
+android {
+    namespace = "io.github.eightlall0.wer"
+    // Android 17 (API 37.0).
+    compileSdk {
+        version = release(37) {
+            minorApiLevel = 0
+        }
+    }
+    buildToolsVersion = "37.0.0"
+    ndkVersion = "30.0.16248370"
+    defaultConfig {
+        applicationId "io.github.eightlall0.wer"
+        minSdkVersion 21
+        targetSdkVersion 37
+        versionCode werVersionCode
+        versionName werVersion
+        ndk {
+            abiFilters 'arm64-v8a'
+        }
+    }
+    buildTypes {
+        release {
+            // SDL's Java side is called from native code by name: no shrinking.
+            minifyEnabled false
+        }
+    }
+    // libmain.so (wer) and libSDL3.so, prebuilt.
+    sourceSets.main {
+        jniLibs.srcDir 'src/main/jniLibs'
+    }
+    lint {
+        abortOnError = false
+    }
+}

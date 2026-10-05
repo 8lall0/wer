@@ -38,6 +38,24 @@ const char[64] CGB_POWER_ON_OBJ_PAL = {
 	0x0E, 0x08, 0xFE, 0xAF, 0x20, 0x02, 0xD7, 0xFF, 0x07, 0x6A, 0x55, 0xEC, 0x83, 0x40, 0x0B, 0x77,
 };
 
+// Where battery saves and save states go: next to the ROM, or, when set
+// (Android, where the ROM is a content:// URI), in this folder (ending in
+// '/') under the game's header title and global checksum.
+String data_dir;
+
+// The path a game's .sav and .ssN files extend (temp memory).
+fn String save_base(String rom_path, char[] rom) {
+	if (!data_dir.len || rom.len < 0x150) return rom_path;
+	char[16] title;
+	usz n;
+	for (usz i = 0x134; i < 0x144 && rom[i]; i++) {
+		char c = rom[i];
+		bool ok = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9');
+		title[n++] = ok ? c : '_';
+	}
+	return string::tformat("%s%s-%02X%02X", data_dir, (String)title[:n], rom[0x14E], rom[0x14F]);
+}
+
 const ushort DMG0_BOOT_DIV = 0x1830; // Mooneye boot_div-dmg0
 const int DMG0_BOOT_DOT = 168; // on line 145
 const int DMG_BOOT_DOT = 396; // post-boot DMG PPU dot on line 153 (Gambatte; gbmicrotest poweron_*)

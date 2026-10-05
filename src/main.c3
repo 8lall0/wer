@@ -55,6 +55,7 @@ bool sgb_log;
 fn gameboy::Cartridge? load_game(gameboy::GameBoy* gb, String path, bool boot, Mode mode, int pal) {
 	mmu::Model model = mode.model();
 	char[]? data = file::load_temp(path);
+	if (catch data) data = display::load_file_temp(path); // content:// URIs
 	if (catch data) {
 		io::eprintfn("could not load ROM: %s", path);
 		return ROM_UNREADABLE~;
@@ -70,7 +71,10 @@ fn gameboy::Cartridge? load_game(gameboy::GameBoy* gb, String path, bool boot, M
 	apply_preset(gb, pal);
 	gb.mmu.serial_echo = true; // Blargg-style test ROMs report over serial
 	if (gb.mmu.sgb) gb.mmu.sgb.log = sgb_log;
-	gameboy::Cartridge cart = gb.load_rom_named(data, path);
+	String base = gameboy::save_base(path, data);
+	if (save_base.len) free(save_base.ptr);
+	save_base = base.copy(mem);
+	gameboy::Cartridge cart = gb.load_rom_named(data, base);
 	cart.print();
 	return cart;
 }
@@ -206,6 +210,9 @@ fn void Notice.show(&self, String s) {
 
 fn String Notice.current(&self) => clock::now() < self.until ? (String)self.text[:self.len] : "";
 
+// Where the loaded game's battery save and save states go (gameboy::save_base).
+String save_base;
+
 // Save states: slots 1-9 per game, files next to the ROM (see gameboy::state_path).
 const int STATE_SLOTS = 9;
 
@@ -267,6 +274,12 @@ fn int main(String[] args) @winmain
 	$if env::WIN32:
 		use_parent_console();
 		args = windows_args();
+	$endif
+	$if env::ANDROID:
+		// No home directory, and ROMs come as content:// URIs: settings,
+		// battery saves and save states go in the app's own folder.
+		gameboy::data_dir = display::pref_path();
+		config::fallback_dir = gameboy::data_dir;
 	$endif
 	bool headless = false;
 	bool boot = true;
@@ -436,8 +449,8 @@ fn int main(String[] args) @winmain
 			if (in.state_slot > 0) {
 				slot = in.state_slot;
 				if (in.state_save) {
-					save_slot(&gb, rom_path, slot, &notice);
-				} else if (load_slot(&gb, rom_path, slot, &notice)) {
+					save_slot(&gb, save_base, slot, &notice);
+				} else if (load_slot(&gb, save_base, slot, &notice)) {
 					screen.clear_audio();
 					next = clock::now();
 				}
@@ -547,10 +560,10 @@ fn int main(String[] args) @winmain
 				switch (item) {
 					case RESUME: menu = false;
 					case SAVE_STATE:
-						save_slot(&gb, rom_path, slot, &notice);
+						save_slot(&gb, save_base, slot, &notice);
 						menu = false;
 					case LOAD_STATE:
-						if (load_slot(&gb, rom_path, slot, &notice)) {
+						if (load_slot(&gb, save_base, slot, &notice)) {
 							menu = false;
 							next = clock::now();
 						}
@@ -577,9 +590,9 @@ fn int main(String[] args) @winmain
 				switch (items[i]) {
 					case RESUME:  lines[i] = "Resume";
 					case SAVE_STATE:
-						lines[i] = string::tformat("Save state: < %d >%s", slot, slot_used(rom_path, slot) ? "" : " (empty)");
+						lines[i] = string::tformat("Save state: < %d >%s", slot, slot_used(save_base, slot) ? "" : " (empty)");
 					case LOAD_STATE:
-						lines[i] = string::tformat("Load state: < %d >%s", slot, slot_used(rom_path, slot) ? "" : " (empty)");
+						lines[i] = string::tformat("Load state: < %d >%s", slot, slot_used(save_base, slot) ? "" : " (empty)");
 					// At 1x the window is 20 characters wide: no hints there.
 					case OPEN:
 						if (scale == 1) {

@@ -149,6 +149,26 @@ fn Bindings bindings_from(config::Config* c) {
 fn bool is_escape(int scancode) => scancode == sdl::SC_ESCAPE;
 
 // Names to store in the config (and show in the menu).
+// A file through SDL: also an Android content:// URI from the file picker.
+fn char[]? load_file_temp(String path) {
+	usz n;
+	char* p = sdl::load_file(path.zstr_tcopy(), &n);
+	if (!p) return io::FILE_NOT_FOUND~;
+	char[] data = mem::temp_array(char, (sz)n);
+	data[..] = p[:n];
+	sdl::free(p);
+	return data;
+}
+
+// SDL's folder for this app's own files (ends in '/'), or "".
+fn String pref_path() {
+	ZString p = sdl::get_pref_path("8lall0", "wer");
+	if (!p) return "";
+	String s = p.str_view().copy(mem);
+	sdl::free(p);
+	return s;
+}
+
 fn String key_name(int scancode) => sdl::get_scancode_name(scancode).str_view();
 fn String pad_button_name(int button) {
 	ZString n = sdl::get_gamepad_string_for_button(button);
