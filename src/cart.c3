@@ -91,7 +91,7 @@ fn Cartridge* new(char[] image, String path) {
 		char code = image.len > 0x149 ? image[0x149] : 0;
 		ram_len = code < 6 ? RAM_SIZE[code] : 0;
 	}
-	if (ram_len > 0) c.ram = mem::new_array(char, ram_len);
+	if (ram_len > 0) c.ram = mem::new_array(char, (sz)ram_len);
 
 	c.rom_bank = 1;
 	c.bank1 = 1;

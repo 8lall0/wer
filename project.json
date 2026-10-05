@@ -55,6 +55,24 @@
       "linked-libraries": [ "SDL3" ],
       "link-args": [ "build/wer.res" ],
     },
+    "web": {
+      // WebAssembly for browsers (Emscripten: emcc on the PATH, e.g. from
+      // ~/emsdk/emsdk_env.sh), with Emscripten's own SDL3 port.
+      // scripts/build-web.sh makes build/web/ (page, .js, .wasm).
+      "name": "wer",
+      "type": "executable",
+      "target": "emscripten",
+      "link-args": [
+        "--use-port=sdl3",
+        "-sALLOW_MEMORY_GROWTH=1",
+        "-sSTACK_SIZE=1048576",
+        // The page (web/index.html) hands chosen ROMs to wer_rom_chosen.
+        "-sEXPORTED_FUNCTIONS=_main,_wer_rom_chosen,_wer_frames,_wer_save",
+        "-sEXPORTED_RUNTIME_METHODS=ccall,FS",
+        // Saves and settings kept in the browser (IndexedDB).
+        "-lidbfs.js"
+      ],
+    },
     "android": {
       // libmain.so for SDL's Android activity (android/, built into an APK
       // by scripts/build-android.sh), arm64 only. SDL is a shared

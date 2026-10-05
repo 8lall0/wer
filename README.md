@@ -93,7 +93,19 @@ It builds SDL as `libSDL3.so` and wer as `libmain.so`, and packages them with
 around the picture (Back opens the menu), opens ROMs through Android's file
 picker, and keeps settings, battery saves and save states in its own folder.
 
-These all use SDL 3.4.18 (`SDL_VERSION=x.y.z` picks another release).
+In a web browser (WebAssembly), with [Emscripten](https://emscripten.org)
+(`scripts/build-web.sh` uses `~/emsdk` if `emcc` isn't on the PATH):
+
+```sh
+scripts/build-web.sh                 # build/web/: index.html, wer.js, wer.wasm
+python3 -m http.server -d build/web  # then open http://localhost:8000
+```
+
+It runs at full speed in the page; ROMs open through the page's button and
+never leave the browser, and settings, battery saves and save states are kept
+in its storage (IndexedDB). It uses Emscripten's own SDL3 port.
+
+The desktop and Android builds use SDL 3.4.18 (`SDL_VERSION=x.y.z` picks another release).
 
 Prebuilt Linux x86-64 binaries are on the
 [releases page](https://github.com/8lall0/wer/releases).

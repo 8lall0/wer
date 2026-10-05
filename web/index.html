@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>wer</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; background: #081820; color: #e0f8d0; font: 14px/1.4 monospace;
+         display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 16px; }
+  canvas { image-rendering: pixelated; width: min(96vw, 640px); aspect-ratio: 10 / 9;
+           background: #000; outline: none; }
+  button { font: inherit; color: #081820; background: #88c070; border: 0; padding: 6px 14px; cursor: pointer; }
+  #status { min-height: 1.4em; }
+  kbd { color: #88c070; }
+</style>
+</head>
+<body>
+<canvas id="canvas" tabindex="-1"></canvas>
+<div><button id="open">Open ROM…</button></div>
+<div id="status">Loading…</div>
+<div>Your settings and saves stay in this browser.</div>
+<div>
+  <kbd>Arrows</kbd> D-pad · <kbd>Z</kbd> A · <kbd>X</kbd> B · <kbd>Return</kbd> Start ·
+  <kbd>Right Shift</kbd> Select · <kbd>Esc</kbd> menu · <kbd>Tab</kbd> fast forward · gamepads work too
+</div>
+<input type="file" id="rom" accept=".gb,.gbc" hidden>
+<script>
+  // wer's ROM picker: the chosen file goes into Emscripten's in-memory
+  // filesystem, and wer_rom_chosen (src/display_web.c3) gets its path.
+  const status = document.getElementById('status');
+  function werPickRom() {
+    const input = document.getElementById('rom');
+    input.value = '';
+    input.onchange = async () => {
+      const f = input.files[0];
+      if (!f) { Module.ccall('wer_rom_chosen', null, ['number'], [0]); return; }
+      const data = new Uint8Array(await f.arrayBuffer());
+      const path = '/roms/' + f.name;
+      Module.FS.writeFile(path, data);
+      Module.ccall('wer_rom_chosen', null, ['string'], [path]);
+      document.getElementById('canvas').focus();
+    };
+    input.oncancel = () => Module.ccall('wer_rom_chosen', null, ['number'], [0]);
+    input.click();
+  }
+  document.getElementById('open').onclick = werPickRom;
+  // Settings, battery saves and save states live in the browser's IndexedDB
+  // (IDBFS): /home/web_user (wer.conf) and /roms (each ROM and its saves),
+  // read back before wer starts and written out every few seconds and when
+  // the page is hidden.
+  const KEPT = ['/home/web_user', '/roms'];
+  let syncing = false;
+  let ready = false; // wer is running
+  function persist() {
+    if (syncing || typeof FS === 'undefined') return;
+    syncing = true;
+    if (ready) Module._wer_save(); // the battery save first
+    FS.syncfs(false, () => { syncing = false; });
+  }
+  var Module = {
+    canvas: document.getElementById('canvas'),
+    arguments: [],
+    preRun: [() => {
+      for (const dir of KEPT) {
+        try { FS.mkdir(dir); } catch (e) {}
+        FS.mount(IDBFS, {}, dir);
+      }
+      addRunDependency('idbfs');
+      FS.syncfs(true, () => removeRunDependency('idbfs'));
+      setInterval(persist, 5000);
+      document.addEventListener('visibilitychange', persist);
+      window.addEventListener('pagehide', persist);
+    }],
+    onRuntimeInitialized: () => { ready = true; status.textContent = 'Open a ROM to play (nothing leaves your browser).'; },
+    print: (t) => console.log(t),
+    printErr: (t) => console.warn(t),
+  };
+</script>
+<script src="wer.js"></script>
+</body>
+</html>

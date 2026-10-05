@@ -437,9 +437,13 @@ fn bool Display.dialog_open(&self) {
 fn void Display.open_rom_dialog(&self) {
 	if (dialog_state.load() == DIALOG_OPEN) return;
 	dialog_state.store(DIALOG_OPEN);
-	// Android's picker filters by MIME type, and .gb/.gbc files have none:
-	// show every file there.
-	sdl::show_open_file_dialog(&on_dialog, null, self.window, &rom_filters, env::ANDROID ? 0 : 1, null, false);
+	$if env::EMSCRIPTEN:
+		web_pick_rom(); // the page's file input (display_web.c3)
+	$else
+		// Android's picker filters by MIME type, and .gb/.gbc files have
+		// none: show every file there.
+		sdl::show_open_file_dialog(&on_dialog, null, self.window, &rom_filters, env::ANDROID ? 0 : 1, null, false);
+	$endif
 }
 
 // The chosen path once the dialog has closed with a file; empty otherwise.

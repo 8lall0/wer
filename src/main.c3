@@ -277,6 +277,324 @@ const int CONTROLS_DEFAULTS = 8;
 const int CONTROLS_BACK     = 9;
 const int CONTROLS_COUNT    = 10;
 
+// The main loop's state, shared by main() and frame().
+config::Config cfg;
+bool boot = true;
+Mode mode;
+int scale;
+int pal;
+char[12] colors;
+gameboy::GameBoy gb;
+gameboy::Cartridge cart;
+bool has_rom;
+display::Display screen;
+// The path of the running ROM, kept for Reset (heap copy: args and dialog
+// results don't live that long).
+String rom_path;
+bool menu;              // the menu is showing
+int selected;           // its highlighted line
+bool controls;          // the Controls submenu is showing
+int binding = -1;       // Controls: the button waiting for a new key/pad button
+bool paused;            // P: the game stops (N runs it one frame)
+int slot = 1;           // save state slot the menu works on
+Notice notice;
+char[] rgb;             // the picture, gameboy::MAX_FRAME_RGB
+short[4096] audio;
+Clock next;             // when the next frame is due
+float avg = AUDIO_TARGET_BYTES; // audio queue level, smoothed (rate control)
+float integ;
+
+// One pass of the main loop: input, the menu, a frame of emulation, the
+// picture. False when wer should quit. The caller paces it (until `next`).
+fn bool frame() {
+	display::Input in = screen.poll();
+	if (in.quit) return false;
+
+	// A ROM chosen in the file dialog (menu or Ctrl+O) replaces the game.
+	String chosen = screen.take_dialog_result();
+	if (chosen.len) {
+		if (try loaded = load_game(&gb, chosen, boot, mode, pal)) {
+			cart = loaded;
+			has_rom = true;
+			menu = false;
+			if (rom_path.len) free(rom_path.ptr);
+			rom_path = chosen.copy(mem);
+			screen.set_title(window_title(&cart, &gb));
+			screen.clear_audio();
+			paused = false;
+			next = clock::now();
+		}
+	}
+
+	// Controls: the next key or gamepad button becomes the binding (Esc
+	// cancels). Nothing else reacts to this poll.
+	if (binding >= 0 && (in.key >= 0 || in.pad_button >= 0)) {
+		if (display::is_escape(in.key)) {
+			// cancelled
+		} else if (in.key >= 0) {
+			cfg.set(string::tformat("key.%s", config::BUTTON_NAMES[binding]), display::key_name(in.key));
+		} else {
+			cfg.set(string::tformat("pad.%s", config::BUTTON_NAMES[binding]), display::pad_button_name(in.pad_button));
+		}
+		screen.bindings = display::bindings_from(&cfg);
+		save_settings(&cfg, mode, pal, scale);
+		binding = -1;
+		in.pressed = 0;
+	}
+
+	if (in.pressed & display::KEY_OPEN) screen.open_rom_dialog();
+	if ((in.pressed & display::KEY_MENU) && controls) {
+		controls = false;               // back to the main menu
+		selected = 0;
+	} else if ((in.pressed & display::KEY_MENU) && has_rom) {
+		menu = !menu;
+		selected = 0;
+		screen.clear_audio();
+	}
+
+	// Hotkeys while a game is showing: pause, frame advance, save states.
+	bool advance = false;
+	if (has_rom && !menu) {
+		if (in.pressed & display::KEY_PAUSE) {
+			paused = !paused;
+			screen.clear_audio();
+			notice.show(paused ? "Paused" : "");
+		}
+		if (in.pressed & display::KEY_ADVANCE) {
+			if (!paused) screen.clear_audio();
+			paused = true;
+			advance = true;
+		}
+		if (in.state_slot > 0) {
+			slot = in.state_slot;
+			if (in.state_save) {
+				save_slot(&gb, save_base, slot, &notice);
+			} else if (load_slot(&gb, save_base, slot, &notice)) {
+				screen.clear_audio();
+				next = clock::now();
+			}
+		}
+	}
+
+	// The menu: which items exist depends on whether a game is loaded.
+	MenuItem[13] items;
+	String[CONTROLS_COUNT] lines;
+	int count = 0;
+	if (menu && controls) {
+		count = CONTROLS_COUNT;
+		if (binding < 0) {
+			if (in.pressed & display::KEY_UP)   selected = (selected + count - 1) % count;
+			if (in.pressed & display::KEY_DOWN) selected = (selected + 1) % count;
+			if (in.pressed & display::KEY_ENTER) {
+				switch (selected) {
+					case CONTROLS_BACK:
+						controls = false;
+						selected = 0;
+					case CONTROLS_DEFAULTS:
+						for (int i = 0; i < 8; i++) {
+							cfg.set(string::tformat("key.%s", config::BUTTON_NAMES[i]), config::DEFAULT_KEYS[i]);
+							cfg.set(string::tformat("pad.%s", config::BUTTON_NAMES[i]), config::DEFAULT_PADS[i]);
+						}
+						screen.bindings = display::bindings_from(&cfg);
+						save_settings(&cfg, mode, pal, scale);
+					default:
+						binding = selected;
+				}
+			}
+		}
+		if (controls) {
+			for (int i = 0; i < 8; i++) {
+				if (i == binding) {
+					lines[i] = string::tformat("%-7spress key/button", BUTTON_LABELS[i]);
+				} else {
+					lines[i] = string::tformat("%-7s%s | %s", BUTTON_LABELS[i],
+						display::key_name(screen.bindings.keys[i]), display::pad_button_name(screen.bindings.pads[i]));
+				}
+			}
+			lines[CONTROLS_DEFAULTS] = "Reset to defaults";
+			lines[CONTROLS_BACK] = "Back";
+		} else {
+			count = 0; // left the submenu: the main menu draws from the next frame
+		}
+	} else if (menu) {
+		if (has_rom) {
+			items[count++] = RESUME;
+			items[count++] = SAVE_STATE;
+			items[count++] = LOAD_STATE;
+		}
+		items[count++] = OPEN;
+		items[count++] = MODE;
+		if (mode.model().is_sgb()) items[count++] = PALETTE;
+		if (mode.model() == CGB || mode.model().is_sgb()) items[count++] = COLORS;
+		items[count++] = BLEND;
+		if (!env::ANDROID) items[count++] = SCALE; // the picture fills the screen there
+		items[count++] = CONTROLS;
+		if (has_rom) items[count++] = RESET;
+		items[count++] = QUIT;
+		if (selected >= count) selected = count - 1;
+
+		if (in.pressed & display::KEY_UP)   selected = (selected + count - 1) % count;
+		if (in.pressed & display::KEY_DOWN) selected = (selected + 1) % count;
+
+		MenuItem item = items[selected];
+		bool enter = (in.pressed & display::KEY_ENTER) != 0;
+		int step = 0;
+		if (in.pressed & display::KEY_LEFT) step = -1;
+		if ((in.pressed & display::KEY_RIGHT) || (enter && (item == PALETTE || item == COLORS || item == BLEND))) step = 1;
+
+		// Switching the model restarts the running game on the other hardware.
+		if (item == MODE && (step != 0 || enter)) {
+			mode = cycle_mode(mode, step < 0 ? -1 : 1);
+			colors = mode_colors(mode, pal);
+			apply_preset(&gb, pal);
+			if (has_rom) {
+				if (try loaded = load_game(&gb, rom_path, boot, mode, pal)) {
+					cart = loaded;
+					screen.set_title(window_title(&cart, &gb));
+				}
+			} else {
+				gb.destroy();
+				gb = gameboy::new(false, mode.model());
+				gb.set_cgb_revision(mode.revision());
+				gb.set_dmg_revision(mode.dmg_revision());
+				apply_preset(&gb, pal);
+			}
+			save_settings(&cfg, mode, pal, scale);
+		}
+		if (item == SCALE && (step != 0 || enter)) {
+			int n = display::MAX_SCALE - display::MIN_SCALE + 1;
+			scale = (scale - display::MIN_SCALE + (step < 0 ? n - 1 : 1)) % n + display::MIN_SCALE;
+			screen.set_scale(scale);
+			save_settings(&cfg, mode, pal, scale);
+		}
+		if (item == BLEND && step != 0) {
+			blend = (display::Blend)(((int)blend.ordinal + 3 + step) % 3);
+			screen.blend = blend;
+			save_settings(&cfg, mode, pal, scale);
+		}
+		if (item == COLORS && step != 0) {
+			int n = (int)gameboy::COLOR_NAMES.len;
+			gameboy::color_correction = (gameboy::ColorCorrection)(((int)gameboy::color_correction.ordinal + n + step) % n);
+			save_settings(&cfg, mode, pal, scale);
+		}
+		if ((item == SAVE_STATE || item == LOAD_STATE) && step != 0) {
+			slot = (slot - 1 + step + STATE_SLOTS) % STATE_SLOTS + 1;
+		}
+		if (item == PALETTE && step != 0) {
+			int n = (int)PALETTE_NAMES.len;
+			pal = (pal + step + n) % n;
+			colors = mode_colors(mode, pal);
+			apply_preset(&gb, pal);
+			save_settings(&cfg, mode, pal, scale);
+		}
+		if (enter) {
+			switch (item) {
+				case RESUME: menu = false;
+				case SAVE_STATE:
+					save_slot(&gb, save_base, slot, &notice);
+					menu = false;
+				case LOAD_STATE:
+					if (load_slot(&gb, save_base, slot, &notice)) {
+						menu = false;
+						next = clock::now();
+					}
+				case OPEN:   screen.open_rom_dialog();
+				case CONTROLS:
+					controls = true;
+					selected = 0;
+				case RESET:
+					if (try loaded = load_game(&gb, rom_path, boot, mode, pal)) {
+						cart = loaded;
+						menu = false;
+						paused = false;
+						next = clock::now();
+					}
+				case QUIT:   break;
+				case PALETTE: break;
+				case COLORS:  break;
+				case BLEND:   break;
+				case MODE:   break;
+				case SCALE:  break;
+			}
+			if (item == QUIT) return false;
+		}
+
+		for (int i = 0; i < count; i++) {
+			switch (items[i]) {
+				case RESUME:  lines[i] = "Resume";
+				case SAVE_STATE:
+					lines[i] = string::tformat("Save state: < %d >%s", slot, slot_used(save_base, slot) ? "" : " (empty)");
+				case LOAD_STATE:
+					lines[i] = string::tformat("Load state: < %d >%s", slot, slot_used(save_base, slot) ? "" : " (empty)");
+				// At 1x the window is 20 characters wide: no hints there.
+				case OPEN:
+					if (scale == 1) {
+						lines[i] = "Open ROM...";
+					} else {
+						lines[i] = screen.dialog_open() ? "Open ROM...  (dialog open)" : env::ANDROID ? "Open ROM..." : "Open ROM...  (Ctrl+O)";
+					}
+				case SCALE:   lines[i] = string::tformat("Scale:   < %dx >", scale);
+				case MODE:    lines[i] = string::tformat("Mode:    < %s >", MODE_LABELS[mode.ordinal]);
+				case PALETTE: lines[i] = string::tformat("Palette: < %s >", PALETTE_NAMES[pal]);
+				case COLORS:  lines[i] = string::tformat("Colors:  < %s >", gameboy::COLOR_LABELS[gameboy::color_correction.ordinal]);
+				case BLEND:   lines[i] = string::tformat("Blending: < %s >", display::BLEND_LABELS[blend.ordinal]);
+				case CONTROLS: lines[i] = "Controls...";
+				case RESET:   lines[i] = "Reset";
+				case QUIT:    lines[i] = "Quit";
+			}
+		}
+	}
+
+	// The game only runs while neither the menu nor the file dialog is up,
+	// and not while paused (except the one frame N asks for).
+	bool running = !menu && !screen.dialog_open() && (!paused || advance);
+	if (running && in.fast && !paused) {
+		// Fast forward: as many frames as fit in most of a frame's time,
+		// the last one shown, without sound.
+		Clock start = clock::now();
+		NanoDuration budget = frame_period(gb.mmu.model) * 3 / 4;
+		int n = 0;
+		do {
+			gb.mmu.set_input(in.buttons, in.dpad);
+			gb.run_frame();
+			frames_run++;
+			gb.audio(&audio);
+			n++;
+		} while (n < FAST_FORWARD_MAX && clock::now() - start < budget);
+		screen.clear_audio();
+	} else if (running) {
+		gb.mmu.set_input(in.buttons, in.dpad);
+		gb.run_frame();
+		frames_run++;
+		if (paused) {
+			gb.audio(&audio); // a single frame's sound would only click
+		} else {
+			screen.queue_audio(&audio, gb.audio(&audio));
+			int queued = screen.audio_queued();
+			avg += (queued - avg) / 32;
+			float e = (avg - AUDIO_TARGET_BYTES) / AUDIO_TARGET_BYTES;
+			e = math::clamp(e, -1, 1);
+			integ += e * INTEG_GAIN;
+			integ = math::clamp(integ, -MAX_INTEG, +MAX_INTEG);
+			gb.set_audio_rate((uint)(display::AUDIO_RATE * (1 - MAX_RATE_ADJ * e - integ)));
+		}
+	}
+	String message = notice.current();
+	if (!message.len && has_rom && !menu) {
+		if (paused) message = "Paused";
+		if (in.fast && !paused) message = "Fast forward";
+	}
+	gameboy::FrameSize size = gb.frame_rgb(rgb, colors);
+	screen.odd_frame = (frames_run & 1) != 0;
+	screen.blend_simple = gb.mmu.sgb != null;
+	screen.present(rgb, size.w, size.h, lines[:count], selected, message);
+
+	next += frame_period(gb.mmu.model);
+	Clock now = clock::now();
+	if (now - next > MAX_LAG) next = now;
+	return true;
+}
+
 fn int main(String[] args) @winmain
 {
 	$if env::WIN32:
@@ -290,17 +608,16 @@ fn int main(String[] args) @winmain
 		config::fallback_dir = gameboy::data_dir;
 	$endif
 	bool headless = false;
-	bool boot = true;
 	int frames = 600;
 	String rom;
 	String palette;
 
 	// Settings from ~/.wer/wer.conf; the command line overrides them.
-	config::Config cfg = config::load();
+	cfg = config::load();
 	defer cfg.free();
-	Mode mode = mode_from(cfg.mode) ?? DMG;
-	int scale = cfg.scale;
-	int pal = palette_index(cfg.palette);
+	mode = mode_from(cfg.mode) ?? DMG;
+	scale = cfg.scale;
+	pal = palette_index(cfg.palette);
 	if (pal < 0) pal = 0; // 1-A
 	gameboy::color_correction = (gameboy::ColorCorrection)config::color_index(cfg.color);
 	blend = (display::Blend)config::blend_index(cfg.blend);
@@ -354,16 +671,15 @@ fn int main(String[] args) @winmain
 			return 1;
 		}
 	}
-	char[12] colors = mode_colors(mode, pal);
+	colors = mode_colors(mode, pal);
 
-	gameboy::GameBoy gb = gameboy::new(false, mode.model());
+	gb = gameboy::new(false, mode.model());
 	gb.set_cgb_revision(mode.revision());
 	gb.set_dmg_revision(mode.dmg_revision());
 	defer gb.destroy();
 	apply_preset(&gb, pal);
 
-	gameboy::Cartridge cart;
-	bool has_rom = false;
+	has_rom = false;
 	if (rom.len) {
 		gameboy::Cartridge? loaded = load_game(&gb, rom, boot, mode, pal);
 		if (catch loaded) return 1;
@@ -382,11 +698,12 @@ fn int main(String[] args) @winmain
 		return 0;
 	}
 
-	display::Display? screen = display::open("wer", scale);
-	if (catch screen) {
+	display::Display? opened = display::open("wer", scale);
+	if (catch opened) {
 		io::eprintn("no display available; re-run with --headless");
 		return 1;
 	}
+	screen = opened;
 	defer screen.close();
 	// Going to the background (Android may end the app there): write the
 	// battery save now.
@@ -398,315 +715,23 @@ fn int main(String[] args) @winmain
 	screen.bindings = display::bindings_from(&cfg);
 	screen.blend = blend;
 
-	// The path of the running ROM, kept for Reset (heap copy: args and dialog
-	// results don't live that long).
-	String rom_path = has_rom ? rom.copy(mem) : "";
+	rom_path = has_rom ? rom.copy(mem) : "";
 	defer if (rom_path.len) free(rom_path.ptr);
 	if (has_rom) screen.set_title(window_title(&cart, &gb));
 
 	// Without a ROM there is nothing to run: start in the menu.
-	bool menu = !has_rom;
-	int selected = 0;
-	bool controls = false;  // the Controls submenu is showing
-	int  binding = -1;      // Controls: the button waiting for a new key/pad button
-	bool paused = false;    // P: the game stops (N runs it one frame)
-	int  slot = 1;          // save state slot the menu works on
-	Notice notice;
+	menu = !has_rom;
 
-	char[] rgb = mem::new_array(char, gameboy::MAX_FRAME_RGB);
+	rgb = mem::new_array(char, gameboy::MAX_FRAME_RGB);
 	defer free(rgb.ptr);
-	short[4096] audio;
-	Clock next = clock::now();
-	float avg = AUDIO_TARGET_BYTES;
-	float integ = 0;
-	while (true) {
-		display::Input in = screen.poll();
-		if (in.quit) break;
-
-		// A ROM chosen in the file dialog (menu or Ctrl+O) replaces the game.
-		String chosen = screen.take_dialog_result();
-		if (chosen.len) {
-			if (try loaded = load_game(&gb, chosen, boot, mode, pal)) {
-				cart = loaded;
-				has_rom = true;
-				menu = false;
-				if (rom_path.len) free(rom_path.ptr);
-				rom_path = chosen.copy(mem);
-				screen.set_title(window_title(&cart, &gb));
-				screen.clear_audio();
-				paused = false;
-				next = clock::now();
-			}
+	next = clock::now();
+	$if env::EMSCRIPTEN:
+		web_run(); // the browser calls frame() at each display refresh (web.c3)
+	$else
+		while (frame()) {
+			NanoDuration remaining = next - clock::now();
+			(void)os::native_sleep_nano(remaining);
 		}
-
-		// Controls: the next key or gamepad button becomes the binding (Esc
-		// cancels). Nothing else reacts to this poll.
-		if (binding >= 0 && (in.key >= 0 || in.pad_button >= 0)) {
-			if (display::is_escape(in.key)) {
-				// cancelled
-			} else if (in.key >= 0) {
-				cfg.set(string::tformat("key.%s", config::BUTTON_NAMES[binding]), display::key_name(in.key));
-			} else {
-				cfg.set(string::tformat("pad.%s", config::BUTTON_NAMES[binding]), display::pad_button_name(in.pad_button));
-			}
-			screen.bindings = display::bindings_from(&cfg);
-			save_settings(&cfg, mode, pal, scale);
-			binding = -1;
-			in.pressed = 0;
-		}
-
-		if (in.pressed & display::KEY_OPEN) screen.open_rom_dialog();
-		if ((in.pressed & display::KEY_MENU) && controls) {
-			controls = false;               // back to the main menu
-			selected = 0;
-		} else if ((in.pressed & display::KEY_MENU) && has_rom) {
-			menu = !menu;
-			selected = 0;
-			screen.clear_audio();
-		}
-
-		// Hotkeys while a game is showing: pause, frame advance, save states.
-		bool advance = false;
-		if (has_rom && !menu) {
-			if (in.pressed & display::KEY_PAUSE) {
-				paused = !paused;
-				screen.clear_audio();
-				notice.show(paused ? "Paused" : "");
-			}
-			if (in.pressed & display::KEY_ADVANCE) {
-				if (!paused) screen.clear_audio();
-				paused = true;
-				advance = true;
-			}
-			if (in.state_slot > 0) {
-				slot = in.state_slot;
-				if (in.state_save) {
-					save_slot(&gb, save_base, slot, &notice);
-				} else if (load_slot(&gb, save_base, slot, &notice)) {
-					screen.clear_audio();
-					next = clock::now();
-				}
-			}
-		}
-
-		// The menu: which items exist depends on whether a game is loaded.
-		MenuItem[13] items;
-		String[CONTROLS_COUNT] lines;
-		int count = 0;
-		if (menu && controls) {
-			count = CONTROLS_COUNT;
-			if (binding < 0) {
-				if (in.pressed & display::KEY_UP)   selected = (selected + count - 1) % count;
-				if (in.pressed & display::KEY_DOWN) selected = (selected + 1) % count;
-				if (in.pressed & display::KEY_ENTER) {
-					switch (selected) {
-						case CONTROLS_BACK:
-							controls = false;
-							selected = 0;
-						case CONTROLS_DEFAULTS:
-							for (int i = 0; i < 8; i++) {
-								cfg.set(string::tformat("key.%s", config::BUTTON_NAMES[i]), config::DEFAULT_KEYS[i]);
-								cfg.set(string::tformat("pad.%s", config::BUTTON_NAMES[i]), config::DEFAULT_PADS[i]);
-							}
-							screen.bindings = display::bindings_from(&cfg);
-							save_settings(&cfg, mode, pal, scale);
-						default:
-							binding = selected;
-					}
-				}
-			}
-			if (controls) {
-				for (int i = 0; i < 8; i++) {
-					if (i == binding) {
-						lines[i] = string::tformat("%-7spress key/button", BUTTON_LABELS[i]);
-					} else {
-						lines[i] = string::tformat("%-7s%s | %s", BUTTON_LABELS[i],
-							display::key_name(screen.bindings.keys[i]), display::pad_button_name(screen.bindings.pads[i]));
-					}
-				}
-				lines[CONTROLS_DEFAULTS] = "Reset to defaults";
-				lines[CONTROLS_BACK] = "Back";
-			} else {
-				count = 0; // left the submenu: the main menu draws from the next frame
-			}
-		} else if (menu) {
-			if (has_rom) {
-				items[count++] = RESUME;
-				items[count++] = SAVE_STATE;
-				items[count++] = LOAD_STATE;
-			}
-			items[count++] = OPEN;
-			items[count++] = MODE;
-			if (mode.model().is_sgb()) items[count++] = PALETTE;
-			if (mode.model() == CGB || mode.model().is_sgb()) items[count++] = COLORS;
-			items[count++] = BLEND;
-			if (!env::ANDROID) items[count++] = SCALE; // the picture fills the screen there
-			items[count++] = CONTROLS;
-			if (has_rom) items[count++] = RESET;
-			items[count++] = QUIT;
-			if (selected >= count) selected = count - 1;
-
-			if (in.pressed & display::KEY_UP)   selected = (selected + count - 1) % count;
-			if (in.pressed & display::KEY_DOWN) selected = (selected + 1) % count;
-
-			MenuItem item = items[selected];
-			bool enter = (in.pressed & display::KEY_ENTER) != 0;
-			int step = 0;
-			if (in.pressed & display::KEY_LEFT) step = -1;
-			if ((in.pressed & display::KEY_RIGHT) || (enter && (item == PALETTE || item == COLORS || item == BLEND))) step = 1;
-
-			// Switching the model restarts the running game on the other hardware.
-			if (item == MODE && (step != 0 || enter)) {
-				mode = cycle_mode(mode, step < 0 ? -1 : 1);
-				colors = mode_colors(mode, pal);
-				apply_preset(&gb, pal);
-				if (has_rom) {
-					if (try loaded = load_game(&gb, rom_path, boot, mode, pal)) {
-						cart = loaded;
-						screen.set_title(window_title(&cart, &gb));
-					}
-				} else {
-					gb.destroy();
-					gb = gameboy::new(false, mode.model());
-					gb.set_cgb_revision(mode.revision());
-					gb.set_dmg_revision(mode.dmg_revision());
-					apply_preset(&gb, pal);
-				}
-				save_settings(&cfg, mode, pal, scale);
-			}
-			if (item == SCALE && (step != 0 || enter)) {
-				int n = display::MAX_SCALE - display::MIN_SCALE + 1;
-				scale = (scale - display::MIN_SCALE + (step < 0 ? n - 1 : 1)) % n + display::MIN_SCALE;
-				screen.set_scale(scale);
-				save_settings(&cfg, mode, pal, scale);
-			}
-			if (item == BLEND && step != 0) {
-				blend = (display::Blend)(((int)blend.ordinal + 3 + step) % 3);
-				screen.blend = blend;
-				save_settings(&cfg, mode, pal, scale);
-			}
-			if (item == COLORS && step != 0) {
-				int n = (int)gameboy::COLOR_NAMES.len;
-				gameboy::color_correction = (gameboy::ColorCorrection)(((int)gameboy::color_correction.ordinal + n + step) % n);
-				save_settings(&cfg, mode, pal, scale);
-			}
-			if ((item == SAVE_STATE || item == LOAD_STATE) && step != 0) {
-				slot = (slot - 1 + step + STATE_SLOTS) % STATE_SLOTS + 1;
-			}
-			if (item == PALETTE && step != 0) {
-				int n = (int)PALETTE_NAMES.len;
-				pal = (pal + step + n) % n;
-				colors = mode_colors(mode, pal);
-				apply_preset(&gb, pal);
-				save_settings(&cfg, mode, pal, scale);
-			}
-			if (enter) {
-				switch (item) {
-					case RESUME: menu = false;
-					case SAVE_STATE:
-						save_slot(&gb, save_base, slot, &notice);
-						menu = false;
-					case LOAD_STATE:
-						if (load_slot(&gb, save_base, slot, &notice)) {
-							menu = false;
-							next = clock::now();
-						}
-					case OPEN:   screen.open_rom_dialog();
-					case CONTROLS:
-						controls = true;
-						selected = 0;
-					case RESET:
-						if (try loaded = load_game(&gb, rom_path, boot, mode, pal)) {
-							cart = loaded;
-							menu = false;
-							paused = false;
-							next = clock::now();
-						}
-					case QUIT:   break;
-					case PALETTE: break;
-					case COLORS:  break;
-					case BLEND:   break;
-					case MODE:   break;
-					case SCALE:  break;
-				}
-				if (item == QUIT) break;
-			}
-
-			for (int i = 0; i < count; i++) {
-				switch (items[i]) {
-					case RESUME:  lines[i] = "Resume";
-					case SAVE_STATE:
-						lines[i] = string::tformat("Save state: < %d >%s", slot, slot_used(save_base, slot) ? "" : " (empty)");
-					case LOAD_STATE:
-						lines[i] = string::tformat("Load state: < %d >%s", slot, slot_used(save_base, slot) ? "" : " (empty)");
-					// At 1x the window is 20 characters wide: no hints there.
-					case OPEN:
-						if (scale == 1) {
-							lines[i] = "Open ROM...";
-						} else {
-							lines[i] = screen.dialog_open() ? "Open ROM...  (dialog open)" : env::ANDROID ? "Open ROM..." : "Open ROM...  (Ctrl+O)";
-						}
-					case SCALE:   lines[i] = string::tformat("Scale:   < %dx >", scale);
-					case MODE:    lines[i] = string::tformat("Mode:    < %s >", MODE_LABELS[mode.ordinal]);
-					case PALETTE: lines[i] = string::tformat("Palette: < %s >", PALETTE_NAMES[pal]);
-					case COLORS:  lines[i] = string::tformat("Colors:  < %s >", gameboy::COLOR_LABELS[gameboy::color_correction.ordinal]);
-					case BLEND:   lines[i] = string::tformat("Blending: < %s >", display::BLEND_LABELS[blend.ordinal]);
-					case CONTROLS: lines[i] = "Controls...";
-					case RESET:   lines[i] = "Reset";
-					case QUIT:    lines[i] = "Quit";
-				}
-			}
-		}
-
-		// The game only runs while neither the menu nor the file dialog is up,
-		// and not while paused (except the one frame N asks for).
-		bool running = !menu && !screen.dialog_open() && (!paused || advance);
-		if (running && in.fast && !paused) {
-			// Fast forward: as many frames as fit in most of a frame's time,
-			// the last one shown, without sound.
-			Clock start = clock::now();
-			NanoDuration budget = frame_period(gb.mmu.model) * 3 / 4;
-			int n = 0;
-			do {
-				gb.mmu.set_input(in.buttons, in.dpad);
-				gb.run_frame();
-				frames_run++;
-				gb.audio(&audio);
-				n++;
-			} while (n < FAST_FORWARD_MAX && clock::now() - start < budget);
-			screen.clear_audio();
-		} else if (running) {
-			gb.mmu.set_input(in.buttons, in.dpad);
-			gb.run_frame();
-			frames_run++;
-			if (paused) {
-				gb.audio(&audio); // a single frame's sound would only click
-			} else {
-				screen.queue_audio(&audio, gb.audio(&audio));
-				int queued = screen.audio_queued();
-				avg += (queued - avg) / 32;
-				float e = (avg - AUDIO_TARGET_BYTES) / AUDIO_TARGET_BYTES;
-				e = math::clamp(e, -1, 1);
-				integ += e * INTEG_GAIN;
-				integ = math::clamp(integ, -MAX_INTEG, +MAX_INTEG);
-				gb.set_audio_rate((uint)(display::AUDIO_RATE * (1 - MAX_RATE_ADJ * e - integ)));
-			}
-		}
-		String message = notice.current();
-		if (!message.len && has_rom && !menu) {
-			if (paused) message = "Paused";
-			if (in.fast && !paused) message = "Fast forward";
-		}
-		gameboy::FrameSize size = gb.frame_rgb(rgb, colors);
-		screen.odd_frame = (frames_run & 1) != 0;
-		screen.blend_simple = gb.mmu.sgb != null;
-		screen.present(rgb, size.w, size.h, lines[:count], selected, message);
-
-		next += frame_period(gb.mmu.model);
-		Clock now = clock::now();
-		if (now - next > MAX_LAG) next = now;
-		NanoDuration remaining = next - now;
-		(void)os::native_sleep_nano(remaining);
-	}
+	$endif
 	return 0;
 }
