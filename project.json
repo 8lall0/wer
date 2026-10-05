@@ -64,6 +64,8 @@
       "target": "emscripten",
       "link-args": [
         "--use-port=sdl3",
+        // Binaryen optimises the whole module at link time.
+        "-O3",
         "-sALLOW_MEMORY_GROWTH=1",
         "-sSTACK_SIZE=1048576",
         // The page (web/index.html) hands chosen ROMs to wer_rom_chosen.
