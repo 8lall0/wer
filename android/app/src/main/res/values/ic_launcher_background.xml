@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The launcher icon's background (Android 8+ always draws one): wer's
+         darkest green, as on its menus and touch controls. -->
+    <color name="ic_launcher_background">#081820</color>
+</resources>
