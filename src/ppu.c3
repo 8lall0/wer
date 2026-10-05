@@ -256,7 +256,6 @@ fn char Ppu.tick(&self, uint tcycles) {
 	char irq = 0;
 	self.irq_dot = -1;
 	for (uint i = 0; i < tcycles; i++) {
-		if (self.repredict && self.r.active && !self.predicting) self.predict_mode3();
 		self.scx_landed = false;
 		self.apply_writes();
 		self.window_line_checks();
@@ -298,8 +297,8 @@ fn char Ppu.tick(&self, uint tcycles) {
 		}
 		// HBlank DMA: at Gambatte's mode 0 time, 2 cycles after STAT reads 0
 		// (the block is copied at the next instruction boundary, Cpu.step).
-		if (self.line < VBLANK_LINE && !self.predicting && self.dot > MODE3_START_DOT
-			&& self.dot == self.m0_stat_dot() + (self.double_speed ? 1 : 2)) self.hblank_start = true;
+		if (self.cgb_hw && self.line < VBLANK_LINE && !self.predicting && self.dot > MODE3_START_DOT
+			&& !self.surely_mode3() && self.dot == self.m0_stat_dot() + (self.double_speed ? 1 : 2)) self.hblank_start = true;
 		char now = self.update_mode() | self.irq_events();
 		if (now && self.irq_dot < 0) self.irq_dot = (int)i;
 		irq |= now;
@@ -337,6 +336,25 @@ fn int Ppu.mode3_tail(&self) {
 	return t;
 }
 
+// Whether the PPU is far enough from its last pixel that STAT reads mode 3
+// whatever the prediction says: a pixel takes a dot at least, and mode 0
+// comes at most MODE3_TAIL dots before the last one.
+const int SURE_MODE3_PIXELS = MODE3_TAIL + 8;
+fn bool Ppu.surely_mode3(&self) => self.r.active && WIDTH - self.r.pos > SURE_MODE3_PIXELS;
+
+// The dot this line's pipeline outputs its last pixel, predicting it first
+// if a write or the start of drawing made the last prediction stale. Done
+// only when asked: a prediction late in the line runs fewer dots.
+fn int Ppu.pipe_end(&self) {
+	if (self.repredict && self.r.active && !self.predicting) self.predict_mode3();
+	return self.pipe_end_dot;
+}
+
+fn int Ppu.m0_irq_predicted(&self) {
+	if (self.repredict && self.r.active && !self.predicting) self.predict_mode3();
+	return self.m0_irq_pred;
+}
+
 // When this line's mode 3 ends: run a copy of the PPU ahead, without
 // drawing, to the dot its pipeline outputs the last pixel, with every
 // register write already on its way included. Done once the OAM scan is
@@ -347,9 +365,11 @@ fn void Ppu.predict_mode3(&self) {
 	self.repredict = false;
 	// A plain line (no objects, no window that could start, no write on its
 	// way): the pipeline's end only depends on SCX; no need to run it.
+	// Later in a line the copy has only a few dots left to run.
 	bool window_possible = self.r.wx_triggered
 		|| ((self.r_lcdc & LCDC_WIN_ENABLE) && (self.r.wy_triggered || self.wy2 == u8(self.line) || self.wy == u8(self.line + 1)) && self.wx <= 166);
-	if (!self.first_line && self.r.n_obj == 0 && !window_possible && self.n_writes == 0) {
+	// Only right as drawing starts: objects drawn already are off r.n_obj.
+	if (!self.first_line && self.dot <= render_start_dot + 1 && self.r.n_obj == 0 && !window_possible && self.n_writes == 0) {
 		self.pipe_end_dot = MODE2_DOTS + MODE3_DOTS + (self.scx & 7) + PLAIN_PIPE_EXTRA;
 		self.m0_irq_pred = self.pipe_end_dot - M0_IRQ_BEFORE_END;
 		return;
@@ -406,7 +426,7 @@ fn char Ppu.update_mode(&self) {
 		want = 0;
 	} else if (self.dot < MODE3_START_DOT || self.dot >= MODE2_START_DOT) {
 		want = 2;
-	} else if (self.dot < self.pipe_end_dot - self.mode3_tail()) {
+	} else if (self.surely_mode3() || self.dot < self.pipe_end() - self.mode3_tail()) {
 		want = 3;
 	} else {
 		want = 0;

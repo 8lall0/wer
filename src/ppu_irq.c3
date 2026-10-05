@@ -74,7 +74,7 @@ fn ulong Ppu.lyc_schedule(&self, char stat, char lyc) {
 // line after LCD on (drawn 5 dots early, 6 on a CGB) it comes 2 dots later
 // still than that (Gambatte enable_display/ly0_m0irq_*, frame0_m0irq_count_*).
 const int[2] FIRST_LINE_M0_IRQ = { 7, 8 };
-fn int Ppu.m0_irq_dot(&self) => self.m0_irq_pred + (self.first_line ? FIRST_LINE_M0_IRQ[self.cgb_hw ? 1 : 0] : 0);
+fn int Ppu.m0_irq_dot(&self) => self.m0_irq_predicted() + (self.first_line ? FIRST_LINE_M0_IRQ[self.cgb_hw ? 1 : 0] : 0);
 
 fn bool Ppu.m0_pending(&self) => self.line < VBLANK_LINE && self.dot < self.m0_irq_dot();
 
@@ -383,7 +383,7 @@ fn bool Ppu.inactive_after_enable(&self, int off) => self.first_line && self.cc 
 
 // The dot STAT starts reading mode 0 on this line (not known before mode 3:
 // the end of the line then; after VBlank the last prediction is stale).
-fn int Ppu.m0_stat_dot(&self) => self.dot < MODE3_START_DOT ? DOTS_PER_LINE : self.pipe_end_dot - self.mode3_tail();
+fn int Ppu.m0_stat_dot(&self) => self.dot < MODE3_START_DOT ? DOTS_PER_LINE : self.pipe_end() - self.mode3_tail();
 
 fn bool Ppu.vram_read_locked(&self) {
 	if ((self.lcdc & LCDC_ENABLE) == 0 || self.line >= VBLANK_LINE) return false;
