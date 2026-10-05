@@ -83,6 +83,7 @@ const char MASK_BLACK  = 2;
 const char MASK_COLOR0 = 3;
 
 struct Sgb {
+	bool   curve;       // colours through SGB_CURVE (gameboy::color_correction on)
 	// packet receiver
 	char   p1;          // last P1 select bits written (bits 4-5)
 	bool   receiving;   // a start pulse was seen
@@ -421,6 +422,20 @@ fn void bgr555_to_rgb(ushort c, char[] out) {
 	out[2] = (char)(((c >> 10) & 0x1F) << 3);
 }
 
+// Through the SNES's output curve on a TV (SameBoy's SGB colour correction).
+const char[32] SGB_CURVE = { 0, 2, 5, 9, 15, 20, 27, 34, 42, 50, 58, 67, 76, 85, 94, 104,
+	114, 123, 133, 143, 153, 163, 173, 182, 192, 202, 211, 220, 229, 238, 247, 255 };
+
+fn void Sgb.to_rgb(&self, ushort c, char[] out) {
+	if (!self.curve) {
+		bgr555_to_rgb(c, out);
+		return;
+	}
+	out[0] = SGB_CURVE[c & 0x1F];
+	out[1] = SGB_CURVE[(c >> 5) & 0x1F];
+	out[2] = SGB_CURVE[(c >> 10) & 0x1F];
+}
+
 fn int Sgb.width(&self)  => BORDER_W;
 fn int Sgb.height(&self) => BORDER_H;
 
@@ -440,10 +455,10 @@ fn void Sgb.render(&self, char[] shades, char[] out) {
 			char[] px = rgb[(usz)i * 3 : 3];
 			switch (self.mask) {
 				case MASK_BLACK:  px[0] = 0; px[1] = 0; px[2] = 0;
-				case MASK_COLOR0: bgr555_to_rgb(self.pal[0][0], px);
+				case MASK_COLOR0: self.to_rgb(self.pal[0][0], px);
 				default:
 					char p = self.attr[(y / 8) * COLS + x / 8];
-					bgr555_to_rgb(self.pal[p][shades[i] & 3], px);
+					self.to_rgb(self.pal[p][shades[i] & 3], px);
 			}
 		}
 	}
@@ -476,16 +491,16 @@ fn void Sgb.compose(&self, char[] out) {
 			int gx = x - GB_X;
 			int gy = y - GB_Y;
 			if (idx != 0) {
-				bgr555_to_rgb(self.border_pal[pal][idx], px);
+				self.to_rgb(self.border_pal[pal][idx], px);
 			} else if (gx >= 0 && gx < ppu::WIDTH && gy >= 0 && gy < ppu::HEIGHT) {
 				usz s = (usz)(gy * ppu::WIDTH + gx) * 3;
 				px[0] = self.screen_rgb[s];
 				px[1] = self.screen_rgb[s + 1];
 				px[2] = self.screen_rgb[s + 2];
 			} else if (self.has_border) {
-				bgr555_to_rgb(self.pal[0][0], px);   // backdrop through the border
+				self.to_rgb(self.pal[0][0], px);   // backdrop through the border
 			} else {
-				bgr555_to_rgb(self.pal[0][3], px);   // no border (yet): a plain frame
+				self.to_rgb(self.pal[0][3], px);   // no border (yet): a plain frame
 			}
 		}
 	}

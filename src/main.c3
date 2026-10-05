@@ -191,6 +191,7 @@ fn Mode? mode_from(String name) {
 fn void save_settings(config::Config* cfg, Mode mode, int pal, int scale) {
 	cfg.set("mode", MODE_NAMES[mode.ordinal]);
 	cfg.set("palette", PALETTE_NAMES[pal]);
+	cfg.set("color", gameboy::COLOR_NAMES[gameboy::color_correction.ordinal]);
 	cfg.scale = scale;
 	if (catch cfg.save()) io::eprintfn("could not save %s", config::tpath());
 }
@@ -255,6 +256,7 @@ enum MenuItem : char {
 	OPEN,
 	MODE,
 	PALETTE,
+	COLORS,
 	SCALE,
 	CONTROLS,
 	RESET,
@@ -294,6 +296,7 @@ fn int main(String[] args) @winmain
 	int scale = cfg.scale;
 	int pal = palette_index(cfg.palette);
 	if (pal < 0) pal = 0; // 1-A
+	gameboy::color_correction = (gameboy::ColorCorrection)config::color_index(cfg.color);
 
 	foreach (a : args[1..]) {
 		switch {
@@ -302,6 +305,13 @@ fn int main(String[] args) @winmain
 			case a.starts_with("--frames="): frames = a[9..].to_int() ?? 600;
 			case a.starts_with("--palette="): palette = a[10..];
 			case a == "--sgb-log": sgb_log = true;
+			case a.starts_with("--colors="):
+				int c = config::color_index(a[9..]);
+				if (c < 0) {
+					io::eprintfn("unknown colors '%s': use off, balanced, accurate, boost, reduce or low", a[9..]);
+					return 1;
+				}
+				gameboy::color_correction = (gameboy::ColorCorrection)c;
 			case a.starts_with("--scale="):
 				scale = a[8..].to_int() ?? 0;
 				if (scale < display::MIN_SCALE || scale > display::MAX_SCALE) {
@@ -465,7 +475,7 @@ fn int main(String[] args) @winmain
 		}
 
 		// The menu: which items exist depends on whether a game is loaded.
-		MenuItem[10] items;
+		MenuItem[12] items;
 		String[CONTROLS_COUNT] lines;
 		int count = 0;
 		if (menu && controls) {
@@ -513,6 +523,7 @@ fn int main(String[] args) @winmain
 			items[count++] = OPEN;
 			items[count++] = MODE;
 			if (mode.model().is_sgb()) items[count++] = PALETTE;
+			if (mode.model() == CGB || mode.model().is_sgb()) items[count++] = COLORS;
 			if (!env::ANDROID) items[count++] = SCALE; // the picture fills the screen there
 			items[count++] = CONTROLS;
 			if (has_rom) items[count++] = RESET;
@@ -526,7 +537,7 @@ fn int main(String[] args) @winmain
 			bool enter = (in.pressed & display::KEY_ENTER) != 0;
 			int step = 0;
 			if (in.pressed & display::KEY_LEFT) step = -1;
-			if ((in.pressed & display::KEY_RIGHT) || (enter && item == PALETTE)) step = 1;
+			if ((in.pressed & display::KEY_RIGHT) || (enter && (item == PALETTE || item == COLORS))) step = 1;
 
 			// Switching the model restarts the running game on the other hardware.
 			if (item == MODE && (step != 0 || enter)) {
@@ -551,6 +562,11 @@ fn int main(String[] args) @winmain
 				int n = display::MAX_SCALE - display::MIN_SCALE + 1;
 				scale = (scale - display::MIN_SCALE + (step < 0 ? n - 1 : 1)) % n + display::MIN_SCALE;
 				screen.set_scale(scale);
+				save_settings(&cfg, mode, pal, scale);
+			}
+			if (item == COLORS && step != 0) {
+				int n = (int)gameboy::COLOR_NAMES.len;
+				gameboy::color_correction = (gameboy::ColorCorrection)(((int)gameboy::color_correction.ordinal + n + step) % n);
 				save_settings(&cfg, mode, pal, scale);
 			}
 			if ((item == SAVE_STATE || item == LOAD_STATE) && step != 0) {
@@ -587,6 +603,7 @@ fn int main(String[] args) @winmain
 						}
 					case QUIT:   break;
 					case PALETTE: break;
+					case COLORS:  break;
 					case MODE:   break;
 					case SCALE:  break;
 				}
@@ -610,6 +627,7 @@ fn int main(String[] args) @winmain
 					case SCALE:   lines[i] = string::tformat("Scale:   < %dx >", scale);
 					case MODE:    lines[i] = string::tformat("Mode:    < %s >", MODE_LABELS[mode.ordinal]);
 					case PALETTE: lines[i] = string::tformat("Palette: < %s >", PALETTE_NAMES[pal]);
+					case COLORS:  lines[i] = string::tformat("Colors:  < %s >", gameboy::COLOR_LABELS[gameboy::color_correction.ordinal]);
 					case CONTROLS: lines[i] = "Controls...";
 					case RESET:   lines[i] = "Reset";
 					case QUIT:    lines[i] = "Quit";

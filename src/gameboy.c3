@@ -330,15 +330,21 @@ const usz MAX_FRAME_RGB = sgb::BORDER_W * sgb::BORDER_H * 3;
 fn FrameSize GameBoy.frame_rgb(&self, char[] rgb, char[12] colors) {
 	// A CGB shows colours in both modes (DMG games through its palettes).
 	if (self.mmu.model == CGB) {
-		foreach (i, c : self.mmu.ppu.cfb) {
-			rgb[i * 3]     = expand5(c & 0x1F);
-			rgb[i * 3 + 1] = expand5((c >> 5) & 0x1F);
-			rgb[i * 3 + 2] = expand5((c >> 10) & 0x1F);
+		if (color_correction == OFF) {
+			foreach (i, c : self.mmu.ppu.cfb) {
+				rgb[i * 3]     = expand5(c & 0x1F);
+				rgb[i * 3 + 1] = expand5((c >> 5) & 0x1F);
+				rgb[i * 3 + 2] = expand5((c >> 10) & 0x1F);
+			}
+		} else {
+			char[3]* lut = cgb_colors();
+			foreach (i, c : self.mmu.ppu.cfb) rgb[i * 3 : 3] = lut[c & 0x7FFF][..];
 		}
 		return { ppu::WIDTH, ppu::HEIGHT };
 	}
 	char[] fb = self.framebuffer();
 	if (self.mmu.sgb) {
+		self.mmu.sgb.curve = color_correction != OFF;
 		self.mmu.sgb.render(fb, rgb);
 		return { self.mmu.sgb.width(), self.mmu.sgb.height() };
 	}
@@ -352,7 +358,7 @@ fn FrameSize GameBoy.frame_rgb(&self, char[] rgb, char[12] colors) {
 }
 
 // A 5-bit CGB colour channel as 8 bits (the formula cgb-acid2's reference
-// image uses). No LCD colour correction.
+// image uses), without colour correction (color.c3).
 fn char expand5(int c) => (char)((c << 3) | (c >> 2));
 
 fn void GameBoy.run_frame(&self) {

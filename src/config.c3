@@ -1,4 +1,5 @@
 module config;
+import gameboy;
 
 import std::io, std::io::file, std::io::path, std::os::env;
 
@@ -42,6 +43,7 @@ const String[8] DEFAULT_PADS = { "b", "a", "back", "start", "dpup", "dpdown", "d
 struct Config {
 	String    mode;     // "dmg", "dmg-0", "mgb", "sgb", "sgb2", "cgb" (= "cgb-c"), "cgb-0" ... "cgb-e"
 	String    palette;  // SGB palette "1-A" .. "4-H"
+	String    color;    // CGB/SGB colour correction: gameboy::COLOR_NAMES
 	int       scale;    // 1-4
 	String[8] keys;
 	String[8] pads;
@@ -52,6 +54,7 @@ fn Config defaults() {
 	Config c;
 	c.mode = "dmg".copy(mem);
 	c.palette = "1-A".copy(mem);
+	c.color = "balanced".copy(mem);
 	c.scale = 3;
 	foreach (i, k : DEFAULT_KEYS) c.keys[i] = k.copy(mem);
 	foreach (i, p : DEFAULT_PADS) c.pads[i] = p.copy(mem);
@@ -61,6 +64,7 @@ fn Config defaults() {
 fn void Config.free(&self) {
 	free(self.mode.ptr);
 	free(self.palette.ptr);
+	free(self.color.ptr);
 	foreach (k : self.keys) free(k.ptr);
 	foreach (p : self.pads) free(p.ptr);
 	*self = {};
@@ -85,6 +89,9 @@ fn bool Config.set(&self, String name, String value) {
 			replace(&self.mode, value);
 		case name == "palette":
 			replace(&self.palette, value);
+		case name == "color":
+			if (color_index(value) < 0) return false;
+			replace(&self.color, value);
 		case name == "scale":
 			int? n = value.to_int();
 			if (catch n) return false;
@@ -102,6 +109,13 @@ fn bool Config.set(&self, String name, String value) {
 			return false;
 	}
 	return true;
+}
+
+fn int color_index(String name) {
+	foreach (i, n : gameboy::COLOR_NAMES) {
+		if (n == name) return (int)i;
+	}
+	return -1;
 }
 
 fn int button_index(String name) {
@@ -136,6 +150,7 @@ fn String Config.to_text(&self, Allocator allocator) {
 	out.append("# (a = bottom, b = right, x = left, y = top face button).\n");
 	out.appendf("mode = %s\n", self.mode);
 	out.appendf("palette = %s\n", self.palette);
+	out.appendf("color = %s\n", self.color);
 	out.appendf("scale = %d\n", self.scale);
 	foreach (i, n : BUTTON_NAMES) out.appendf("key.%s = %s\n", n, self.keys[i]);
 	foreach (i, n : BUTTON_NAMES) out.appendf("pad.%s = %s\n", n, self.pads[i]);
