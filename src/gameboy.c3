@@ -1,7 +1,7 @@
 module gameboy;
 
 import cpu, mmu, ppu, apu, cart, sgb;
-import std::io, std::io::file;
+import std::io, std::io::file, libc;
 
 // Top-level machine: owns the CPU and the memory map, drives them in step.
 struct GameBoy {
@@ -43,9 +43,11 @@ const char[64] CGB_POWER_ON_OBJ_PAL = {
 // '/') under the game's header title and global checksum.
 String data_dir;
 
-// The path a game's .sav and .ssN files extend (temp memory).
+// The path a game's .sav and .ssN files extend (temp memory): the ROM's
+// path without its extension ("Tetris.gb" saves to "Tetris.sav", as most
+// emulators do), or in data_dir (Android) the game's title and checksum.
 fn String save_base(String rom_path, char[] rom) {
-	if (!data_dir.len || rom.len < 0x150) return rom_path;
+	if (!data_dir.len || rom.len < 0x150) return strip_rom_extension(rom_path);
 	char[16] title;
 	usz n;
 	for (usz i = 0x134; i < 0x144 && rom[i]; i++) {
@@ -54,6 +56,30 @@ fn String save_base(String rom_path, char[] rom) {
 		title[n++] = ok ? c : '_';
 	}
 	return string::tformat("%s%s-%02X%02X", data_dir, (String)title[:n], rom[0x14E], rom[0x14F]);
+}
+
+fn String strip_rom_extension(String path) {
+	foreach (ext : (String[]){ ".gb", ".gbc", ".cgb", ".sgb" }) {
+		if (path.len > ext.len && path[path.len - ext.len..].to_lower_tcopy() == ext) return path[:path.len - ext.len];
+	}
+	return path;
+}
+
+// Saves from wer 0.10 and before, named after the whole ROM path
+// ("Tetris.gb.sav"), take the new names, unless a file there already has it.
+fn void migrate_saves(String old_base, String base) {
+	if (old_base == base) return;
+	String[10] suffixes = { ".sav", ".ss1", ".ss2", ".ss3", ".ss4", ".ss5", ".ss6", ".ss7", ".ss8", ".ss9" };
+	foreach (s : suffixes) {
+		String from = old_base.tconcat(s);
+		String to = base.tconcat(s);
+		if (!file::is_file(from) || file::is_file(to)) continue;
+		if (libc::rename(from.zstr_tcopy(), to.zstr_tcopy()) == 0) {
+			io::printfn("renamed %s to %s", from, to);
+		} else {
+			io::eprintfn("could not rename %s to %s", from, to);
+		}
+	}
 }
 
 const ushort DMG0_BOOT_DIV = 0x1830; // Mooneye boot_div-dmg0

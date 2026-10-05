@@ -150,7 +150,12 @@ fn void link_second_chosen(String path) {
 	gb2.set_dmg_revision(mode.dmg_revision());
 	apply_preset(&gb2, pal);
 	String base = gameboy::save_base(path, data);
-	if (base == save_base) base = base.tconcat("-2");
+	if (base == save_base) {
+		gameboy::migrate_saves(path.tconcat("-2"), base.tconcat("-2"));
+		base = base.tconcat("-2");
+	} else {
+		gameboy::migrate_saves(path, base);
+	}
 	cart2 = gb2.load_rom_named(data, base);
 	has_p2 = true;
 	if (p2_path.len) free(p2_path.ptr);

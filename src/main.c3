@@ -72,6 +72,7 @@ fn gameboy::Cartridge? load_game(gameboy::GameBoy* gb, String path, bool boot, M
 	gb.mmu.serial_echo = true; // Blargg-style test ROMs report over serial
 	if (gb.mmu.sgb) gb.mmu.sgb.log = sgb_log;
 	String base = gameboy::save_base(path, data);
+	gameboy::migrate_saves(path, base);
 	if (save_base.len) free(save_base.ptr);
 	save_base = base.copy(mem);
 	gameboy::Cartridge cart = gb.load_rom_named(data, base);

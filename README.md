@@ -175,7 +175,7 @@ are saved to `~/.wer/wer.conf`.
 **Menu → Link** picks how the cable is plugged in:
 
 - **2 players here** asks for the second game (the same ROM is fine: its
-  battery save becomes `game.gb-2.sav`) and shows both Game Boys side by
+  battery save becomes `game-2.sav`) and shows both Game Boys side by
   side. The keyboard, touch and the first gamepad play one of them (` swaps
   which), a second gamepad the other.
 - **Host** waits for the other side on port 8765; **Join** asks for the
@@ -186,9 +186,13 @@ are saved to `~/.wer/wer.conf`.
 Not in the browser version, which can't open network connections (2 players
 here works there).
 
-Save states are stored next to the ROM (`game.gb.ss1` … `game.gb.ss9`, beside
-the battery save `game.gb.sav`). A state belongs to the game, the model and
-the build of wer that wrote it; another version of wer refuses to load it.
+Battery saves and save states are stored next to the ROM, named after it
+without its extension: `game.sav`, as other emulators name it, and
+`game.ss1` … `game.ss9` for `game.gb`. (Saves from wer 0.10 and before,
+`game.gb.sav` and `game.gb.ss1`, are renamed the first time the game is
+opened.) A state belongs to the game and the model; it keeps loading in
+later versions of wer, which take the parts of the machine they still have
+and leave the new ones as they are.
 
 ## Tests
 

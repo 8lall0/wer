@@ -85,9 +85,15 @@ fn void refuses_what_does_not_fit() @test {
 
 	test::@check(@catch(a.load_state(state[:state.len - 1])) == gameboy::STATE_INVALID, "truncated");
 
-	state[12]++; // the layout fingerprint
+	state[8] = 99; // a version this build doesn't know
 	test::@check(@catch(a.load_state(state)) == gameboy::STATE_OTHER_BUILD, "other build");
-	state[12]--;
+	state[8] = (char)gameboy::STATE_VERSION;
+	// The first field's length (after the field count, "cpu" and its tag)
+	// running past the end.
+	usz len_at = gameboy::StateHeader::size + 2 + 1 + 3 + 1;
+	state[len_at + 3] = 0x7F;
+	test::@check(@catch(a.load_state(state)) == gameboy::STATE_INVALID, "damaged");
+	state[len_at + 3] = 0;
 	state[0] = 'X';
 	test::@check(@catch(a.load_state(state)) == gameboy::STATE_INVALID, "not a state");
 }
@@ -111,4 +117,64 @@ fn void state_file_round_trip() @test {
 	b.load_state_file(path)!!;
 	test::eq(a.cpu.clk, b.cpu.clk);
 	same_future(&a, &b, 10);
+}
+
+// A version 1 state (wer 0.10 and before) loads while the structs haven't moved.
+fn void raw_state_still_loads() @test {
+	gameboy::GameBoy? a = boot(DMG_ROM, DMG);
+	if (catch a) return;
+	defer a.destroy();
+	short[4096] drop;
+	for (int f = 0; f < 40; f++) {
+		a.run_frame();
+		a.audio(&drop);
+	}
+	char[] state = a.save_state_raw(mem);
+	defer free(state.ptr);
+	gameboy::GameBoy b = boot(DMG_ROM, DMG)!!;
+	defer b.destroy();
+	b.load_state(state)!!;
+	same_future(&a, &b, 20);
+	state[12]++; // another build's structs
+	test::@check(@catch(b.load_state(state)) == gameboy::STATE_OTHER_BUILD, "other layout");
+}
+
+// A state from a build whose structs were different: fields match by name,
+// integers change width, arrays take what fits, new fields keep their value.
+struct OldInner { uint x; }
+struct Old {
+	int      a;
+	char[4]  arr;
+	short    widened;
+	bool     gone;
+	OldInner inner;
+	char*    ptr;
+	String   label;   // a slice behind a typedef: not state either
+}
+struct NewInner { uint x; uint y; }
+struct New {
+	char[8]  arr;
+	int      added;
+	long     widened;
+	int      a;
+	NewInner inner;
+	String   label;
+}
+
+fn void fields_match_by_name() @test {
+	Old old = { .a = 1234, .arr = { 1, 2, 3, 4 }, .widened = -5, .gone = true, .inner = { 99 }, .label = "old" };
+	gameboy::StateWriter w;
+	w.out.init(tmem);
+	gameboy::write_struct(Old, &w, &old);
+	char[] rec = w.out.str_view();
+	assert(gameboy::valid_record(rec));
+	New now = { .added = 77, .inner = { 0, 55 }, .arr = { [7] = 9 }, .label = "mine" };
+	gameboy::read_struct(New, rec, &now);
+	test::eq(now.a, 1234);
+	test::eq(now.widened, -5L);
+	test::eq(now.added, 77);
+	test::eq(now.inner.x, 99u);
+	test::eq(now.inner.y, 55u);
+	test::eq(now.label, "mine");
+	test::@check(now.arr[:4] == (char[]){ 1, 2, 3, 4 } && now.arr[7] == 9, "the array's first four");
 }
