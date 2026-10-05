@@ -18,8 +18,8 @@ SDL_SRC="$ROOT_DIR/deps/sdl_src"
 BUILD_DIR="$ROOT_DIR/deps/build_sdl3_$TARGET"
 INSTALL_DIR="$ROOT_DIR/deps/sdl3-$TARGET"
 
-# 1. Shallow clone latest master if not present
-if [ ! -d "$SDL_SRC" ]; then
+# 1. Shallow clone latest master if not present (not needed for windows)
+if [ "$TARGET" != "windows" ] && [ ! -d "$SDL_SRC" ]; then
     echo "Cloning SDL (depth 1)..."
     git clone --depth 1 https://github.com/libsdl-org/SDL.git "$SDL_SRC"
 fi
@@ -41,49 +41,22 @@ if [ "$TARGET" = "linux" ]; then
     cmake --install .
 
 elif [ "$TARGET" = "windows" ]; then
-    MSVC_SDK="${HOME}/.cache/c3/msvc_sdk"
-    if [ ! -d "$MSVC_SDK" ]; then
-        echo "Error: MSVC SDK not found at $MSVC_SDK"
-        exit 1
-    fi
-
-    # Set up symlink in deps if not present
-    if [ ! -e "$ROOT_DIR/deps/msvc_sdk" ]; then
-        ln -s "$MSVC_SDK" "$ROOT_DIR/deps/msvc_sdk"
-    fi
-
-    TARGET_CFLAGS="--target=x86_64-pc-windows-msvc -fno-pie -idirafter $MSVC_SDK/include/crt -idirafter $MSVC_SDK/include/x64/ucrt -idirafter $MSVC_SDK/include/x64/shared -idirafter $MSVC_SDK/include/x64/um"
-    TARGET_LDFLAGS="--target=x86_64-pc-windows-msvc -fuse-ld=lld -L$MSVC_SDK/x64"
-
-    cmake "$SDL_SRC" \
-        -DCMAKE_BUILD_TYPE=Release \
-        -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" \
-        -DCMAKE_SYSTEM_NAME=Windows \
-        -DCMAKE_SYSTEM_PROCESSOR=x86_64 \
-        -DCMAKE_C_COMPILER=clang \
-        -DCMAKE_CXX_COMPILER=clang++ \
-        -DCMAKE_C_FLAGS="$TARGET_CFLAGS" \
-        -DCMAKE_CXX_FLAGS="$TARGET_CFLAGS" \
-        -DCMAKE_EXE_LINKER_FLAGS="$TARGET_LDFLAGS" \
-        -DCMAKE_SHARED_LINKER_FLAGS="$TARGET_LDFLAGS" \
-        -DCMAKE_AR=llvm-ar \
-        -DCMAKE_RANLIB=llvm-ranlib \
-        -DSDL_STATIC=ON \
-        -DSDL_SHARED=OFF \
-        -DSDL_TESTS=OFF \
-        -DSDL_EXAMPLES=OFF
-
-    cmake --build . -j"$(nproc)"
-    cmake --install .
-
-    # Produce .lib copies for MSVC linker compatibility
-    for lib in "$INSTALL_DIR/lib"/lib*.a; do
-        [ -f "$lib" ] || continue
-        name="$(basename "$lib")"
-        name="${name#lib}"
-        name="${name%.a}.lib"
-        cp "$lib" "$INSTALL_DIR/lib/$name"
-    done
+    # c3c's MSVC SDK (c3c fetch-sdk windows) has the import libraries but no C
+    # headers, so SDL isn't built here: use SDL's own Windows build, an import
+    # library plus SDL3.dll (which goes next to wer.exe).
+    VERSION="${SDL_WINDOWS_VERSION:-3.4.18}"
+    ZIP="SDL3-devel-$VERSION-VC.zip"
+    TMP="$(mktemp -d)"
+    trap 'rm -rf "$TMP"' EXIT
+    curl -sfL -o "$TMP/$ZIP" "https://github.com/libsdl-org/SDL/releases/download/release-$VERSION/$ZIP"
+    unzip -q "$TMP/$ZIP" -d "$TMP"
+    rm -rf "$INSTALL_DIR"
+    mkdir -p "$INSTALL_DIR"
+    cp -r "$TMP/SDL3-$VERSION/include" "$INSTALL_DIR/"
+    cp -r "$TMP/SDL3-$VERSION/lib/x64" "$INSTALL_DIR/lib"
+    cp "$TMP/SDL3-$VERSION/LICENSE.txt" "$INSTALL_DIR/"
+    echo "SDL3 $VERSION for Windows x64 at: $INSTALL_DIR"
+    exit 0
 
 elif [[ "$TARGET" =~ ^macos ]]; then
     MACOS_SDK="${HOME}/.cache/c3/MacOSX.sdk"

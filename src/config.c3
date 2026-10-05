@@ -142,9 +142,11 @@ fn String Config.to_text(&self, Allocator allocator) {
 	return out.str_view();
 }
 
-// ~/.wer/wer.conf, or "" when there is no home directory.
+// ~/.wer/wer.conf (%USERPROFILE%\.wer on Windows), or "" when there is no
+// home directory.
 fn String tpath() {
 	String? home = env::tget_var("HOME");
+	if (catch home) home = env::tget_var("USERPROFILE");
 	if (catch home) return "";
 	return string::tformat("%s/%s/%s", home, DIR, FILE);
 }

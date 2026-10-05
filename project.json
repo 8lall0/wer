@@ -37,6 +37,18 @@
       // renderer and audio. Only the executable links it; `c3c test` does not.
       "linked-libraries": [ "SDL3" ],
     },
+    "windows": {
+      "name": "wer",
+      "type": "executable",
+      "target": "windows-x64",
+      // SDL's own Windows build: links its import library, and SDL3.dll has
+      // to sit next to wer.exe (scripts/build-sdl3.sh windows fetches both).
+      "exec": [ "./scripts/build-sdl3.sh windows" ],
+      "linker-search-paths": [
+        "deps/sdl3-windows/lib"
+      ],
+      "linked-libraries": [ "SDL3" ],
+    },
     "macos": {
       "name": "wer_macos",
       "type": "executable",
