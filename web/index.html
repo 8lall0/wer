@@ -33,7 +33,28 @@
   // wer's ROM picker: the chosen file goes into Emscripten's in-memory
   // filesystem, and wer_rom_chosen (src/display_web.c3) gets its path.
   const status = document.getElementById('status');
+  // wer asks for a ROM (menu, Ctrl+O). Browsers open a file picker only
+  // straight after a user gesture: if the one that got here no longer counts
+  // (phones are strict), a button on the page asks for one more tap.
   function werPickRom() {
+    if (!navigator.userActivation || navigator.userActivation.isActive) { openPicker(); return; }
+    if (document.getElementById('pick')) return;
+    const box = document.createElement('div');
+    box.id = 'pick';
+    box.style.cssText = 'position:fixed;inset:0;z-index:10;display:flex;flex-direction:column;gap:16px;' +
+      'align-items:center;justify-content:center;background:#081820e0;font:16px monospace';
+    const open = document.createElement('button');
+    open.textContent = 'Open ROM…';
+    open.style.cssText = 'font:inherit;font-size:20px;color:#081820;background:#88c070;border:0;padding:14px 28px';
+    const cancel = document.createElement('button');
+    cancel.textContent = 'Cancel';
+    cancel.style.cssText = 'font:inherit;color:#e0f8d0;background:none;border:1px solid #88c070;padding:8px 20px';
+    open.onclick = () => { box.remove(); openPicker(); };
+    cancel.onclick = () => { box.remove(); Module.ccall('wer_rom_chosen', null, ['number'], [0]); };
+    box.append(open, cancel);
+    document.body.appendChild(box);
+  }
+  function openPicker() {
     const input = document.getElementById('rom');
     input.value = '';
     input.onchange = async () => {
@@ -48,7 +69,7 @@
     input.oncancel = () => Module.ccall('wer_rom_chosen', null, ['number'], [0]);
     input.click();
   }
-  document.getElementById('open').onclick = werPickRom;
+  document.getElementById('open').onclick = openPicker;
   // Touches go straight to wer (wer_touch, src/web.c3), cheaply: SDL's own
   // handler measures the page and allocates on every pointer event, which a
   // phone sends up to 240 times a second while a finger is down. Caught
