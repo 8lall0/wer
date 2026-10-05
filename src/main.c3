@@ -192,6 +192,7 @@ fn void save_settings(config::Config* cfg, Mode mode, int pal, int scale) {
 	cfg.set("mode", MODE_NAMES[mode.ordinal]);
 	cfg.set("palette", PALETTE_NAMES[pal]);
 	cfg.set("color", gameboy::COLOR_NAMES[gameboy::color_correction.ordinal]);
+	cfg.set("blend", display::BLEND_NAMES[blend.ordinal]);
 	cfg.scale = scale;
 	if (catch cfg.save()) io::eprintfn("could not save %s", config::tpath());
 }
@@ -210,6 +211,10 @@ fn void Notice.show(&self, String s) {
 }
 
 fn String Notice.current(&self) => clock::now() < self.until ? (String)self.text[:self.len] : "";
+
+// Frame blending (display::Blend) and the frames run so far (its parity).
+display::Blend blend;
+ulong frames_run;
 
 // Where the loaded game's battery save and save states go (gameboy::save_base).
 String save_base;
@@ -257,6 +262,7 @@ enum MenuItem : char {
 	MODE,
 	PALETTE,
 	COLORS,
+	BLEND,
 	SCALE,
 	CONTROLS,
 	RESET,
@@ -297,6 +303,7 @@ fn int main(String[] args) @winmain
 	int pal = palette_index(cfg.palette);
 	if (pal < 0) pal = 0; // 1-A
 	gameboy::color_correction = (gameboy::ColorCorrection)config::color_index(cfg.color);
+	blend = (display::Blend)config::blend_index(cfg.blend);
 
 	foreach (a : args[1..]) {
 		switch {
@@ -312,6 +319,13 @@ fn int main(String[] args) @winmain
 					return 1;
 				}
 				gameboy::color_correction = (gameboy::ColorCorrection)c;
+			case a.starts_with("--blend="):
+				int b = config::blend_index(a[8..]);
+				if (b < 0) {
+					io::eprintfn("unknown blend '%s': use off, simple or accurate", a[8..]);
+					return 1;
+				}
+				blend = (display::Blend)b;
 			case a.starts_with("--scale="):
 				scale = a[8..].to_int() ?? 0;
 				if (scale < display::MIN_SCALE || scale > display::MAX_SCALE) {
@@ -382,6 +396,7 @@ fn int main(String[] args) @winmain
 	};
 	display::background_ctx = &gb;
 	screen.bindings = display::bindings_from(&cfg);
+	screen.blend = blend;
 
 	// The path of the running ROM, kept for Reset (heap copy: args and dialog
 	// results don't live that long).
@@ -475,7 +490,7 @@ fn int main(String[] args) @winmain
 		}
 
 		// The menu: which items exist depends on whether a game is loaded.
-		MenuItem[12] items;
+		MenuItem[13] items;
 		String[CONTROLS_COUNT] lines;
 		int count = 0;
 		if (menu && controls) {
@@ -524,6 +539,7 @@ fn int main(String[] args) @winmain
 			items[count++] = MODE;
 			if (mode.model().is_sgb()) items[count++] = PALETTE;
 			if (mode.model() == CGB || mode.model().is_sgb()) items[count++] = COLORS;
+			items[count++] = BLEND;
 			if (!env::ANDROID) items[count++] = SCALE; // the picture fills the screen there
 			items[count++] = CONTROLS;
 			if (has_rom) items[count++] = RESET;
@@ -537,7 +553,7 @@ fn int main(String[] args) @winmain
 			bool enter = (in.pressed & display::KEY_ENTER) != 0;
 			int step = 0;
 			if (in.pressed & display::KEY_LEFT) step = -1;
-			if ((in.pressed & display::KEY_RIGHT) || (enter && (item == PALETTE || item == COLORS))) step = 1;
+			if ((in.pressed & display::KEY_RIGHT) || (enter && (item == PALETTE || item == COLORS || item == BLEND))) step = 1;
 
 			// Switching the model restarts the running game on the other hardware.
 			if (item == MODE && (step != 0 || enter)) {
@@ -562,6 +578,11 @@ fn int main(String[] args) @winmain
 				int n = display::MAX_SCALE - display::MIN_SCALE + 1;
 				scale = (scale - display::MIN_SCALE + (step < 0 ? n - 1 : 1)) % n + display::MIN_SCALE;
 				screen.set_scale(scale);
+				save_settings(&cfg, mode, pal, scale);
+			}
+			if (item == BLEND && step != 0) {
+				blend = (display::Blend)(((int)blend.ordinal + 3 + step) % 3);
+				screen.blend = blend;
 				save_settings(&cfg, mode, pal, scale);
 			}
 			if (item == COLORS && step != 0) {
@@ -604,6 +625,7 @@ fn int main(String[] args) @winmain
 					case QUIT:   break;
 					case PALETTE: break;
 					case COLORS:  break;
+					case BLEND:   break;
 					case MODE:   break;
 					case SCALE:  break;
 				}
@@ -628,6 +650,7 @@ fn int main(String[] args) @winmain
 					case MODE:    lines[i] = string::tformat("Mode:    < %s >", MODE_LABELS[mode.ordinal]);
 					case PALETTE: lines[i] = string::tformat("Palette: < %s >", PALETTE_NAMES[pal]);
 					case COLORS:  lines[i] = string::tformat("Colors:  < %s >", gameboy::COLOR_LABELS[gameboy::color_correction.ordinal]);
+					case BLEND:   lines[i] = string::tformat("Blending: < %s >", display::BLEND_LABELS[blend.ordinal]);
 					case CONTROLS: lines[i] = "Controls...";
 					case RESET:   lines[i] = "Reset";
 					case QUIT:    lines[i] = "Quit";
@@ -647,6 +670,7 @@ fn int main(String[] args) @winmain
 			do {
 				gb.mmu.set_input(in.buttons, in.dpad);
 				gb.run_frame();
+				frames_run++;
 				gb.audio(&audio);
 				n++;
 			} while (n < FAST_FORWARD_MAX && clock::now() - start < budget);
@@ -654,6 +678,7 @@ fn int main(String[] args) @winmain
 		} else if (running) {
 			gb.mmu.set_input(in.buttons, in.dpad);
 			gb.run_frame();
+			frames_run++;
 			if (paused) {
 				gb.audio(&audio); // a single frame's sound would only click
 			} else {
@@ -673,6 +698,8 @@ fn int main(String[] args) @winmain
 			if (in.fast && !paused) message = "Fast forward";
 		}
 		gameboy::FrameSize size = gb.frame_rgb(rgb, colors);
+		screen.odd_frame = (frames_run & 1) != 0;
+		screen.blend_simple = gb.mmu.sgb != null;
 		screen.present(rgb, size.w, size.h, lines[:count], selected, message);
 
 		next += frame_period(gb.mmu.model);

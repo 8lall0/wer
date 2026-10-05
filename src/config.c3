@@ -44,6 +44,7 @@ struct Config {
 	String    mode;     // "dmg", "dmg-0", "mgb", "sgb", "sgb2", "cgb" (= "cgb-c"), "cgb-0" ... "cgb-e"
 	String    palette;  // SGB palette "1-A" .. "4-H"
 	String    color;    // CGB/SGB colour correction: gameboy::COLOR_NAMES
+	String    blend;    // frame blending: "off", "simple", "accurate"
 	int       scale;    // 1-4
 	String[8] keys;
 	String[8] pads;
@@ -55,6 +56,7 @@ fn Config defaults() {
 	c.mode = "dmg".copy(mem);
 	c.palette = "1-A".copy(mem);
 	c.color = "balanced".copy(mem);
+	c.blend = "off".copy(mem);
 	c.scale = 3;
 	foreach (i, k : DEFAULT_KEYS) c.keys[i] = k.copy(mem);
 	foreach (i, p : DEFAULT_PADS) c.pads[i] = p.copy(mem);
@@ -65,6 +67,7 @@ fn void Config.free(&self) {
 	free(self.mode.ptr);
 	free(self.palette.ptr);
 	free(self.color.ptr);
+	free(self.blend.ptr);
 	foreach (k : self.keys) free(k.ptr);
 	foreach (p : self.pads) free(p.ptr);
 	*self = {};
@@ -92,6 +95,9 @@ fn bool Config.set(&self, String name, String value) {
 		case name == "color":
 			if (color_index(value) < 0) return false;
 			replace(&self.color, value);
+		case name == "blend":
+			if (blend_index(value) < 0) return false;
+			replace(&self.blend, value);
 		case name == "scale":
 			int? n = value.to_int();
 			if (catch n) return false;
@@ -116,6 +122,15 @@ fn int color_index(String name) {
 		if (n == name) return (int)i;
 	}
 	return -1;
+}
+
+fn int blend_index(String name) {
+	switch (name) {
+		case "off":      return 0;
+		case "simple":   return 1;
+		case "accurate": return 2;
+		default:         return -1;
+	}
 }
 
 fn int button_index(String name) {
@@ -151,6 +166,7 @@ fn String Config.to_text(&self, Allocator allocator) {
 	out.appendf("mode = %s\n", self.mode);
 	out.appendf("palette = %s\n", self.palette);
 	out.appendf("color = %s\n", self.color);
+	out.appendf("blend = %s\n", self.blend);
 	out.appendf("scale = %d\n", self.scale);
 	foreach (i, n : BUTTON_NAMES) out.appendf("key.%s = %s\n", n, self.keys[i]);
 	foreach (i, n : BUTTON_NAMES) out.appendf("pad.%s = %s\n", n, self.pads[i]);

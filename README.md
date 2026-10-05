@@ -109,6 +109,7 @@ wer --mode=cgb game.gbc
 |---|---|
 | `--mode=dmg\|mgb\|sgb\|sgb2\|cgb` | the model to emulate: `dmg` is a CPU DMG A/B/C (`dmg-0` the first DMGs), `mgb` a Game Boy Pocket, `cgb` a CPU CGB C (the others with `cgb-0`, `cgb-a`, `cgb-b`, `cgb-c`, `cgb-d`, `cgb-e`) |
 | `--palette=1-A` … `4-H` | SGB built-in palette (SGB modes) |
+| `--blend=off\|simple\|accurate` | frame blending, like the LCD's slow response (games that flicker objects for transparency look right): `simple` mixes each frame half and half with the last, `accurate` is SameBoy's model of the LCD |
 | `--colors=balanced` | CGB/SGB colour correction, as the real screens looked: `off` (raw colours), `balanced` (the default), `accurate`, `boost`, `reduce`, `low` (SameBoy's modes) |
 | `--scale=1..4` | window size, multiples of 160x144 |
 | `--no-boot` | skip the boot ROM |

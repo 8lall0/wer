@@ -84,6 +84,15 @@ struct Display {
 	sdl::Gamepad*[MAX_PADS] pads; // open gamepads (any of them plays)
 	int               stick_dir; // menu navigation by stick: last KEY_* direction held
 
+	// Frame blending (blend.c3): the last raw frame, and the frame parity.
+	Blend             blend;
+	char[]            prev;      // RGB, sized for MAX_W x MAX_H
+	char[]            mixed;     // the blended frame, the same size
+	int               prev_w;
+	int               prev_h;
+	bool              odd_frame;  // set by the caller for each frame
+	bool              blend_simple; // SGB: Accurate blends like Simple
+
 	// Touch screens (Android): on-screen controls (touch.c3).
 	bool              touch_ui;
 	Finger[MAX_FINGERS] fingers;
@@ -221,6 +230,8 @@ fn Display? open(ZString title, int scale = DEFAULT_SCALE) {
 	d.resize(ppu::WIDTH, ppu::HEIGHT);
 
 	d.pixels = mem::new_array(char, MAX_W * MAX_H * 4);
+	d.prev = mem::new_array(char, MAX_W * MAX_H * 3);
+	d.mixed = mem::new_array(char, MAX_W * MAX_H * 3);
 
 	sdl::AudioSpec spec = { .format = sdl::AUDIO_S16, .channels = 2, .freq = AUDIO_RATE };
 	d.audio = sdl::open_audio_device_stream(sdl::AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, null, null);
@@ -268,6 +279,8 @@ fn void set_icon(sdl::Window* window) {
 fn void Display.close(&self) {
 	foreach (p : self.pads) if (p) sdl::close_gamepad(p);
 	if (self.pixels.len) free(self.pixels.ptr);
+	if (self.prev.len) free(self.prev.ptr);
+	if (self.mixed.len) free(self.mixed.ptr);
 	if (self.audio)    sdl::destroy_audio_stream(self.audio);
 	if (self.texture)  sdl::destroy_texture(self.texture);
 	if (self.renderer) sdl::destroy_renderer(self.renderer);
@@ -313,6 +326,7 @@ fn void Display.set_scale(&self, int scale) {
 fn void Display.present(&self, char[] rgb, int w, int h, String[] menu = {}, int selected = -1, String message = "") {
 	if (w != self.width || h != self.height) self.resize(w, h);
 	int pixels = w * h;
+	rgb = self.blended(rgb, w, h);
 
 	for (int i = 0; i < pixels; i++) {
 		self.pixels[i * 4]     = rgb[i * 3];
