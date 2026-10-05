@@ -14,6 +14,8 @@ const uint INIT_AUDIO  = 0x00000010;
 const uint INIT_VIDEO  = 0x00000020;
 const uint INIT_EVENTS = 0x00004000;
 const uint INIT_GAMEPAD = 0x00002000;
+const uint INIT_HAPTIC  = 0x00001000;
+const uint INIT_SENSOR  = 0x00008000;
 
 // SDL_AudioFormat / default playback device
 const uint AUDIO_S16                     = 0x8010; // little-endian
@@ -231,6 +233,36 @@ extern fn short     get_gamepad_axis(Gamepad* pad, int axis)     @cname("SDL_Get
 extern fn int       get_gamepad_button_from_string(ZString str)  @cname("SDL_GetGamepadButtonFromString");
 extern fn ZString   get_gamepad_string_for_button(int button)    @cname("SDL_GetGamepadStringForButton");
 extern fn char*     get_keyboard_state(int* numkeys)  @cname("SDL_GetKeyboardState");
+extern fn bool      rumble_gamepad(Gamepad* pad, ushort low, ushort high, uint ms) @cname("SDL_RumbleGamepad");
+
+// Sensors (SDL_sensor.h): a phone's accelerometer, in m/s^2 along the
+// device's natural orientation (x right, y up, z out of the screen).
+alias Sensor = void;
+const int   SENSOR_ACCEL     = 1;
+const float STANDARD_GRAVITY = 9.80665;
+extern fn uint*    get_sensors(int* count)                       @cname("SDL_GetSensors");
+extern fn int      get_sensor_type_for_id(uint id)               @cname("SDL_GetSensorTypeForID");
+extern fn Sensor*  open_sensor(uint id)                          @cname("SDL_OpenSensor");
+extern fn void     close_sensor(Sensor* s)                       @cname("SDL_CloseSensor");
+extern fn bool     get_sensor_data(Sensor* s, float* data, int n) @cname("SDL_GetSensorData");
+
+// SDL_DisplayOrientation
+const int ORIENTATION_LANDSCAPE         = 1; // right side up, from portrait
+const int ORIENTATION_LANDSCAPE_FLIPPED = 2;
+const int ORIENTATION_PORTRAIT          = 3;
+const int ORIENTATION_PORTRAIT_FLIPPED  = 4;
+extern fn uint     get_display_for_window(Window* w)             @cname("SDL_GetDisplayForWindow");
+extern fn int      get_current_display_orientation(uint display) @cname("SDL_GetCurrentDisplayOrientation");
+extern fn int      get_natural_display_orientation(uint display) @cname("SDL_GetNaturalDisplayOrientation");
+
+// Force feedback (SDL_haptic.h): a phone's vibration motor.
+alias Haptic = void;
+extern fn uint*    get_haptics(int* count)                       @cname("SDL_GetHaptics");
+extern fn Haptic*  open_haptic(uint id)                          @cname("SDL_OpenHaptic");
+extern fn void     close_haptic(Haptic* h)                       @cname("SDL_CloseHaptic");
+extern fn bool     init_haptic_rumble(Haptic* h)                 @cname("SDL_InitHapticRumble");
+extern fn bool     play_haptic_rumble(Haptic* h, float strength, uint ms) @cname("SDL_PlayHapticRumble");
+extern fn bool     stop_haptic_rumble(Haptic* h)                 @cname("SDL_StopHapticRumble");
 
 extern fn AudioStream* open_audio_device_stream(uint devid, AudioSpec* spec, void* cb, void* userdata) @cname("SDL_OpenAudioDeviceStream");
 extern fn bool         resume_audio_stream_device(AudioStream* s)          @cname("SDL_ResumeAudioStreamDevice");

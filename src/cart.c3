@@ -22,6 +22,31 @@ enum Mbc : char {
 	MBC2,
 	MBC3, // types $0F/$10 also carry the real-time clock (see rtc.c3)
 	MBC5,
+	MBC7, // $22: accelerometer and a serial EEPROM (Kirby Tilt 'n' Tumble, Command Master)
+}
+
+// MBC7's own state (SameBoy's model, MIT: see LICENSE-sameboy). $A000-$AFFF
+// holds registers, selected by address bits 4-7, once both $0000 = $0A and
+// $4000 = $40 enable them:
+//   $Ax0x  write $55: clear the latch       $Ax1x  write $AA: latch the tilt
+//   $Ax2x/3x  X low/high                    $Ax4x/5x  Y low/high
+//   $Ax8x  the 93LC56 EEPROM's pins: bit 7 CS, 6 CLK, 1 DI, 0 DO
+// The latched values sit around $81D0, $70 per g; tilting right or toward
+// the player lowers them.
+struct Mbc7 {
+	bool   ram_enabled2;  // $4000-$5FFF = $40
+	ushort x_latch;
+	ushort y_latch;
+	bool   latch_ready;
+	// The EEPROM: 128 16-bit words (Cartridge.ram, little-endian words).
+	bool   cs;
+	bool   clk;
+	bool   di;
+	bool   dout;
+	ushort command;       // bits clocked in; complete with the start bit at bit 10
+	int    argument_bits; // WRITE/WRAL: data bits still to come
+	ushort read_bits;     // shifted out on DO, MSB first
+	bool   write_enabled; // EWEN / EWDS
 }
 
 struct Cartridge {
@@ -41,6 +66,16 @@ struct Cartridge {
 	uint bank2;      // MBC1 $4000 register: 2 bits
 	bool mode1;      // MBC1 advanced banking mode
 	bool multicart;  // MBC1M wiring: bank1 has 4 bits, bank2 sits at bit 4
+
+	Mbc7  mbc7;
+	float tilt_x;    // MBC7: the player's tilt, -1..1 g each way (right, toward the player)
+	float tilt_y;
+	bool  has_rumble; // MBC5 $1C-$1E: a motor on bit 3 of the RAM bank register
+	bool  rumble;     // ... running
+	// Games set the motor's strength by switching it on and off quickly:
+	// the writes to it since the frontend last looked, and how many ran it.
+	uint  rumble_writes;
+	uint  rumble_on;
 }
 
 fn Mbc mbc_of(char type) {
@@ -53,6 +88,8 @@ fn Mbc mbc_of(char type) {
 			return MBC3;
 		case 0x19: case 0x1A: case 0x1B: case 0x1C: case 0x1D: case 0x1E:
 			return MBC5;
+		case 0x22:
+			return MBC7;
 		default:
 			return NONE;
 	}
@@ -60,7 +97,7 @@ fn Mbc mbc_of(char type) {
 
 fn bool has_battery(char type) {
 	switch (type) {
-		case 0x03: case 0x06: case 0x0F: case 0x10: case 0x13: case 0x1B: case 0x1E:
+		case 0x03: case 0x06: case 0x0F: case 0x10: case 0x13: case 0x1B: case 0x1E: case 0x22:
 			return true;
 		default:
 			return false;
@@ -87,11 +124,21 @@ fn Cartridge* new(char[] image, String path) {
 	uint ram_len;
 	if (c.mbc == MBC2) {
 		ram_len = 0x200; // built-in 512 x 4 bits
+	} else if (c.mbc == MBC7) {
+		ram_len = 0x100; // the 93LC56 EEPROM
 	} else {
 		char code = image.len > 0x149 ? image[0x149] : 0;
 		ram_len = code < 6 ? RAM_SIZE[code] : 0;
 	}
 	if (ram_len > 0) c.ram = mem::new_array(char, (sz)ram_len);
+	c.has_rumble = type >= 0x1C && type <= 0x1E;
+	if (c.mbc == MBC7) {
+		c.ram[..] = 0xFF; // a blank EEPROM
+		c.mbc7.x_latch = c.mbc7.y_latch = 0x8000;
+		c.mbc7.latch_ready = true;
+		c.mbc7.read_bits = 0xFFFF;
+		c.mbc7.dout = true;
+	}
 
 	c.rom_bank = 1;
 	c.bank1 = 1;
@@ -173,6 +220,7 @@ fn char Cartridge.read(&self, ushort addr) {
 		return off < self.rom.len ? self.rom[off] : 0xFF;
 	}
 	// $A000-$BFFF
+	if (self.mbc == MBC7) return self.mbc7_read(addr);
 	if (!self.ram_enabled) return 0xFF;
 	if (self.rtc_selected()) return self.rtc.read(self.ram_bank);
 	if (self.ram.len == 0) return 0xFF;
@@ -198,6 +246,10 @@ fn void Cartridge.write(&self, ushort addr, char value) {
 		return;
 	}
 	// $A000-$BFFF
+	if (self.mbc == MBC7) {
+		self.mbc7_write(addr, value);
+		return;
+	}
 	if (!self.ram_enabled) return;
 	if (self.rtc_selected()) {
 		self.rtc.write(self.ram_bank, value);
@@ -254,8 +306,130 @@ fn void Cartridge.write_control(&self, ushort addr, char value) {
 				case addr < 0x2000: self.ram_enabled = (value & 0x0F) == 0x0A;
 				case addr < 0x3000: self.rom_bank = (self.rom_bank & 0x100) | value;
 				case addr < 0x4000: self.rom_bank = (self.rom_bank & 0xFF) | ((value & 1) << 8);
-				case addr < 0x6000: self.ram_bank = value & 0x0F;
+				case addr < 0x6000:
+					if (self.has_rumble) {
+						self.rumble = (value & 8) != 0; // the motor, not a RAM bank bit
+						self.rumble_writes++;
+						if (self.rumble) self.rumble_on++;
+						self.ram_bank = value & 7;
+					} else {
+						self.ram_bank = value & 0x0F;
+					}
 				default: break;
 			}
+		case MBC7:
+			switch {
+				case addr < 0x2000: self.ram_enabled = value == 0x0A;
+				case addr < 0x4000: self.rom_bank = value;
+				case addr < 0x6000: self.mbc7.ram_enabled2 = value == 0x40;
+				default: break;
+			}
+	}
+}
+
+// --- MBC7 -------------------------------------------------------------------
+
+fn char Cartridge.mbc7_read(&self, ushort addr) {
+	Mbc7* m = &self.mbc7;
+	if (!self.ram_enabled || !m.ram_enabled2 || addr >= 0xB000) return 0xFF;
+	switch ((addr >> 4) & 0xF) {
+		case 2: return (char)m.x_latch;
+		case 3: return (char)(m.x_latch >> 8);
+		case 4: return (char)m.y_latch;
+		case 5: return (char)(m.y_latch >> 8);
+		case 6: return 0;
+		case 8: return (char)((m.dout ? 1 : 0) | (m.di ? 2 : 0) | (m.clk ? 0x40 : 0) | (m.cs ? 0x80 : 0));
+		default: return 0xFF;
+	}
+}
+
+fn ushort Cartridge.eeprom_word(&self, int i) => (ushort)(self.ram[i * 2] | (ushort)self.ram[i * 2 + 1] << 8);
+fn void Cartridge.set_eeprom_word(&self, int i, ushort v) {
+	self.ram[i * 2] = (char)v;
+	self.ram[i * 2 + 1] = (char)(v >> 8);
+}
+
+fn void Cartridge.mbc7_write(&self, ushort addr, char value) {
+	Mbc7* m = &self.mbc7;
+	if (!self.ram_enabled || !m.ram_enabled2 || addr >= 0xB000) return;
+	switch ((addr >> 4) & 0xF) {
+		case 0:
+			if (value == 0x55) {
+				m.latch_ready = true;
+				m.x_latch = m.y_latch = 0x8000;
+			}
+		case 1:
+			if (value == 0xAA) {
+				m.latch_ready = false;
+				m.x_latch = (ushort)(0x81D0 - (int)(0x70 * self.tilt_x));
+				m.y_latch = (ushort)(0x81D0 - (int)(0x70 * self.tilt_y));
+			}
+		case 8:
+			m.cs = (value & 0x80) != 0;
+			m.di = (value & 2) != 0;
+			bool clk = (value & 0x40) != 0;
+			if (m.cs && !m.clk && clk) self.eeprom_clock();
+			m.clk = clk;
+		default:
+			break;
+	}
+}
+
+// A rising CLK with CS high: shift DO out, DI in (93LC56, 8-bit addresses of
+// 16-bit words; commands start bit + 2 opcode bits + 8 address bits).
+fn void Cartridge.eeprom_clock(&self) {
+	Mbc7* m = &self.mbc7;
+	m.dout = (m.read_bits >> 15) != 0;
+	m.read_bits = (ushort)(m.read_bits << 1 | 1);
+	if (m.argument_bits > 0) {
+		// The data bits of a WRITE or WRAL, MSB first.
+		m.argument_bits--;
+		m.dout = true;
+		if (m.di && m.write_enabled) {
+			ushort bit = (ushort)(1 << m.argument_bits);
+			if (m.command & 0x100) {
+				int i = m.command & 0x7F;
+				self.set_eeprom_word(i, self.eeprom_word(i) | bit);
+			} else {
+				for (int i = 0; i < 0x80; i++) self.set_eeprom_word(i, self.eeprom_word(i) | bit);
+			}
+		}
+		if (m.argument_bits == 0) {
+			m.command = 0;
+			m.read_bits = 0x3FFF; // busy for a moment, then ready
+		}
+		return;
+	}
+	m.command = (ushort)(m.command << 1 | (m.di ? 1 : 0));
+	if ((m.command & 0x400) == 0) return;
+	int word = m.command & 0x7F;
+	switch ((m.command >> 6) & 0xF) {
+		case 0x8: case 0x9: case 0xA: case 0xB: // READ
+			m.read_bits = self.eeprom_word(word);
+			m.command = 0;
+		case 0x3:                               // EWEN
+			m.write_enabled = true;
+			m.command = 0;
+		case 0x0:                               // EWDS
+			m.write_enabled = false;
+			m.command = 0;
+		case 0x4: case 0x5: case 0x6: case 0x7: // WRITE: clear the word, then 16 data bits
+			if (m.write_enabled) self.set_eeprom_word(word, 0);
+			m.argument_bits = 16;
+		case 0xC: case 0xD: case 0xE: case 0xF: // ERASE
+			if (m.write_enabled) {
+				self.set_eeprom_word(word, 0xFFFF);
+				m.read_bits = 0x3FFF;
+			}
+			m.command = 0;
+		case 0x2:                               // ERAL
+			if (m.write_enabled) {
+				self.ram[..] = 0xFF;
+				m.read_bits = 0xFF;
+			}
+			m.command = 0;
+		case 0x1:                               // WRAL: clear all, then 16 data bits
+			if (m.write_enabled) self.ram[..] = 0;
+			m.argument_bits = 16;
 	}
 }

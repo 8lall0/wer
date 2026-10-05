@@ -206,6 +206,30 @@ fn void GameBoy.set_dmg_revision(&self, mmu::DmgRevision rev) {
 	}
 }
 
+// MBC7 (Kirby Tilt 'n' Tumble): the cartridge has an accelerometer.
+fn bool GameBoy.has_tilt(&self) => self.mmu.cart != null && self.mmu.cart.mbc == MBC7;
+
+// The player's tilt for an MBC7 cartridge, -1..1 each way: x > 0 tilted
+// right, y > 0 tilted toward the player (like a stick pushed right / down).
+fn void GameBoy.set_tilt(&self, float x, float y) {
+	if (!self.mmu.cart) return;
+	self.mmu.cart.tilt_x = x < -1 ? -1 : x > 1 ? 1 : x;
+	self.mmu.cart.tilt_y = y < -1 ? -1 : y > 1 ? 1 : y;
+}
+
+// A rumble cartridge's motor since the last call, 0 (still) to 1 (full):
+// the share of the game's writes to it that switched it on, or, without
+// writes, whether it is running.
+fn float GameBoy.rumble(&self) {
+	cart::Cartridge* c = self.mmu.cart;
+	if (!c || !c.has_rumble) return 0;
+	float level = c.rumble_writes ? (float)c.rumble_on / c.rumble_writes : c.rumble ? 1 : 0;
+	c.rumble_writes = c.rumble_on = 0;
+	return level;
+}
+
+fn bool GameBoy.has_rumble(&self) => self.mmu.cart != null && self.mmu.cart.has_rumble;
+
 fn void GameBoy.destroy(&self) {
 	if (self.mmu.cart) {
 		self.mmu.cart.save();
@@ -296,9 +320,10 @@ fn Cartridge? GameBoy.load_rom_file(&self, String path) {
 }
 
 fn void Cartridge.print(&self) {
-	io::printfn("cartridge: \"%s\"  type=$%02x  rom=%dKiB  ram=%dKiB%s%s",
+	String extra = self.type == 0x22 ? "  (tilt, 256-byte EEPROM)" : self.type >= 0x1C && self.type <= 0x1E ? "  (rumble)" : "";
+	io::printfn("cartridge: \"%s\"  type=$%02x  rom=%dKiB  ram=%dKiB%s%s%s",
 		(ZString)&self.title[0], self.type, self.rom_kib, self.ram_kib,
-		self.battery ? "  (battery)" : "", self.cgb ? "  (CGB)" : "");
+		self.battery ? "  (battery)" : "", extra, self.cgb ? "  (CGB)" : "");
 	if (!self.logo_ok || !self.header_ok) {
 		io::printfn("  WARNING: %s%s%s — a real DMG boot ROM would lock up",
 			self.logo_ok ? "" : "Nintendo logo mismatch",

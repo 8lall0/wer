@@ -98,6 +98,15 @@ struct Display {
 	Finger[MAX_FINGERS] fingers;
 	ushort            touch_held; // T_* held at the last poll
 	ushort            touch_tap;  // T_* touched since the last poll (a tap may end before it)
+
+	// MBC7 tilt and rumble (tilt.c3).
+	bool              tilt_on;    // the game reads tilt: the left stick tilts instead of steering
+	float[<2>]        key_tilt;   // I/J/K/L, eased
+	sdl::Sensor*      accel;      // Android's accelerometer, while tilt_on
+	int               rumble_step;  // 0..8 as last sent
+	int               rumble_frames; // since it was last sent
+	sdl::Haptic*      haptic;     // Android's vibrator
+	bool              haptic_tried;
 }
 
 // Gamepads used at once; all of them control the game.
@@ -201,7 +210,9 @@ fn Display? open(ZString title, int scale = DEFAULT_SCALE) {
 	// the phone may be held either way (touch.c3 lays out both).
 	sdl::set_hint("SDL_ANDROID_TRAP_BACK_BUTTON", "1");
 	sdl::set_hint("SDL_ORIENTATIONS", "LandscapeLeft LandscapeRight Portrait");
-	if (sdl::init(sdl::INIT_VIDEO | sdl::INIT_EVENTS | sdl::INIT_AUDIO | sdl::INIT_GAMEPAD) == 0) {
+	uint systems = sdl::INIT_VIDEO | sdl::INIT_EVENTS | sdl::INIT_AUDIO | sdl::INIT_GAMEPAD;
+	if (env::ANDROID) systems |= sdl::INIT_SENSOR | sdl::INIT_HAPTIC; // tilt, rumble (tilt.c3)
+	if (sdl::init(systems) == 0) {
 		io::eprintfn("SDL_Init failed: %s", sdl::get_error().str_view());
 		return SDL_FAILED~;
 	}
@@ -282,6 +293,8 @@ fn void set_icon(sdl::Window* window) {
 
 fn void Display.close(&self) {
 	foreach (p : self.pads) if (p) sdl::close_gamepad(p);
+	if (self.accel)  sdl::close_sensor(self.accel);
+	if (self.haptic) sdl::close_haptic(self.haptic);
 	if (self.pixels.len) free(self.pixels.ptr);
 	if (self.prev.len) free(self.prev.ptr);
 	if (self.mixed.len) free(self.mixed.ptr);
@@ -532,7 +545,7 @@ fn Input Display.poll(&self) {
 		}
 	}
 	if (self.touch_ui) self.touch_input(&in);
-	switch (dir) {
+	if (!self.tilt_on) switch (dir) {
 		case KEY_UP:    in.dpad |= joypad::PAD_UP;
 		case KEY_DOWN:  in.dpad |= joypad::PAD_DOWN;
 		case KEY_LEFT:  in.dpad |= joypad::PAD_LEFT;

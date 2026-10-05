@@ -550,6 +550,9 @@ fn bool frame() {
 	// The game only runs while neither the menu nor the file dialog is up,
 	// and not while paused (except the one frame N asks for).
 	bool running = !menu && !screen.dialog_open() && (!paused || advance);
+	// MBC7 tilt in; a rumble cartridge's motor out (still while stopped).
+	float[<2>] tilt = screen.tilt(has_rom && gb.has_tilt());
+	gb.set_tilt(tilt.x, tilt.y);
 	if (running && in.fast && !paused) {
 		// Fast forward: as many frames as fit in most of a frame's time,
 		// the last one shown, without sound.
@@ -581,6 +584,8 @@ fn bool frame() {
 			gb.set_audio_rate((uint)(display::AUDIO_RATE * (1 - MAX_RATE_ADJ * e - integ)));
 		}
 	}
+	float motor = gb.rumble();
+	screen.rumble(running && !paused ? motor : 0);
 	String message = notice.current();
 	if (!message.len && has_rom && !menu) {
 		if (paused) message = "Paused";

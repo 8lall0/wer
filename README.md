@@ -24,8 +24,12 @@ ROMs: they never leave the browser; touch controls on phones).
 - **Pixel-by-pixel PPU**: register changes in the middle of a line show up
   where they happen.
 - **Cartridges**: MBC1 (including multicarts), MBC2, MBC3 with the real-time
-  clock, MBC5; battery saves (`.sav`, with the RTC in the format other
-  emulators use).
+  clock, MBC5 (with rumble), MBC7 (Kirby Tilt 'n' Tumble's accelerometer and
+  EEPROM); battery saves (`.sav`, with the RTC in the format other emulators
+  use).
+- **Tilt and rumble**: tilt with a gamepad's left stick, I/J/K/L, or by
+  tilting the phone (Android, and in a browser); rumble cartridges shake the
+  gamepad, or vibrate the phone.
 - **Own boot ROMs** for the DMG and the CGB, with the WER logo (sources in
   `bootrom/`); no Nintendo code. `--no-boot` starts games directly instead.
 - **Save states** (9 slots per game), **pause**, **frame advance** and
@@ -148,6 +152,7 @@ Options given on the command line override `~/.wer/wer.conf` for that run.
 | Pause | P | |
 | Frame advance | N | |
 | Fast forward | hold Tab | |
+| Tilt (MBC7 games) | I / J / K / L | left stick |
 
 Every Game Boy button can be rebound, to a key or a gamepad button, in
 **Menu → Controls**; a hotkey whose key is bound to a Game Boy button gives
