@@ -11,7 +11,8 @@
   canvas { image-rendering: pixelated; width: min(96vw, 640px); aspect-ratio: 10 / 9;
            background: #000; outline: none;
            /* the touch controls get the fingers, not the browser's scrolling or zoom */
-           touch-action: none; -webkit-user-select: none; user-select: none; }
+           touch-action: none; -webkit-user-select: none; user-select: none;
+           -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
   html, body { overscroll-behavior: none; }
   button { font: inherit; color: #081820; background: #88c070; border: 0; padding: 6px 14px; cursor: pointer; }
   #status { min-height: 1.4em; }
@@ -56,6 +57,7 @@
   let canvasRect = null;
   window.addEventListener('resize', () => { canvasRect = null; });
   const PHASE = { pointerdown: 0, pointermove: 1, pointerup: 2, pointercancel: 3 };
+  const lastSent = new Map(); // pointerId -> [x, y]: a resting finger's jitter isn't sent
   function onTouch(e) {
     if (e.pointerType !== 'touch' || e.target !== canvasEl) return; // the page's own buttons work as usual
     e.preventDefault();
@@ -64,9 +66,21 @@
     // Measured when a finger goes down (the canvas may have just been made
     // to fill the page), not on every move.
     if (!canvasRect || e.type === 'pointerdown') canvasRect = canvasEl.getBoundingClientRect();
-    Module._wer_touch(e.pointerId, PHASE[e.type],
-      (e.clientX - canvasRect.left) / canvasRect.width, (e.clientY - canvasRect.top) / canvasRect.height);
+    const x = (e.clientX - canvasRect.left) / canvasRect.width;
+    const y = (e.clientY - canvasRect.top) / canvasRect.height;
+    if (e.type === 'pointermove') {
+      const last = lastSent.get(e.pointerId);
+      if (last && Math.abs(x - last[0]) < 0.005 && Math.abs(y - last[1]) < 0.005) return;
+    }
+    if (e.type === 'pointerup' || e.type === 'pointercancel') lastSent.delete(e.pointerId);
+    else lastSent.set(e.pointerId, [x, y]);
+    Module._wer_touch(e.pointerId, PHASE[e.type], x, y);
   }
+  // A held finger is a long press to the browser: no selection, magnifier,
+  // context menu or gestures on the game.
+  for (const t of ['touchstart', 'touchmove', 'touchend', 'touchcancel'])
+    canvasEl.addEventListener(t, (e) => e.preventDefault(), { passive: false });
+  canvasEl.addEventListener('contextmenu', (e) => e.preventDefault());
   for (const t of ['pointerdown', 'pointermove', 'pointerup', 'pointercancel', 'pointerenter', 'pointerleave'])
     document.addEventListener(t, onTouch, { capture: true, passive: false });
   // index.html?fps: emulated frames (the Game Boy runs at 59.7) and frames
