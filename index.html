@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>wer</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; background: #081820; color: #e0f8d0; font: 14px/1.4 monospace;
+         display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 16px; }
+  canvas { image-rendering: pixelated; width: min(96vw, 640px); aspect-ratio: 10 / 9;
+           background: #000; outline: none;
+           /* the touch controls get the fingers, not the browser's scrolling or zoom */
+           touch-action: none; -webkit-user-select: none; user-select: none;
+           -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+  html, body { overscroll-behavior: none; }
+  button { font: inherit; color: #081820; background: #88c070; border: 0; padding: 6px 14px; cursor: pointer; }
+  #status { min-height: 1.4em; }
+  kbd { color: #88c070; }
+</style>
+</head>
+<body>
+<canvas id="canvas" tabindex="-1"></canvas>
+<div><button id="open">Open ROM…</button></div>
+<div id="status">Loading…</div>
+<div>Your settings and saves stay in this browser.</div>
+<div>
+  <kbd>Arrows</kbd> D-pad · <kbd>Z</kbd> A · <kbd>X</kbd> B · <kbd>Return</kbd> Start ·
+  <kbd>Right Shift</kbd> Select · <kbd>Esc</kbd> menu · <kbd>Tab</kbd> fast forward · gamepads work too
+</div>
+<input type="file" id="rom" accept=".gb,.gbc" hidden>
+<script>
+  // wer's ROM picker: the chosen file goes into Emscripten's in-memory
+  // filesystem, and wer_rom_chosen (src/display_web.c3) gets its path.
+  const status = document.getElementById('status');
+  // wer asks for a ROM (menu, Ctrl+O). Browsers open a file picker only
+  // straight after a user gesture: if the one that got here no longer counts
+  // (phones are strict), a button on the page asks for one more tap.
+  function werPickRom() {
+    if (!navigator.userActivation || navigator.userActivation.isActive) { openPicker(); return; }
+    if (document.getElementById('pick')) return;
+    const box = document.createElement('div');
+    box.id = 'pick';
+    box.style.cssText = 'position:fixed;inset:0;z-index:10;display:flex;flex-direction:column;gap:16px;' +
+      'align-items:center;justify-content:center;background:#081820e0;font:16px monospace';
+    const open = document.createElement('button');
+    open.textContent = 'Open ROM…';
+    open.style.cssText = 'font:inherit;font-size:20px;color:#081820;background:#88c070;border:0;padding:14px 28px';
+    const cancel = document.createElement('button');
+    cancel.textContent = 'Cancel';
+    cancel.style.cssText = 'font:inherit;color:#e0f8d0;background:none;border:1px solid #88c070;padding:8px 20px';
+    open.onclick = () => { box.remove(); openPicker(); };
+    cancel.onclick = () => { box.remove(); Module.ccall('wer_rom_chosen', null, ['number'], [0]); };
+    box.append(open, cancel);
+    document.body.appendChild(box);
+  }
+  function openPicker() {
+    const input = document.getElementById('rom');
+    input.value = '';
+    input.onchange = async () => {
+      const f = input.files[0];
+      if (!f) { Module.ccall('wer_rom_chosen', null, ['number'], [0]); return; }
+      const data = new Uint8Array(await f.arrayBuffer());
+      const path = '/roms/' + f.name;
+      Module.FS.writeFile(path, data);
+      Module.ccall('wer_rom_chosen', null, ['string'], [path]);
+      document.getElementById('canvas').focus();
+    };
+    input.oncancel = () => Module.ccall('wer_rom_chosen', null, ['number'], [0]);
+    input.click();
+  }
+  document.getElementById('open').onclick = openPicker;
+  // Touches go straight to wer (wer_touch, src/web.c3), cheaply: SDL's own
+  // handler measures the page and allocates on every pointer event, which a
+  // phone sends up to 240 times a second while a finger is down. Caught
+  // before SDL sees them; mouse and pen events still go to SDL.
+  const canvasEl = document.getElementById('canvas');
+  let canvasRect = null;
+  window.addEventListener('resize', () => { canvasRect = null; });
+  const PHASE = { pointerdown: 0, pointermove: 1, pointerup: 2, pointercancel: 3 };
+  const lastSent = new Map(); // pointerId -> [x, y]: a resting finger's jitter isn't sent
+  function onTouch(e) {
+    if (e.pointerType !== 'touch' || e.target !== canvasEl) return; // the page's own buttons work as usual
+    e.preventDefault();
+    e.stopPropagation();
+    if (!ready || !(e.type in PHASE)) return; // pointerenter / pointerleave: nothing
+    // Measured when a finger goes down (the canvas may have just been made
+    // to fill the page), not on every move.
+    if (!canvasRect || e.type === 'pointerdown') canvasRect = canvasEl.getBoundingClientRect();
+    const x = (e.clientX - canvasRect.left) / canvasRect.width;
+    const y = (e.clientY - canvasRect.top) / canvasRect.height;
+    if (e.type === 'pointermove') {
+      const last = lastSent.get(e.pointerId);
+      if (last && Math.abs(x - last[0]) < 0.005 && Math.abs(y - last[1]) < 0.005) return;
+    }
+    if (e.type === 'pointerup' || e.type === 'pointercancel') lastSent.delete(e.pointerId);
+    else lastSent.set(e.pointerId, [x, y]);
+    Module._wer_touch(e.pointerId, PHASE[e.type], x, y);
+  }
+  // A held finger is a long press to the browser: no selection, magnifier,
+  // context menu or gestures on the game.
+  for (const t of ['touchstart', 'touchmove', 'touchend', 'touchcancel'])
+    canvasEl.addEventListener(t, (e) => e.preventDefault(), { passive: false });
+  canvasEl.addEventListener('contextmenu', (e) => e.preventDefault());
+  for (const t of ['pointerdown', 'pointermove', 'pointerup', 'pointercancel', 'pointerenter', 'pointerleave'])
+    document.addEventListener(t, onTouch, { capture: true, passive: false });
+  // index.html?fps: emulated frames (the Game Boy runs at 59.7) and frames
+  // the page got from the display, once a second, in a corner.
+  if (location.search.includes('fps')) {
+    let shown = 0, last = 0;
+    (function count() { shown++; requestAnimationFrame(count); })();
+    setInterval(() => {
+      if (!ready) return;
+      let box = document.getElementById('fps');
+      if (!box || box.parentNode !== document.body) {
+        box = box || document.createElement('div');
+        box.id = 'fps';
+        box.style.cssText = 'position:fixed;top:4px;left:4px;z-index:9;color:#e0f8d0;background:#081820c0;padding:2px 6px;font:12px monospace';
+        document.body.appendChild(box);
+      }
+      const f = Number(Module.ccall('wer_frames', 'number', [], []));
+      const work = Module.ccall('wer_longest_work', 'number', [], []);
+      const gap = Module.ccall('wer_longest_gap', 'number', [], []);
+      box.textContent = 'emulated ' + (f - last) + ' fps, display ' + shown + ' fps, longest frame ' +
+        work.toFixed(1) + ' ms, longest gap ' + gap.toFixed(1) + ' ms';
+      last = f; shown = 0;
+    }, 1000);
+  }
+  // Settings, battery saves and save states live in the browser's IndexedDB
+  // (IDBFS): /home/web_user (wer.conf) and /roms (each ROM and its saves),
+  // read back before wer starts and written out every few seconds and when
+  // the page is hidden.
+  const KEPT = ['/home/web_user', '/roms'];
+  let syncing = false;
+  let ready = false; // wer is running
+  function persist() {
+    if (syncing || typeof FS === 'undefined') return;
+    syncing = true;
+    if (ready) Module._wer_save(); // the battery save first
+    FS.syncfs(false, () => { syncing = false; });
+  }
+  var Module = {
+    canvas: document.getElementById('canvas'),
+    arguments: [],
+    preRun: [() => {
+      for (const dir of KEPT) {
+        try { FS.mkdir(dir); } catch (e) {}
+        FS.mount(IDBFS, {}, dir);
+      }
+      addRunDependency('idbfs');
+      FS.syncfs(true, () => removeRunDependency('idbfs'));
+      setInterval(persist, 5000);
+      document.addEventListener('visibilitychange', persist);
+      window.addEventListener('pagehide', persist);
+    }],
+    onRuntimeInitialized: () => { ready = true; status.textContent = 'Open a ROM to play (nothing leaves your browser).'; },
+    print: (t) => console.log(t),
+    printErr: (t) => console.warn(t),
+  };
+</script>
+<script src="wer.js"></script>
+</body>
+</html>
