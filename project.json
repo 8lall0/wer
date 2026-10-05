@@ -69,7 +69,7 @@
         "-sALLOW_MEMORY_GROWTH=1",
         "-sSTACK_SIZE=1048576",
         // The page (web/index.html) hands chosen ROMs to wer_rom_chosen.
-        "-sEXPORTED_FUNCTIONS=_main,_wer_rom_chosen,_wer_frames,_wer_save,_wer_longest_work,_wer_longest_gap",
+        "-sEXPORTED_FUNCTIONS=_main,_wer_rom_chosen,_wer_frames,_wer_save,_wer_longest_work,_wer_longest_gap,_wer_touch",
         "-sEXPORTED_RUNTIME_METHODS=ccall,FS",
         // Saves and settings kept in the browser (IndexedDB).
         "-lidbfs.js"

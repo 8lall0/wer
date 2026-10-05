@@ -48,6 +48,27 @@
     input.click();
   }
   document.getElementById('open').onclick = werPickRom;
+  // Touches go straight to wer (wer_touch, src/web.c3), cheaply: SDL's own
+  // handler measures the page and allocates on every pointer event, which a
+  // phone sends up to 240 times a second while a finger is down. Caught
+  // before SDL sees them; mouse and pen events still go to SDL.
+  const canvasEl = document.getElementById('canvas');
+  let canvasRect = null;
+  window.addEventListener('resize', () => { canvasRect = null; });
+  const PHASE = { pointerdown: 0, pointermove: 1, pointerup: 2, pointercancel: 3 };
+  function onTouch(e) {
+    if (e.pointerType !== 'touch' || e.target !== canvasEl) return; // the page's own buttons work as usual
+    e.preventDefault();
+    e.stopPropagation();
+    if (!ready || !(e.type in PHASE)) return; // pointerenter / pointerleave: nothing
+    // Measured when a finger goes down (the canvas may have just been made
+    // to fill the page), not on every move.
+    if (!canvasRect || e.type === 'pointerdown') canvasRect = canvasEl.getBoundingClientRect();
+    Module._wer_touch(e.pointerId, PHASE[e.type],
+      (e.clientX - canvasRect.left) / canvasRect.width, (e.clientY - canvasRect.top) / canvasRect.height);
+  }
+  for (const t of ['pointerdown', 'pointermove', 'pointerup', 'pointercancel', 'pointerenter', 'pointerleave'])
+    document.addEventListener(t, onTouch, { capture: true, passive: false });
   // index.html?fps: emulated frames (the Game Boy runs at 59.7) and frames
   // the page got from the display, once a second, in a corner.
   if (location.search.includes('fps')) {

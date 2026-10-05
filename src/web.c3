@@ -1,5 +1,5 @@
 module wer @feat(EMSCRIPTEN);
-import std::time;
+import std::time, sdl;
 
 // WebAssembly: a browser page can't loop forever. The browser calls web_tick
 // at each display refresh, and it runs the main loop's frame() for the Game
@@ -71,4 +71,24 @@ fn ulong frames_emulated() @export("wer_frames") => frames_run;
 // seconds, and when the tab is hidden or closed): the battery save first.
 fn void save_battery() @export("wer_save") {
 	if (gb.mmu.cart) gb.mmu.cart.save();
+}
+
+// Touches, from the page (web/index.html), instead of through SDL: its web
+// touch handler measures the page and allocates on every pointer event, and
+// a phone sends a held finger's moves 120-240 times a second, enough to
+// starve the main loop. id: the browser's pointerId; phase: 0 down, 1 move,
+// 2 up, 3 cancel; x, y: 0..1 of the canvas.
+fn void web_touch(CInt id, CInt phase, float x, float y) @export("wer_touch") {
+	if (!screen.touch_ui) screen.web_touch_mode();
+	sdl::TouchFingerEvent e;
+	switch (phase) {
+		case 0:  e.type = sdl::EVENT_FINGER_DOWN;
+		case 1:  e.type = sdl::EVENT_FINGER_MOTION;
+		case 2:  e.type = sdl::EVENT_FINGER_UP;
+		default: e.type = sdl::EVENT_FINGER_CANCELED;
+	}
+	e.finger_id = (ulong)id + 1;
+	e.x = x;
+	e.y = y;
+	screen.finger_event(&e);
 }
