@@ -95,6 +95,7 @@ struct Apu {
 	bool   mgb;          // Game Boy Pocket / Light
 	bool   double_speed;
 	ushort div_counter;  // the timer's 16-bit counter, for power-on
+	int    lazy_ticks;   // 2 MHz ticks not run yet (Apu.tick defers them; Apu.sync)
 
 	// Output.
 	ulong sample_acc;
@@ -512,6 +513,7 @@ fn int Apu.clock(&self, int mcycles) {
 
 // A DIV write realigns the count with the frame sequencer (PSG::divReset).
 fn void Apu.clock_div_reset(&self) {
+	self.sync();
 	ulong off = self.double_speed ? (self.glu & 1) : 0;
 	ulong cc = self.gspu + off;
 	self.gspu = (cc & ~(ulong)0xFFF) + 2 * (cc & 0x800) - off;
@@ -531,6 +533,7 @@ fn void Apu.clock_power_on(&self) {
 // speed, 2 M-cycles on going to double): leaving double speed the last count
 // shifts a cycle, entering it the count is corrected.
 fn void Apu.clock_switch(&self, bool to_double) {
+	self.sync();
 	if (!to_double) {
 		self.glu--;
 	} else {
@@ -556,6 +559,16 @@ fn int Apu.duty_start_ticks(&self, int i, bool was_active) {
 // switch), only the output keeps going. `ticks`: the 2 MHz ticks (Apu.clock),
 // else half of `t`.
 fn void Apu.tick(&self, uint t, uint div_events, uint div_secondary = 0, bool div_write = false, bool frozen = false, int ticks = -1) {
+	// Nothing in this M-cycle needs the channels' state now (no frame
+	// sequencer event, no write's grace window, no output sample): only
+	// count the time; Apu.sync runs it when something looks.
+	if (!frozen && div_events == 0 && div_secondary == 0 && !div_write && self.can_defer()
+		&& self.sample_acc + (ulong)t * self.out_rate < self.hz()) {
+		self.lazy_ticks += ticks >= 0 ? ticks : (int)t / 2;
+		self.sample_acc += (ulong)t * self.out_rate;
+		return;
+	}
+	self.sync();
 	self.pcm_mask = { 0xFF, 0xFF };
 	if (frozen) {
 		self.output(t);
@@ -593,6 +606,29 @@ fn void Apu.tick(&self, uint t, uint div_events, uint div_secondary = 0, bool di
 	self.output(t);
 	for (int i = 0; i < 3; i++) if (self.env_grace[i]) self.env_grace[i]--;
 	if (self.sweep_grace) self.sweep_grace--;
+}
+
+// Whether Apu.tick may leave the channels to run later: nothing pending that
+// counts M-cycles or acts at the start of one.
+fn bool Apu.can_defer(&self) {
+	return !self.pending_envelope_tick && self.env_grace == { 0, 0, 0 } && self.sweep_grace == 0
+		&& self.defer_steps == 0 && self.defer_rises == 0 && !self.defer_write
+		&& self.noise.dmg_delayed_start == 0
+		// Mid-stretch, these act at a given tick (a sweep overflow stops
+		// channel 1, a start delay ends).
+		&& self.sweep_calc_reload_timer == 0 && self.sweep_calc_countdown == 0 && self.ch1_restart_hold == 0
+		&& self.sq[0].delay == 0 && self.sq[1].delay == 0;
+}
+
+// Run the ticks Apu.tick put off, as one stretch: Apu.run gives the same
+// state for one long stretch as for its pieces. Every look at the channels
+// (register access, PCM12/34, save states) comes after one.
+fn void Apu.sync(&self) {
+	if (self.lazy_ticks == 0) return;
+	int n = self.lazy_ticks;
+	self.lazy_ticks = 0;
+	self.pcm_mask = { 0xFF, 0xFF };
+	if (self.power) self.run(n);
 }
 
 // Gambatte's nr4Init windows (2 APU cycles, a sweep on a CGB 4): in M-cycles,
@@ -671,6 +707,12 @@ fn uint Apu.drain(&self, short[] out) {
 
 // CGB PCM12/PCM34 ($FF76/$FF77): the current digital output (0-15) of
 // channels 1+2 and 3+4, the second channel of each pair in the high nibble.
-fn char Apu.pcm12(&self) => (self.pcm(SQ1) | self.pcm(SQ2) << 4) & (self.le_c() ? self.pcm_mask[0] : 0xFF);
-fn char Apu.pcm34(&self) => (self.pcm(WAV) | self.pcm(NOI) << 4) & (self.le_c() ? self.pcm_mask[1] : 0xFF);
+fn char Apu.pcm12(&self) {
+	self.sync();
+	return (self.pcm(SQ1) | self.pcm(SQ2) << 4) & (self.le_c() ? self.pcm_mask[0] : 0xFF);
+}
+fn char Apu.pcm34(&self) {
+	self.sync();
+	return (self.pcm(WAV) | self.pcm(NOI) << 4) & (self.le_c() ? self.pcm_mask[1] : 0xFF);
+}
 fn char Apu.pcm(&self, int ch) => self.active[ch] ? self.samples[ch] : 0;

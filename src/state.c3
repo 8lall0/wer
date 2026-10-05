@@ -114,6 +114,7 @@ fn uint GameBoy.state_model(&self) => (uint)self.mmu.model.ordinal | (uint)((sel
 	| (uint)((self.mmu.dmg_rev.ordinal + 2) % 3) << 12;
 
 fn char[] GameBoy.save_state(&self, Allocator alloc) {
+	self.mmu.apu.sync();
 	StateHeader h = {
 		.magic = STATE_MAGIC,
 		.version = STATE_VERSION,

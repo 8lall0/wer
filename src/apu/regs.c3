@@ -20,6 +20,7 @@ fn int Apu.wave_access(&self, int i) {
 }
 
 fn char Apu.read(&self, ushort addr) {
+	self.sync();
 	int reg = addr - 0xFF10;
 	if (reg >= WAVE_RAM) {
 		int i = self.wave_access(reg - WAVE_RAM);
@@ -38,6 +39,7 @@ fn char Apu.read(&self, ushort addr) {
 }
 
 fn void Apu.write(&self, ushort addr, char value) {
+	self.sync();
 	int reg = addr - 0xFF10;
 	if (reg >= WAVE_RAM) {
 		int i = self.wave_access(reg - WAVE_RAM);

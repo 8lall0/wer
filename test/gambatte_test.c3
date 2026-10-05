@@ -203,6 +203,7 @@ fn void screen_rgb(gameboy::GameBoy* gb, uint[] out) {
 
 // The mixed output the speakers would get: silence means it never changes.
 fn uint mix(apu::Apu* a) {
+	a.sync();
 	if (!a.power) return 0;
 	uint l;
 	uint r;

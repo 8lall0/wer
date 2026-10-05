@@ -228,6 +228,7 @@ fn void Mmu.set(&self, ushort addr, char value) {
 	if (addr >= 0xFF10 && addr <= 0xFF3F) {
 		// Powering on samples DIV's APU bit an M-cycle on (Gambatte PSG::reset:
 		// cc + 1 + !ds; sound/ch2_late_reset_nr52_*).
+		self.apu.sync();
 		self.apu.div_counter = self.timer.div + 4; // EXP // EXP
 		self.apu.write(addr, value);
 		return;
@@ -904,6 +905,7 @@ fn void Mmu.enter_compat_mode(&self) {
 fn void Mmu.set_double_speed(&self, bool on) {
 	self.double_speed = on;
 	self.timer.double_speed = on;
+	self.apu.sync();
 	self.apu.double_speed = on;
 	self.ppu.double_speed = on;
 	if (self.ppu.lcdc & ppu::LCDC_ENABLE) self.ppu.irq_reschedule(false);
