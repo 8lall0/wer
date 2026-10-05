@@ -53,14 +53,14 @@ the common hardware test suites check; results below.
 Needs [c3c](https://github.com/c3lang/c3c) 0.8.x and SDL 3.2 or newer.
 
 ```sh
-c3c build -O2        # build/wer
+c3c build -O3        # build/wer
 ```
 
 Windows x64, cross-compiled from Linux (needs curl and unzip, plus the
 Windows SDK c3c fetches with `c3c fetch-sdk windows`):
 
 ```sh
-c3c build windows -O2 --trust=full   # build/wer.exe
+c3c build windows -O3 --trust=full   # build/wer.exe
 ```
 
 It downloads SDL's own Windows build into `deps/sdl3-windows/`;
@@ -73,7 +73,7 @@ macOS on Apple silicon (macOS 11 or newer), cross-compiled from Linux (needs
 clang, lld, cmake, plus the macOS SDK from `c3c fetch-sdk macos`):
 
 ```sh
-c3c build macos -O2 --trust=full     # build/wer_macos
+c3c build macos -O3 --trust=full     # build/wer_macos
 ```
 
 It builds SDL into `deps/sdl3-macos-aarch64/` and links it in, so the binary
