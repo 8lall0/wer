@@ -41,13 +41,19 @@
       "name": "wer",
       "type": "executable",
       "target": "windows-x64",
+      // A GUI program (no console window), with the C runtime linked in (no
+      // VCRUNTIME140.dll needed), and build/wer.res: icon, manifest and
+      // version information (scripts/build-windows-res.sh).
+      "win-subsystem": "windows",
+      "wincrt": "static",
       // SDL's own Windows build: links its import library, and SDL3.dll has
       // to sit next to wer.exe (scripts/build-sdl3.sh windows fetches both).
-      "exec": [ "./scripts/build-sdl3.sh windows" ],
+      "exec": [ "./scripts/build-sdl3.sh windows", "./scripts/build-windows-res.sh" ],
       "linker-search-paths": [
         "deps/sdl3-windows/lib"
       ],
       "linked-libraries": [ "SDL3" ],
+      "link-args": [ "build/wer.res" ],
     },
     "macos": {
       "name": "wer_macos",

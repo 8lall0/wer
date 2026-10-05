@@ -177,7 +177,11 @@ fn Display? open(ZString title, int scale = DEFAULT_SCALE) {
 		return SDL_FAILED~;
 	}
 	sdl::set_render_vsync(d.renderer, 0);
-	set_icon(d.window);
+	// On Windows SDL's window class already has wer.exe's own icon, every
+	// size (resources/windows/wer.ico); one set here would replace it.
+	$if !env::WIN32:
+		set_icon(d.window);
+	$endif
 
 	d.resize(ppu::WIDTH, ppu::HEIGHT);
 

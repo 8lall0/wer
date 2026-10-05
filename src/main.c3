@@ -262,8 +262,12 @@ const int CONTROLS_DEFAULTS = 8;
 const int CONTROLS_BACK     = 9;
 const int CONTROLS_COUNT    = 10;
 
-fn int main(String[] args)
+fn int main(String[] args) @winmain
 {
+	$if env::WIN32:
+		use_parent_console();
+		args = windows_args();
+	$endif
 	bool headless = false;
 	bool boot = true;
 	int frames = 600;
