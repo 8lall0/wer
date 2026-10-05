@@ -21,8 +21,24 @@ fn void web_run() {
 	set_main_loop(&web_tick, 0, true); // 0: at the display's refresh rate
 }
 
+// For index.html?fps: the longest tick (wer's own work) and the longest
+// time between ticks since the page last asked.
+long longest_work_ns;
+long longest_gap_ns;
+fn double take_longest_work() @export("wer_longest_work") {
+	double ms = longest_work_ns / 1e6;
+	longest_work_ns = 0;
+	return ms;
+}
+fn double take_longest_gap() @export("wer_longest_gap") {
+	double ms = longest_gap_ns / 1e6;
+	longest_gap_ns = 0;
+	return ms;
+}
+
 fn void web_tick() {
 	Clock now = clock::now();
+	if ((long)(now - last_tick) > longest_gap_ns) longest_gap_ns = (long)(now - last_tick);
 	NanoDuration elapsed = now - last_tick;
 	last_tick = now;
 	if (elapsed > (NanoDuration)250_000_000) elapsed = (NanoDuration)250_000_000; // a hidden tab
@@ -44,6 +60,8 @@ fn void web_tick() {
 		}
 	}
 	skip_picture = false;
+	long work = (long)(clock::now() - now);
+	if (work > longest_work_ns) longest_work_ns = work;
 }
 
 // Frames emulated so far (for the page, e.g. to measure the speed).

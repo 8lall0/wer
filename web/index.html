@@ -63,7 +63,10 @@
         document.body.appendChild(box);
       }
       const f = Number(Module.ccall('wer_frames', 'number', [], []));
-      box.textContent = 'emulated ' + (f - last) + ' fps, display ' + shown + ' fps';
+      const work = Module.ccall('wer_longest_work', 'number', [], []);
+      const gap = Module.ccall('wer_longest_gap', 'number', [], []);
+      box.textContent = 'emulated ' + (f - last) + ' fps, display ' + shown + ' fps, longest frame ' +
+        work.toFixed(1) + ' ms, longest gap ' + gap.toFixed(1) + ' ms';
       last = f; shown = 0;
     }, 1000);
   }
