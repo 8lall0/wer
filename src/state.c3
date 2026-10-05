@@ -164,6 +164,8 @@ fn void? GameBoy.load_state(&self, char[] data) {
 	self.mmu.wram_ext = keep.wram_ext;
 	self.mmu.sgb = keep.sgb;
 	self.mmu.serial_echo = keep.serial_echo;
+	self.mmu.link = keep.link;
+	self.mmu.serial_waiting = false;
 	self.mmu.ppu.vram1 = keep.ppu.vram1;
 	self.mmu.ppu.fb = keep.ppu.fb;
 	self.mmu.ppu.cfb = keep.ppu.cfb;

@@ -420,6 +420,43 @@ fn void GameBoy.run_frame(&self) {
 	self.mmu.ppu.frame_ready = false;
 }
 
+// run_frame, stopping `slices` times along the way to call `between` (the
+// network link cable's chance to send and receive in good time).
+alias Between = fn void(void* ctx);
+
+fn void GameBoy.run_frame_polled(&self, Between between, void* ctx, int slices) {
+	ulong frame = self.mmu.double_speed ? 35112 : 17556;
+	bool lcd = (self.mmu.ppu.lcdc & ppu::LCDC_ENABLE) != 0;
+	self.mmu.ppu.frame_ready = false;
+	ulong end = self.cpu.clk + (lcd ? frame * 2 : frame);
+	ulong slice = frame / (ulong)slices;
+	ulong next = self.cpu.clk + slice;
+	while ((!lcd || !self.mmu.ppu.frame_ready) && self.cpu.clk < end) {
+		self.step();
+		if (self.cpu.clk >= next) {
+			between(ctx);
+			next += slice;
+		}
+	}
+	self.mmu.ppu.frame_ready = false;
+}
+
+// Two Game Boys joined by the link cable (mmu::connect_local), a frame of
+// `a` at a time, `b` kept level with it instruction by instruction so the
+// cable sees them at the same moment. `b` shows whatever frame it finished.
+fn void run_linked_frame(GameBoy* a, GameBoy* b) {
+	ulong frame = a.mmu.double_speed ? 35112 : 17556;
+	bool lcd = (a.mmu.ppu.lcdc & ppu::LCDC_ENABLE) != 0;
+	a.mmu.ppu.frame_ready = false;
+	ulong end = a.cpu.clk + (lcd ? frame * 2 : frame);
+	while ((!lcd || !a.mmu.ppu.frame_ready) && a.cpu.clk < end) {
+		a.step();
+		while (b.mmu.rt_clock < a.mmu.rt_clock) b.step();
+	}
+	a.mmu.ppu.frame_ready = false;
+	b.mmu.ppu.frame_ready = false;
+}
+
 fn void GameBoy.set_audio_rate(&self, uint rate) {
 	self.mmu.apu.out_rate = rate;
 }

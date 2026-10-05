@@ -119,6 +119,10 @@ struct Mmu {
 	int    serial_left;   // T-cycles (DIV counts) until the transfer ends, 0: none
 	bool   serial_fast;   // CGB fast clock (SC bit 1)
 	bool   serial_echo;   // when true, print each transferred byte to stderr
+	Link*  link;          // the link cable's other end (link.c3), null: none
+	ulong  rt_clock;      // real time run, in T-cycles of normal speed
+	char   serial_out;    // the byte this side's transfer sends
+	bool   serial_waiting; // eight pulses done, the other side's byte not here yet
 	// The first bytes sent over serial (test ROMs report results there).
 	char[1024] serial_log;
 	usz    serial_log_len;
@@ -588,6 +592,7 @@ fn void Mmu.io_set(&self, ushort addr, char value) {
 				self.serial_start();
 			} else {
 				self.serial_active = false;
+				self.serial_waiting = false;
 				self.serial_left = 0;
 			}
 		case DIV_REG:
@@ -805,6 +810,9 @@ fn void Mmu.serial_start(&self) {
 	if (self.serial_log_len < self.serial_log.len) self.serial_log[self.serial_log_len++] = self.io[0x01];
 	self.serial_active = true;
 	self.serial_bits = 0;
+	self.serial_out = self.io[0x01];
+	self.serial_waiting = false;
+	self.link_start();
 	// A bit every 512 T-cycles of the DIV count (every 16 with the CGB's fast
 	// clock, SC bit 1), the last one 8 periods after the count's last
 	// multiple of 256 (8) (Gambatte).
@@ -833,11 +841,21 @@ fn void Mmu.serial_tick(&self, uint t) {
 }
 
 // One serial clock edge: SB shifts left, taking in 1 (no cable connected).
-// After 8 bits the transfer ends: SC bit 7 clears, serial IRQ.
+// After 8 bits the transfer ends: SC bit 7 clears, serial IRQ. With a cable
+// the other side's byte comes in then (link.c3), maybe later over a network.
 fn void Mmu.serial_shift(&self) {
-	if (!self.serial_active) return;
+	if (!self.serial_active || self.serial_waiting) return;
 	self.io[0x01] = (char)((self.io[0x01] << 1) | 1);
 	if (++self.serial_bits < 8) return;
+	if (self.link) {
+		int b = self.link_exchange();
+		if (b == -1 && !self.link.peer) {
+			self.serial_waiting = true;
+			return;
+		}
+		self.serial_finish(b < 0 ? 0xFF : (char)b);
+		return;
+	}
 	self.serial_active = false;
 	self.io[0x02] &= 0x7F;
 	self.io[IF_REG - 0xFF00] |= 0x08;
@@ -922,6 +940,7 @@ fn void Mmu.tick(&self, char mcycles) {
 	// OAM DMA follow the CPU clock, the PPU, APU and cartridge clock keep
 	// real time and see half the T-cycles.
 	uint rt = self.double_speed ? t / 2 : t;
+	self.rt_clock += rt;
 
 	for (char i = 0; i < mcycles; i++) self.dma_step();
 	self.dma_vbk = self.vbk;

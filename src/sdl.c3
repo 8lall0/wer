@@ -36,6 +36,7 @@ const uint EVENT_WILL_ENTER_BACKGROUND = 0x103;
 const uint EVENT_DID_ENTER_BACKGROUND  = 0x104;
 const uint EVENT_KEY_DOWN = 0x300;
 const uint EVENT_KEY_UP   = 0x301;
+const uint EVENT_TEXT_INPUT = 0x303;
 const uint EVENT_GAMEPAD_AXIS_MOTION = 0x650;
 const uint EVENT_GAMEPAD_BUTTON_DOWN = 0x651;
 const uint EVENT_GAMEPAD_BUTTON_UP   = 0x652;
@@ -82,6 +83,8 @@ const int SC_O      = 18;
 const int SC_N      = 17;
 const int SC_P      = 19;
 const int SC_TAB    = 43;
+const int SC_GRAVE  = 53;
+const int SC_BACKSPACE = 42;
 const int SC_AC_BACK = 282; // Android's Back
 const int SC_F1     = 58; // F1-F9 are consecutive
 const int SC_F9     = 66;
@@ -109,6 +112,14 @@ struct KeyboardEvent {
 	ushort raw;
 	bool   down;
 	bool   repeat;
+}
+
+struct TextInputEvent {
+	uint    type;
+	uint    reserved;
+	ulong   timestamp;
+	uint    window_id;
+	ZString text;      // UTF-8
 }
 
 struct GamepadButtonEvent {
@@ -233,6 +244,8 @@ extern fn short     get_gamepad_axis(Gamepad* pad, int axis)     @cname("SDL_Get
 extern fn int       get_gamepad_button_from_string(ZString str)  @cname("SDL_GetGamepadButtonFromString");
 extern fn ZString   get_gamepad_string_for_button(int button)    @cname("SDL_GetGamepadStringForButton");
 extern fn char*     get_keyboard_state(int* numkeys)  @cname("SDL_GetKeyboardState");
+extern fn bool      start_text_input(Window* w)       @cname("SDL_StartTextInput");
+extern fn bool      stop_text_input(Window* w)        @cname("SDL_StopTextInput");
 extern fn bool      rumble_gamepad(Gamepad* pad, ushort low, ushort high, uint ms) @cname("SDL_RumbleGamepad");
 
 // Sensors (SDL_sensor.h): a phone's accelerometer, in m/s^2 along the

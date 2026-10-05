@@ -10,7 +10,7 @@ const int MAX_SCALE = 4;
 const int DEFAULT_SCALE = 3;
 
 // Largest picture the display is ever handed (the SGB screen).
-const int MAX_W = sgb::BORDER_W;
+const int MAX_W = sgb::BORDER_W * 2 + 8; // two pictures side by side (link cable)
 const int MAX_H = sgb::BORDER_H;
 
 const char[12] PALETTE = {
@@ -99,6 +99,9 @@ struct Display {
 	ushort            touch_held; // T_* held at the last poll
 	ushort            touch_tap;  // T_* touched since the last poll (a tap may end before it)
 
+	bool              two_players; // link cable here: gamepads after the first play the other Game Boy
+	bool              typing;      // text entry on (Display.start_text)
+
 	// MBC7 tilt and rumble (tilt.c3).
 	bool              tilt_on;    // the game reads tilt: the left stick tilts instead of steering
 	float[<2>]        key_tilt;   // I/J/K/L, eased
@@ -140,11 +143,21 @@ const ushort KEY_ENTER   = 0x20;
 const ushort KEY_OPEN    = 0x40; // Ctrl+O
 const ushort KEY_PAUSE   = 0x80; // P
 const ushort KEY_ADVANCE = 0x100; // N: one frame while paused
+const ushort KEY_SWAP    = 0x200; // `: the keyboard goes to the other Game Boy (link cable)
+const ushort KEY_BACKSPACE = 0x400; // text entry
 
 struct Input {
 	bool quit;     // window closed
 	char buttons;  // held Game Boy buttons
 	char dpad;
+	// With two Game Boys here (Display.two_players): the other one's, from
+	// the second gamepad on (the keyboard, touch and the first gamepad play
+	// `buttons`).
+	char buttons2;
+	char dpad2;
+	// Text typed this poll, while Display.start_text is on.
+	char[64] text;
+	int  text_len;
 	ushort pressed; // KEY_* pressed this poll
 	bool fast;     // Tab held: fast forward
 	// F1-F9 pressed this poll: the save state slot (0 = none), to save with
@@ -511,6 +524,8 @@ fn Input Display.poll(&self) {
 					case sdl::SC_RIGHT:  in.pressed |= KEY_RIGHT;
 					case sdl::SC_RETURN: if (!k.repeat) in.pressed |= KEY_ENTER;
 					case sdl::SC_O:      if (!k.repeat && (k.mod & sdl::KMOD_CTRL) != 0) in.pressed |= KEY_OPEN;
+					case sdl::SC_GRAVE:  if (!k.repeat && !self.is_bound(sdl::SC_GRAVE)) in.pressed |= KEY_SWAP;
+					case sdl::SC_BACKSPACE: in.pressed |= KEY_BACKSPACE;
 				}
 			case sdl::EVENT_FINGER_DOWN:
 			case sdl::EVENT_FINGER_UP:
@@ -525,6 +540,11 @@ fn Input Display.poll(&self) {
 				self.add_pad(((sdl::GamepadDeviceEvent*)&e).which);
 			case sdl::EVENT_GAMEPAD_REMOVED:
 				self.remove_pad(((sdl::GamepadDeviceEvent*)&e).which);
+			case sdl::EVENT_TEXT_INPUT:
+				ZString t = ((sdl::TextInputEvent*)&e).text;
+				foreach (ch : t.str_view()) {
+					if (in.text_len < in.text.len) in.text[in.text_len++] = ch;
+				}
 			case sdl::EVENT_GAMEPAD_BUTTON_DOWN:
 				int button = ((sdl::GamepadButtonEvent*)&e).button;
 				if (in.pad_button < 0) in.pad_button = button;
@@ -541,16 +561,24 @@ fn Input Display.poll(&self) {
 	char* ks = sdl::get_keyboard_state(&n);
 	in.fast = !self.is_bound(sdl::SC_TAB) && sdl::SC_TAB < n && ks[sdl::SC_TAB] != 0;
 	for (int i = 0; i < 8; i++) {
-		bool held = self.bindings.keys[i] < n && ks[self.bindings.keys[i]] != 0;
+		bool held = !self.typing && self.bindings.keys[i] < n && ks[self.bindings.keys[i]] != 0;
+		bool held2;
+		int nth;
 		foreach (p : self.pads) {
-			if (p && sdl::get_gamepad_button(p, self.bindings.pads[i])) held = true;
+			if (!p) continue;
+			bool down = sdl::get_gamepad_button(p, self.bindings.pads[i]);
+			if (self.two_players && nth > 0) {
+				held2 |= down;
+			} else {
+				held |= down;
+			}
+			nth++;
 		}
-		if (!held) continue;
-		if (i < (int)config::Button.UP.ordinal) {
-			in.buttons |= JOYPAD_BIT[i];
-		} else {
-			in.dpad |= JOYPAD_BIT[i];
-		}
+		bool button = i < (int)config::Button.UP.ordinal;
+		if (held && button) in.buttons |= JOYPAD_BIT[i];
+		if (held && !button) in.dpad |= JOYPAD_BIT[i];
+		if (held2 && button) in.buttons2 |= JOYPAD_BIT[i];
+		if (held2 && !button) in.dpad2 |= JOYPAD_BIT[i];
 	}
 	if (self.touch_ui) self.touch_input(&in);
 	if (!self.tilt_on) switch (dir) {
@@ -561,6 +589,18 @@ fn Input Display.poll(&self) {
 	}
 
 	return in;
+}
+
+// Text entry (the link cable's address): typed characters come in
+// Input.text; a phone shows its keyboard.
+fn void Display.start_text(&self) {
+	self.typing = true;
+	sdl::start_text_input(self.window);
+}
+
+fn void Display.stop_text(&self) {
+	self.typing = false;
+	sdl::stop_text_input(self.window);
 }
 
 fn bool Display.is_bound(&self, int scancode) {

@@ -12,6 +12,8 @@
     <uses-feature android:name="android.hardware.type.pc" android:required="false" />
 
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- The link cable over the network. -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <!-- The Game Boy Camera's view; asked for only when a camera cartridge runs. -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />

@@ -46,6 +46,7 @@ struct Config {
 	String    color;    // CGB/SGB colour correction: gameboy::COLOR_NAMES
 	String    blend;    // frame blending: "off", "simple", "accurate"
 	int       scale;    // 1-4
+	String    link;     // the address the link cable last joined ("host" or "host:port")
 	String[8] keys;
 	String[8] pads;
 }
@@ -58,6 +59,7 @@ fn Config defaults() {
 	c.color = "balanced".copy(mem);
 	c.blend = "off".copy(mem);
 	c.scale = 3;
+	c.link = "".copy(mem);
 	foreach (i, k : DEFAULT_KEYS) c.keys[i] = k.copy(mem);
 	foreach (i, p : DEFAULT_PADS) c.pads[i] = p.copy(mem);
 	return c;
@@ -68,6 +70,7 @@ fn void Config.free(&self) {
 	free(self.palette.ptr);
 	free(self.color.ptr);
 	free(self.blend.ptr);
+	free(self.link.ptr);
 	foreach (k : self.keys) free(k.ptr);
 	foreach (p : self.pads) free(p.ptr);
 	*self = {};
@@ -98,6 +101,8 @@ fn bool Config.set(&self, String name, String value) {
 		case name == "blend":
 			if (blend_index(value) < 0) return false;
 			replace(&self.blend, value);
+		case name == "link":
+			replace(&self.link, value);
 		case name == "scale":
 			int? n = value.to_int();
 			if (catch n) return false;
@@ -168,6 +173,7 @@ fn String Config.to_text(&self, Allocator allocator) {
 	out.appendf("color = %s\n", self.color);
 	out.appendf("blend = %s\n", self.blend);
 	out.appendf("scale = %d\n", self.scale);
+	if (self.link.len) out.appendf("link = %s\n", self.link);
 	foreach (i, n : BUTTON_NAMES) out.appendf("key.%s = %s\n", n, self.keys[i]);
 	foreach (i, n : BUTTON_NAMES) out.appendf("pad.%s = %s\n", n, self.pads[i]);
 	return out.str_view();

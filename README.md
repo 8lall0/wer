@@ -36,6 +36,9 @@ ROMs: they never leave the browser; touch controls on phones).
   gamepad, or vibrate the phone.
 - **Own boot ROMs** for the DMG and the CGB, with the WER logo (sources in
   `bootrom/`); no Nintendo code. `--no-boot` starts games directly instead.
+- **Link cable**: two Game Boys in one window, side by side (trade with
+  yourself, Tetris versus with two gamepads), or two copies of wer over the
+  network, in BGB's link protocol (so wer also links with BGB).
 - **Save states** (9 slots per game), **pause**, **frame advance** and
   **fast forward**.
 - **Gamepads** (any SDL3 gamepad), **key remapping**, **window scale** 1x-4x,
@@ -137,6 +140,9 @@ wer --mode=cgb game.gbc
 | `--colors=balanced` | CGB/SGB colour correction, as the real screens looked: `off` (raw colours), `balanced` (the default), `accurate`, `boost`, `reduce`, `low` (SameBoy's modes) |
 | `--scale=1..4` | window size, multiples of 160x144 |
 | `--no-boot` | skip the boot ROM |
+| `--link-rom=ROM` | a second Game Boy in the window, running ROM, joined by the link cable |
+| `--link=host` | wait for another wer (or BGB) to join over the network, on port 8765 |
+| `--link=ADDRESS` | join one that waits there (`192.168.1.20`, or `host:port`) |
 | `--sgb-log` | print the commands an SGB game sends |
 | `--headless --frames=N` | no window: run N frames, write the last one to `wer-frame.ppm` |
 
@@ -157,11 +163,28 @@ Options given on the command line override `~/.wer/wer.conf` for that run.
 | Frame advance | N | |
 | Fast forward | hold Tab | |
 | Tilt (MBC7 games) | I / J / K / L | left stick |
+| Link cable, 2 players here: the other Game Boy | ` | second gamepad |
 
 Every Game Boy button can be rebound, to a key or a gamepad button, in
 **Menu → Controls**; a hotkey whose key is bound to a Game Boy button gives
 way to it. The menu also switches the model, SGB palette and scale; changes
 are saved to `~/.wer/wer.conf`.
+
+### Link cable
+
+**Menu → Link** picks how the cable is plugged in:
+
+- **2 players here** asks for the second game (the same ROM is fine: its
+  battery save becomes `game.gb-2.sav`) and shows both Game Boys side by
+  side. The keyboard, touch and the first gamepad play one of them (` swaps
+  which), a second gamepad the other.
+- **Host** waits for the other side on port 8765; **Join** asks for the
+  host's address (it is remembered). Each side runs its own game; a
+  transfer's bytes cross the network when it happens, so a slow connection
+  slows link play down, but nothing goes out of step.
+
+Not in the browser version, which can't open network connections (2 players
+here works there).
 
 Save states are stored next to the ROM (`game.gb.ss1` … `game.gb.ss9`, beside
 the battery save `game.gb.sav`). A state belongs to the game, the model and

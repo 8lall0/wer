@@ -1,6 +1,6 @@
 module wer;
 import std::io, std::io::file, std::time::clock, std::thread::os, std::math;
-import gameboy, ppu, display, mmu, config;
+import gameboy, ppu, display, mmu, config, netlink;
 
 // Real time per frame: 70224 T-cycles at the model's clock (59.73 fps on a
 // DMG, 61.17 fps on an original SGB).
@@ -76,6 +76,7 @@ fn gameboy::Cartridge? load_game(gameboy::GameBoy* gb, String path, bool boot, M
 	save_base = base.copy(mem);
 	gameboy::Cartridge cart = gb.load_rom_named(data, base);
 	cart.print();
+	link_replug();
 	return cart;
 }
 
@@ -265,6 +266,7 @@ enum MenuItem : char {
 	BLEND,
 	SCALE,
 	CONTROLS,
+	LINK,
 	RESET,
 	QUIT,
 }
@@ -313,6 +315,12 @@ fn bool frame() {
 
 	// A ROM chosen in the file dialog (menu or Ctrl+O) replaces the game.
 	String chosen = screen.take_dialog_result();
+	if (chosen.len && dialog_p2) {
+		link_second_chosen(chosen);
+		menu = false;
+		chosen = "";
+	}
+	if (!screen.dialog_open()) dialog_p2 = false;
 	if (chosen.len) {
 		if (try loaded = load_game(&gb, chosen, boot, mode, pal)) {
 			cart = loaded;
@@ -343,6 +351,7 @@ fn bool frame() {
 		in.pressed = 0;
 	}
 
+	link_typing(&in);
 	if (in.pressed & display::KEY_OPEN) screen.open_rom_dialog();
 	if ((in.pressed & display::KEY_MENU) && controls) {
 		controls = false;               // back to the main menu
@@ -361,6 +370,10 @@ fn bool frame() {
 			screen.clear_audio();
 			notice.show(paused ? "Paused" : "");
 		}
+		if ((in.pressed & display::KEY_SWAP) && link_mode == LOCAL) {
+			keyboard_player ^= 1;
+			notice.show(keyboard_player ? "Keyboard: player 2" : "Keyboard: player 1");
+		}
 		if (in.pressed & display::KEY_ADVANCE) {
 			if (!paused) screen.clear_audio();
 			paused = true;
@@ -378,8 +391,8 @@ fn bool frame() {
 	}
 
 	// The menu: which items exist depends on whether a game is loaded.
-	MenuItem[13] items;
-	String[CONTROLS_COUNT] lines;
+	MenuItem[16] items;
+	String[16] lines;
 	int count = 0;
 	if (menu && controls) {
 		count = CONTROLS_COUNT;
@@ -431,6 +444,7 @@ fn bool frame() {
 		// (On a phone the picture fills the screen; in a browser the page sizes it.)
 		if (!env::ANDROID && !env::EMSCRIPTEN) items[count++] = SCALE;
 		items[count++] = CONTROLS;
+		items[count++] = LINK;
 		if (has_rom) items[count++] = RESET;
 		items[count++] = QUIT;
 		if (selected >= count) selected = count - 1;
@@ -479,6 +493,7 @@ fn bool frame() {
 			gameboy::color_correction = (gameboy::ColorCorrection)(((int)gameboy::color_correction.ordinal + n + step) % n);
 			save_settings(&cfg, mode, pal, scale);
 		}
+		if (item == LINK && step != 0) link_step(step);
 		if ((item == SAVE_STATE || item == LOAD_STATE) && step != 0) {
 			slot = (slot - 1 + step + STATE_SLOTS) % STATE_SLOTS + 1;
 		}
@@ -504,6 +519,9 @@ fn bool frame() {
 				case CONTROLS:
 					controls = true;
 					selected = 0;
+				case LINK:
+					link_apply();
+					if (link_mode == HOST) menu = false;
 				case RESET:
 					if (try loaded = load_game(&gb, rom_path, boot, mode, pal)) {
 						cart = loaded;
@@ -541,6 +559,7 @@ fn bool frame() {
 				case COLORS:  lines[i] = string::tformat("Colors:  < %s >", gameboy::COLOR_LABELS[gameboy::color_correction.ordinal]);
 				case BLEND:   lines[i] = string::tformat("Blending: < %s >", display::BLEND_LABELS[blend.ordinal]);
 				case CONTROLS: lines[i] = "Controls...";
+				case LINK:    lines[i] = link_line();
 				case RESET:   lines[i] = "Reset";
 				case QUIT:    lines[i] = "Quit";
 			}
@@ -562,16 +581,14 @@ fn bool frame() {
 		NanoDuration budget = frame_period(gb.mmu.model) * 3 / 4;
 		int n = 0;
 		do {
-			gb.mmu.set_input(in.buttons, in.dpad);
-			gb.run_frame();
+			link_run_frame(&in);
 			frames_run++;
 			gb.audio(&audio);
 			n++;
 		} while (n < FAST_FORWARD_MAX && clock::now() - start < budget);
 		screen.clear_audio();
 	} else if (running) {
-		gb.mmu.set_input(in.buttons, in.dpad);
-		gb.run_frame();
+		link_run_frame(&in);
 		frames_run++;
 		if (paused) {
 			gb.audio(&audio); // a single frame's sound would only click
@@ -594,10 +611,11 @@ fn bool frame() {
 		if (in.fast && !paused) message = "Fast forward";
 	}
 	if (!skip_picture) {
-		gameboy::FrameSize size = gb.frame_rgb(rgb, colors);
+		char[] picture;
+		gameboy::FrameSize size = link_picture(&picture);
 		screen.odd_frame = (frames_run & 1) != 0;
 		screen.blend_simple = gb.mmu.sgb != null;
-		screen.present(rgb, size.w, size.h, lines[:count], selected, message);
+		screen.present(picture, size.w, size.h, lines[:count], selected, message);
 	}
 
 	next += frame_period(gb.mmu.model);
@@ -622,6 +640,8 @@ fn int main(String[] args) @winmain
 	int frames = 600;
 	String rom;
 	String palette;
+	String link_arg;     // --link=host or --link=ADDRESS
+	String link_rom;     // --link-rom=ROM: a second Game Boy here
 
 	// Settings from ~/.wer/wer.conf; the command line overrides them.
 	cfg = config::load();
@@ -640,6 +660,8 @@ fn int main(String[] args) @winmain
 			case a.starts_with("--frames="): frames = a[9..].to_int() ?? 600;
 			case a.starts_with("--palette="): palette = a[10..];
 			case a == "--sgb-log": sgb_log = true;
+			case a.starts_with("--link="): link_arg = a[7..];
+			case a.starts_with("--link-rom="): link_rom = a[11..];
 			case a.starts_with("--colors="):
 				int c = config::color_index(a[9..]);
 				if (c < 0) {
@@ -716,11 +738,13 @@ fn int main(String[] args) @winmain
 	}
 	screen = opened;
 	defer screen.close();
+	defer link_stop(); // player 2's battery save, the network
 	// Going to the background (Android may end the app there): write the
 	// battery save now.
 	display::background_hook = fn (ctx) {
 		gameboy::GameBoy* g = ctx;
 		if (g.mmu.cart) g.mmu.cart.save();
+		if (has_p2 && gb2.mmu.cart) gb2.mmu.cart.save();
 	};
 	display::background_ctx = &gb;
 	screen.bindings = display::bindings_from(&cfg);
@@ -732,6 +756,25 @@ fn int main(String[] args) @winmain
 
 	// Without a ROM there is nothing to run: start in the menu.
 	menu = !has_rom;
+
+	// The link cable from the command line.
+	if (link_rom.len && has_rom) link_second_chosen(link_rom);
+	if (link_arg == "host") {
+		if (catch net.host(netlink::DEFAULT_PORT)) {
+			io::eprintn("link: can't listen on port 8765");
+		} else {
+			link_mode = HOST;
+			link_pick = LinkMode.HOST;
+			io::printn("link: waiting on port 8765");
+		}
+	} else if (link_arg.len) {
+		if (catch net.join(link_arg, &gb.mmu)) {
+			io::eprintfn("link: can't reach %s", link_arg);
+		} else {
+			link_mode = JOIN;
+			link_pick = LinkMode.JOIN;
+		}
+	}
 
 	rgb = mem::new_array(char, gameboy::MAX_FRAME_RGB);
 	defer free(rgb.ptr);
