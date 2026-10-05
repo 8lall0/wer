@@ -26,7 +26,8 @@
 <div>Your settings and saves stay in this browser.</div>
 <div>
   <kbd>Arrows</kbd> D-pad · <kbd>Z</kbd> A · <kbd>X</kbd> B · <kbd>Return</kbd> Start ·
-  <kbd>Right Shift</kbd> Select · <kbd>Esc</kbd> menu · <kbd>Tab</kbd> fast forward · gamepads work too
+  <kbd>Right Shift</kbd> Select · <kbd>Esc</kbd> menu · <kbd>Tab</kbd> fast forward · gamepads work too ·
+  tilt games: <kbd>IJKL</kbd>, the left stick, or tilt your phone
 </div>
 <input type="file" id="rom" accept=".gb,.gbc" hidden>
 <script>
@@ -104,6 +105,40 @@
   canvasEl.addEventListener('contextmenu', (e) => e.preventDefault());
   for (const t of ['pointerdown', 'pointermove', 'pointerup', 'pointercancel', 'pointerenter', 'pointerleave'])
     document.addEventListener(t, onTouch, { capture: true, passive: false });
+  // Tilt for MBC7 games (src/tilt.c3): the phone's accelerometer, turned to
+  // the screen as shown, in g (x right, y the bottom edge down).
+  const IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  let motionOn = false;
+  function onMotion(e) {
+    const a = e.accelerationIncludingGravity;
+    if (!a || a.x === null) return;
+    let ax = a.x, ay = a.y;
+    if (IOS) { ax = -ax; ay = -ay; } // Safari reports gravity the other way round
+    const angle = screen.orientation ? screen.orientation.angle : (window.orientation || 0);
+    let sx = ax, sy = ay; // along the screen as shown: right, up
+    switch ((angle + 360) % 360) {
+      case 90:  sx = -ay; sy = ax;  break;
+      case 180: sx = -ax; sy = -ay; break;
+      case 270: sx = ay;  sy = -ax; break;
+    }
+    Module._wer_motion(-sx / 9.80665, sy / 9.80665);
+  }
+  function werMotion(on) {
+    motionOn = on;
+    window.removeEventListener('devicemotion', onMotion);
+    if (!on) return;
+    if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+      // iOS asks the player first, and only straight after a tap.
+      document.addEventListener('pointerup', () => {
+        DeviceMotionEvent.requestPermission().then((r) => {
+          if (r === 'granted' && motionOn) window.addEventListener('devicemotion', onMotion);
+        }).catch(() => {});
+      }, { once: true, capture: true });
+      return;
+    }
+    window.addEventListener('devicemotion', onMotion);
+  }
   // index.html?fps: emulated frames (the Game Boy runs at 59.7) and frames
   // the page got from the display, once a second, in a corner.
   if (location.search.includes('fps')) {
