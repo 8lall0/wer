@@ -256,6 +256,17 @@ fn char Ppu.tick(&self, uint tcycles) {
 	char irq = 0;
 	self.irq_dot = -1;
 	for (uint i = 0; i < tcycles; i++) {
+		// HBlank after drawing, and VBlank: dots with nothing to do but count.
+		if (self.n_writes == 0 && !self.r.active) {
+			long k = self.quiet_dots(tcycles - i);
+			if (k > 0) {
+				self.scx_landed = false;
+				self.dot += (int)k;
+				self.cc += (ulong)k * self.spd();
+				i += (uint)k - 1;
+				continue;
+			}
+		}
 		self.scx_landed = false;
 		self.apply_writes();
 		self.window_line_checks();
@@ -334,6 +345,32 @@ fn int Ppu.mode3_tail(&self) {
 	// (Gambatte enable_display/ly0_late_scx7*).
 	if (self.first_line) t -= self.cgb_hw ? 8 : 7;
 	return t;
+}
+
+// How many of the next `left` dots do nothing but count (no write landing,
+// no drawing, no scan, no mode or LY change, no interrupt due): HBlank once
+// mode 0 and the HBlank DMA time are past, and VBlank, up to dot 448 (LY
+// changes at 452, the window's line checks are at 450 and 454).
+const int QUIET_END_DOT = 448;
+fn long Ppu.quiet_dots(&self, uint left) {
+	if (self.first_line || self.dot >= QUIET_END_DOT) return 0;
+	if (self.line < VBLANK_LINE) {
+		if (self.mode != 0 || self.dot <= MODE3_START_DOT || self.dot < self.m0_stat_dot() + 3) return 0;
+		if (self.si.m0_armed && self.dot <= self.m0_irq_dot()) return 0;
+	} else if (self.line == TOTAL_LINES - 1 || self.dot < 4) {
+		return 0;
+	}
+	long k = (long)(QUIET_END_DOT - self.dot);
+	if (k > (long)left) k = (long)left;
+	// Stop before the next scheduled interrupt event (Ppu.irq_events).
+	StatIrq* s = &self.si;
+	ulong next = s.m1_time;
+	if (s.m2_time < next) next = s.m2_time;
+	if (s.lyc_time < next) next = s.lyc_time;
+	if (s.oneshot_time < next) next = s.oneshot_time;
+	if (next <= self.cc) return 0;
+	long room = (long)((next - self.cc - 1) / self.spd());
+	return k < room ? k : room;
 }
 
 // Whether the PPU is far enough from its last pixel that STAT reads mode 3
