@@ -427,7 +427,8 @@ fn bool frame() {
 		if (mode.model().is_sgb()) items[count++] = PALETTE;
 		if (mode.model() == CGB || mode.model().is_sgb()) items[count++] = COLORS;
 		items[count++] = BLEND;
-		if (!env::ANDROID) items[count++] = SCALE; // the picture fills the screen there
+		// (On a phone the picture fills the screen; in a browser the page sizes it.)
+		if (!env::ANDROID && !env::EMSCRIPTEN) items[count++] = SCALE;
 		items[count++] = CONTROLS;
 		if (has_rom) items[count++] = RESET;
 		items[count++] = QUIT;
@@ -531,7 +532,7 @@ fn bool frame() {
 					if (scale == 1) {
 						lines[i] = "Open ROM...";
 					} else {
-						lines[i] = screen.dialog_open() ? "Open ROM...  (dialog open)" : env::ANDROID ? "Open ROM..." : "Open ROM...  (Ctrl+O)";
+						lines[i] = screen.dialog_open() ? "Open ROM...  (dialog open)" : env::ANDROID || env::EMSCRIPTEN ? "Open ROM..." : "Open ROM...  (Ctrl+O)";
 					}
 				case SCALE:   lines[i] = string::tformat("Scale:   < %dx >", scale);
 				case MODE:    lines[i] = string::tformat("Mode:    < %s >", MODE_LABELS[mode.ordinal]);

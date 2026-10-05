@@ -207,6 +207,8 @@ extern fn bool      render_rect(Renderer* r, FRect* rect)           @cname("SDL_
 extern fn bool      get_render_output_size(Renderer* r, int* w, int* h) @cname("SDL_GetRenderOutputSize");
 extern fn bool      set_hint(ZString name, ZString value)          @cname("SDL_SetHint");
 extern fn bool      set_window_fullscreen(Window* w, bool on)       @cname("SDL_SetWindowFullscreen");
+// SDL 3.4+, Emscripten only (the canvas takes the whole page).
+extern fn bool      set_window_fill_document(Window* w, bool fill)  @cname("SDL_SetWindowFillDocument");
 alias EventFilter = fn bool(void* userdata, Event* event);
 extern fn bool      add_event_watch(EventFilter filter, void* userdata) @cname("SDL_AddEventWatch");
 extern fn bool      render_debug_text(Renderer* r, float x, float y, ZString text) @cname("SDL_RenderDebugText");

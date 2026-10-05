@@ -221,6 +221,10 @@ fn Display? open(ZString title, int scale = DEFAULT_SCALE) {
 	sdl::add_event_watch(&on_app_event, null);
 	// Android: the whole screen, without the status and navigation bars.
 	if (env::ANDROID) sdl::set_window_fullscreen(d.window, true);
+	// A browser on a phone or tablet: the touch layout over the whole page.
+	$if env::EMSCRIPTEN:
+		if (web_touch_screen()) d.web_touch_mode();
+	$endif
 	// On Windows SDL's window class already has wer.exe's own icon, every
 	// size (resources/windows/wer.ico); one set here would replace it.
 	$if !env::WIN32:
@@ -491,6 +495,10 @@ fn Input Display.poll(&self) {
 			case sdl::EVENT_FINGER_UP:
 			case sdl::EVENT_FINGER_MOTION:
 			case sdl::EVENT_FINGER_CANCELED:
+				// A browser on a touch screen it didn't report: from now on.
+				$if env::EMSCRIPTEN:
+					if (!self.touch_ui && e.type == sdl::EVENT_FINGER_DOWN) self.web_touch_mode();
+				$endif
 				if (self.touch_ui) self.finger_event((sdl::TouchFingerEvent*)&e);
 			case sdl::EVENT_GAMEPAD_ADDED:
 				self.add_pad(((sdl::GamepadDeviceEvent*)&e).which);
