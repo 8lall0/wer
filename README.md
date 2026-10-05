@@ -66,6 +66,20 @@ c3c build windows -O2 --trust=full   # build/wer.exe
 It downloads SDL's own Windows build into `deps/sdl3-windows/`;
 `deps/sdl3-windows/lib/SDL3.dll` has to sit next to `wer.exe`.
 
+macOS on Apple silicon (macOS 11 or newer), cross-compiled from Linux (needs
+clang, lld, cmake, plus the macOS SDK from `c3c fetch-sdk macos`):
+
+```sh
+c3c build macos -O2 --trust=full     # build/wer_macos
+```
+
+It builds SDL into `deps/sdl3-macos-aarch64/` and links it in, so the binary
+needs nothing else. It is signed ad hoc only: macOS asks to confirm the first
+start of a downloaded copy (right-click > Open, or
+`xattr -d com.apple.quarantine wer_macos`).
+
+Both use SDL 3.4.18 (`SDL_VERSION=x.y.z` picks another release).
+
 Prebuilt Linux x86-64 binaries are on the
 [releases page](https://github.com/8lall0/wer/releases).
 

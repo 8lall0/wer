@@ -14,18 +14,22 @@ if [[ "$TARGET" != "linux" && "$TARGET" != "windows" && "$TARGET" != "macos-aarc
 fi
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SDL_SRC="$ROOT_DIR/deps/sdl_src"
+# The SDL release every platform builds against (override with SDL_VERSION).
+SDL_VERSION="${SDL_VERSION:-3.4.18}"
+SDL_SRC="$ROOT_DIR/deps/sdl_src-$SDL_VERSION"
 BUILD_DIR="$ROOT_DIR/deps/build_sdl3_$TARGET"
 INSTALL_DIR="$ROOT_DIR/deps/sdl3-$TARGET"
 
-# 1. Shallow clone latest master if not present (not needed for windows)
+# 1. Shallow clone of the release if not present (not needed for windows)
 if [ "$TARGET" != "windows" ] && [ ! -d "$SDL_SRC" ]; then
-    echo "Cloning SDL (depth 1)..."
-    git clone --depth 1 https://github.com/libsdl-org/SDL.git "$SDL_SRC"
+    echo "Cloning SDL $SDL_VERSION (depth 1)..."
+    git clone -q --depth 1 --branch "release-$SDL_VERSION" https://github.com/libsdl-org/SDL.git "$SDL_SRC"
 fi
 
-mkdir -p "$BUILD_DIR"
-cd "$BUILD_DIR"
+if [ "$TARGET" != "windows" ]; then
+    mkdir -p "$BUILD_DIR"
+    cd "$BUILD_DIR"
+fi
 
 # 2. Platform toolchain configuration using Clang and CMake
 if [ "$TARGET" = "linux" ]; then
@@ -44,7 +48,7 @@ elif [ "$TARGET" = "windows" ]; then
     # c3c's MSVC SDK (c3c fetch-sdk windows) has the import libraries but no C
     # headers, so SDL isn't built here: use SDL's own Windows build, an import
     # library plus SDL3.dll (which goes next to wer.exe).
-    VERSION="${SDL_WINDOWS_VERSION:-3.4.18}"
+    VERSION="$SDL_VERSION"
     ZIP="SDL3-devel-$VERSION-VC.zip"
     TMP="$(mktemp -d)"
     trap 'rm -rf "$TMP"' EXIT
@@ -86,9 +90,9 @@ elif [[ "$TARGET" =~ ^macos ]]; then
         -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" \
         -DCMAKE_SYSTEM_NAME=Darwin \
         -DCMAKE_SYSTEM_PROCESSOR="$ARCH" \
-        -DCMAKE_C_COMPILER=clang \
-        -DCMAKE_CXX_COMPILER=clang++ \
-        -DCMAKE_OBJC_COMPILER=clang \
+        -DCMAKE_C_COMPILER="$(command -v clang)" \
+        -DCMAKE_CXX_COMPILER="$(command -v clang++)" \
+        -DCMAKE_OBJC_COMPILER="$(command -v clang)" \
         -DCMAKE_C_COMPILER_TARGET="$CLANG_TARGET" \
         -DCMAKE_CXX_COMPILER_TARGET="$CLANG_TARGET" \
         -DCMAKE_OBJC_COMPILER_TARGET="$CLANG_TARGET" \
