@@ -2,14 +2,17 @@ module wer @feat(EMSCRIPTEN);
 import std::time;
 
 // WebAssembly: a browser page can't loop forever. The browser calls web_tick
-// at each display refresh, and it runs the main loop's frame() whenever a
-// Game Boy frame's time (59.73 per second) has built up, so 60, 120 or
-// 144 Hz screens all see 60 frames a second (on a 60 Hz one, one per
-// refresh: 0.45% fast, which the audio rate control evens out).
+// at each display refresh, and it runs the main loop's frame() for the Game
+// Boy frames (59.73 per second) whose time has come: on a 60 Hz screen one
+// per refresh (0.45% fast, which the audio rate control evens out), on 120
+// or 144 Hz screens one every few. When a refresh comes late (a slow phone,
+// a busy page) it catches up with up to MAX_CATCH_UP frames, drawing only
+// the last, so the game keeps its speed; further behind, it lets it go.
 alias LoopFn = fn void();
 extern fn void set_main_loop(LoopFn f, CInt fps, bool simulate_infinite_loop) @cname("emscripten_set_main_loop");
 extern fn void cancel_main_loop() @cname("emscripten_cancel_main_loop");
 
+const int MAX_CATCH_UP = 3;
 Clock last_tick;
 NanoDuration owed; // emulated time the display is waiting for
 
@@ -22,13 +25,25 @@ fn void web_tick() {
 	Clock now = clock::now();
 	NanoDuration elapsed = now - last_tick;
 	last_tick = now;
-	if (elapsed > (NanoDuration)100_000_000) elapsed = (NanoDuration)100_000_000; // a hidden tab
+	if (elapsed > (NanoDuration)250_000_000) elapsed = (NanoDuration)250_000_000; // a hidden tab
 	owed += elapsed;
 	NanoDuration period = frame_period(gb.mmu.model);
-	if (owed < period * 95 / 100) return; // a faster screen: not this refresh
-	owed -= period;
+	int n = 0;
+	while (owed >= period * 95 / 100 && n < MAX_CATCH_UP) {
+		owed -= period;
+		n++;
+	}
+	if (owed > period) owed = period;   // too far behind to catch up: let it go
 	if (owed < (NanoDuration)0) owed = (NanoDuration)0;
-	if (!frame()) cancel_main_loop();
+	for (int i = 0; i < n; i++) {
+		skip_picture = i < n - 1;
+		if (!frame()) {
+			skip_picture = false;
+			cancel_main_loop();
+			return;
+		}
+	}
+	skip_picture = false;
 }
 
 // Frames emulated so far (for the page, e.g. to measure the speed).

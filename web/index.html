@@ -48,6 +48,25 @@
     input.click();
   }
   document.getElementById('open').onclick = werPickRom;
+  // index.html?fps: emulated frames (the Game Boy runs at 59.7) and frames
+  // the page got from the display, once a second, in a corner.
+  if (location.search.includes('fps')) {
+    let shown = 0, last = 0;
+    (function count() { shown++; requestAnimationFrame(count); })();
+    setInterval(() => {
+      if (!ready) return;
+      let box = document.getElementById('fps');
+      if (!box || box.parentNode !== document.body) {
+        box = box || document.createElement('div');
+        box.id = 'fps';
+        box.style.cssText = 'position:fixed;top:4px;left:4px;z-index:9;color:#e0f8d0;background:#081820c0;padding:2px 6px;font:12px monospace';
+        document.body.appendChild(box);
+      }
+      const f = Number(Module.ccall('wer_frames', 'number', [], []));
+      box.textContent = 'emulated ' + (f - last) + ' fps, display ' + shown + ' fps';
+      last = f; shown = 0;
+    }, 1000);
+  }
   // Settings, battery saves and save states live in the browser's IndexedDB
   // (IDBFS): /home/web_user (wer.conf) and /roms (each ROM and its saves),
   // read back before wer starts and written out every few seconds and when

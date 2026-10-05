@@ -303,6 +303,7 @@ short[4096] audio;
 Clock next;             // when the next frame is due
 float avg = AUDIO_TARGET_BYTES; // audio queue level, smoothed (rate control)
 float integ;
+bool skip_picture;      // catching up (web.c3): emulate, don't draw
 
 // One pass of the main loop: input, the menu, a frame of emulation, the
 // picture. False when wer should quit. The caller paces it (until `next`).
@@ -585,10 +586,12 @@ fn bool frame() {
 		if (paused) message = "Paused";
 		if (in.fast && !paused) message = "Fast forward";
 	}
-	gameboy::FrameSize size = gb.frame_rgb(rgb, colors);
-	screen.odd_frame = (frames_run & 1) != 0;
-	screen.blend_simple = gb.mmu.sgb != null;
-	screen.present(rgb, size.w, size.h, lines[:count], selected, message);
+	if (!skip_picture) {
+		gameboy::FrameSize size = gb.frame_rgb(rgb, colors);
+		screen.odd_frame = (frames_run & 1) != 0;
+		screen.blend_simple = gb.mmu.sgb != null;
+		screen.present(rgb, size.w, size.h, lines[:count], selected, message);
+	}
 
 	next += frame_period(gb.mmu.model);
 	Clock now = clock::now();
