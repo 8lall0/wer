@@ -109,12 +109,12 @@ fn void link_apply() {
 			$if env::EMSCRIPTEN:
 				// The page asks for the code (a phone's keyboard comes up for it).
 				display::run_script("werNetAskJoin()");
-				return;
+			$else
+				typing = true;
+				typed_len = 0;
+				foreach (c : cfg.link) if (typed_len < typed.len) typed[typed_len++] = c;
+				screen.start_text();
 			$endif
-			typing = true;
-			typed_len = 0;
-			foreach (c : cfg.link) if (typed_len < typed.len) typed[typed_len++] = c;
-			screen.start_text();
 	}
 }
 
@@ -300,7 +300,7 @@ fn gameboy::FrameSize link_picture(char[]* out) {
 }
 
 // Browser: the code the player typed in the page's prompt (empty: cancelled).
-fn void web_join_code(ZString code) @export("wer_net_join_code") @if(env::EMSCRIPTEN) {
+fn void web_join_code(ZString code) @export("wer_net_join_code") @feat(EMSCRIPTEN) {
 	String c = code.str_view();
 	if (!c.len) return;
 	link_stop();

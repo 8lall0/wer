@@ -106,7 +106,7 @@ fn int cheat_menu_lines(display::Input* in, String[] lines, int* sel) {
 }
 
 // Browser: the code typed in the page's prompt.
-fn void web_cheat(ZString code) @export("wer_cheat_add") @if(env::EMSCRIPTEN) {
+fn void web_cheat(ZString code) @export("wer_cheat_add") @feat(EMSCRIPTEN) {
 	String c = code.str_view().trim();
 	if (!c.len) return;
 	if (catch cheat_add(c)) notice.show("Not a Game Genie or GameShark code");

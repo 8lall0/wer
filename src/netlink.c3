@@ -66,11 +66,11 @@ fn void? NetLink.host(&self, int port, mmu::Mmu* m) {
 		self.state = HOSTING;
 		self.hosting = true;
 		run_script("werNetHost()");
-		return;
+	$else
+		self.server = tcp::listen("0.0.0.0", port, 1, REUSEADDR)!;
+		self.listening = true;
+		self.state = HOSTING;
 	$endif
-	self.server = tcp::listen("0.0.0.0", port, 1, REUSEADDR)!;
-	self.listening = true;
-	self.state = HOSTING;
 }
 
 // Connect to a side that hosts ("host" or "host:port").
@@ -88,16 +88,16 @@ fn void? NetLink.join(&self, String address, mmu::Mmu* m) {
 		web_mmu = m;
 		self.state = CONNECTING;
 		run_script(string::tformat("werNetJoin('%s')", code.str_view()).zstr_tcopy());
-		return;
+	$else
+		String host = address;
+		int port = DEFAULT_PORT;
+		if (try colon = address.rindex_of_char(':')) {
+			host = address[:colon];
+			port = address[colon + 1..].to_int() ?? DEFAULT_PORT;
+		}
+		self.sock = tcp::connect(host, port, time::sec(3))!;
+		self.start(m);
 	$endif
-	String host = address;
-	int port = DEFAULT_PORT;
-	if (try colon = address.rindex_of_char(':')) {
-		host = address[:colon];
-		port = address[colon + 1..].to_int() ?? DEFAULT_PORT;
-	}
-	self.sock = tcp::connect(host, port, time::sec(3))!;
-	self.start(m);
 }
 
 fn void NetLink.start(&self, mmu::Mmu* m) {
@@ -186,41 +186,42 @@ fn bool NetLink.poll(&self, mmu::Mmu* m) {
 			self.send(CMD_SYNC1, self.cable.out_byte, self.cable.out_control, 0, stamp(m));
 		}
 		return self.state == CONNECTED;
+	$else
+		if (self.state == HOSTING && readable(self.server.sock)) {
+			if (try s = tcp::accept(&self.server)) {
+				self.sock = s;
+				self.start(m);
+			}
+		}
+		if (self.state != CONNECTED) return true;
+
+		if (self.cable.out_pending) {
+			self.cable.out_pending = false;
+			self.send(CMD_SYNC1, self.cable.out_byte, self.cable.out_control, 0, stamp(m));
+		}
+		if (clock::now() - self.last_time > (NanoDuration)8_000_000) {
+			self.last_time = clock::now();
+			self.send(CMD_SYNC3, 0, 0, 0, stamp(m));
+		}
+
+		while (self.state == CONNECTED && readable(self.sock.sock)) {
+			sz n = self.sock.read(self.inbuf[self.inlen..]) ?? 0;
+			if (n <= 0) {
+				self.drop_cable(m);
+				self.lost();
+				return false;
+			}
+			self.inlen += (usz)n;
+			usz at;
+			while (self.inlen - at >= 8) {
+				self.handle(self.inbuf[at : 8], m);
+				at += 8;
+			}
+			for (usz i = at; i < self.inlen; i++) self.inbuf[i - at] = self.inbuf[i];
+			self.inlen -= at;
+		}
+		return self.state == CONNECTED;
 	$endif
-	if (self.state == HOSTING && readable(self.server.sock)) {
-		if (try s = tcp::accept(&self.server)) {
-			self.sock = s;
-			self.start(m);
-		}
-	}
-	if (self.state != CONNECTED) return true;
-
-	if (self.cable.out_pending) {
-		self.cable.out_pending = false;
-		self.send(CMD_SYNC1, self.cable.out_byte, self.cable.out_control, 0, stamp(m));
-	}
-	if (clock::now() - self.last_time > (NanoDuration)8_000_000) {
-		self.last_time = clock::now();
-		self.send(CMD_SYNC3, 0, 0, 0, stamp(m));
-	}
-
-	while (self.state == CONNECTED && readable(self.sock.sock)) {
-		sz n = self.sock.read(self.inbuf[self.inlen..]) ?? 0;
-		if (n <= 0) {
-			self.drop_cable(m);
-			self.lost();
-			return false;
-		}
-		self.inlen += (usz)n;
-		usz at;
-		while (self.inlen - at >= 8) {
-			self.handle(self.inbuf[at : 8], m);
-			at += 8;
-		}
-		for (usz i = at; i < self.inlen; i++) self.inbuf[i - at] = self.inbuf[i];
-		self.inlen -= at;
-	}
-	return self.state == CONNECTED;
 }
 
 fn void NetLink.handle(&self, char[] p, mmu::Mmu* m) {
@@ -252,19 +253,19 @@ fn void NetLink.handle(&self, char[] p, mmu::Mmu* m) {
 
 // --- Browser: the page's events --------------------------------------------
 
-extern fn void run_script(ZString script) @cname("emscripten_run_script") @if(env::EMSCRIPTEN);
+extern fn void run_script(ZString script) @cname("emscripten_run_script") @feat(EMSCRIPTEN);
 
-fn void web_open() @export("wer_net_open") @if(env::EMSCRIPTEN) {
+fn void web_open() @export("wer_net_open") @feat(EMSCRIPTEN) {
 	if (web_net && web_mmu) web_net.start(web_mmu);
 }
 
-fn void web_closed() @export("wer_net_closed") @if(env::EMSCRIPTEN) {
+fn void web_closed() @export("wer_net_closed") @feat(EMSCRIPTEN) {
 	if (!web_net || web_net.state == OFF) return;
 	if (web_mmu) web_net.drop_cable(web_mmu);
 	web_net.state = web_net.state == CONNECTED && web_net.hosting ? HOSTING : OFF;
 }
 
-fn void web_packet(int cmd, int b2, int b3, int b4) @export("wer_net_packet") @if(env::EMSCRIPTEN) {
+fn void web_packet(int cmd, int b2, int b3, int b4) @export("wer_net_packet") @feat(EMSCRIPTEN) {
 	if (!web_net || !web_mmu || web_net.state != CONNECTED) return;
 	char[8] p = { (char)cmd, (char)b2, (char)b3, (char)b4, 0, 0, 0, 0 };
 	web_net.handle(&p, web_mmu);
