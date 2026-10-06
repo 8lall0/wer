@@ -24,6 +24,7 @@ const ushort T_B      = 0x020;
 const ushort T_SELECT = 0x040;
 const ushort T_START  = 0x080;
 const ushort T_MENU   = 0x100;
+const ushort T_REWIND = 0x200; // held: the game runs backwards
 
 // Where things go on the output, in pixels.
 struct Layout {
@@ -34,6 +35,7 @@ struct Layout {
 	sdl::FRect select;
 	sdl::FRect start;
 	sdl::FRect menu;
+	sdl::FRect rewind;
 }
 
 fn sdl::FRect centered(float cx, float cy, float w, float h) => { cx - w / 2, cy - h / 2, w, h };
@@ -70,6 +72,7 @@ fn Layout Display.layout(&self) {
 		l.select = centered(w * 0.36f, top + ch * 0.82f, 1.3f * u, 0.6f * u);
 		l.start  = centered(w * 0.64f, top + ch * 0.82f, 1.3f * u, 0.6f * u);
 		l.menu   = centered(w * 0.50f, top + 0.6f * u, 1.2f * u, 0.6f * u);
+		l.rewind = centered(w * 0.15f, top + 0.6f * u, 1.0f * u, 0.6f * u);
 	} else {
 		// Landscape: the picture in the middle, the controls at its sides
 		// (over its edges if the sides are narrow).
@@ -84,6 +87,7 @@ fn Layout Display.layout(&self) {
 		l.select = centered(cx, h - 0.5f * u, 1.4f * u, 0.5f * u);
 		l.start  = centered(w - cx, h - 0.5f * u, 1.4f * u, 0.5f * u);
 		l.menu   = centered(w - 0.8f * u, 0.5f * u, 1.2f * u, 0.5f * u);
+		l.rewind = centered(0.7f * u, 0.5f * u, 1.0f * u, 0.5f * u);
 	}
 	return l;
 }
@@ -117,6 +121,7 @@ fn ushort controls_at(Layout* l, float x, float y) {
 	if (hits(l.select, x, y)) bits |= T_SELECT;
 	if (hits(l.start, x, y)) bits |= T_START;
 	if (hits(l.menu, x, y)) bits |= T_MENU;
+	if (hits(l.rewind, x, y)) bits |= T_REWIND;
 	return bits;
 }
 
@@ -177,6 +182,7 @@ fn void Display.touch_input(&self, Input* in) {
 	if (pressed & T_RIGHT) in.pressed |= KEY_RIGHT;
 	if (pressed & (T_A | T_START)) in.pressed |= KEY_ENTER;
 	if (pressed & T_MENU)  in.pressed |= KEY_MENU;
+	if (held & T_REWIND)   in.rewind = true;
 }
 
 // One control: a translucent panel, brighter while held, with its label.
@@ -210,5 +216,6 @@ fn void Display.draw_touch(&self, Layout* l) {
 	self.draw_control(l.select, "SELECT", (h & T_SELECT) != 0);
 	self.draw_control(l.start, "START", (h & T_START) != 0);
 	self.draw_control(l.menu, "MENU", (h & T_MENU) != 0);
+	self.draw_control(l.rewind, "<<", (h & T_REWIND) != 0);
 	sdl::set_render_draw_color(self.renderer, 0, 0, 0, 0xFF);
 }

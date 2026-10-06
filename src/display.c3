@@ -159,7 +159,8 @@ struct Input {
 	char[64] text;
 	int  text_len;
 	ushort pressed; // KEY_* pressed this poll
-	bool fast;     // Tab held: fast forward
+	bool fast;     // Tab or the right shoulder held: fast forward
+	bool rewind;   // R or the left shoulder held (touch: <<): back in time
 	// F1-F9 pressed this poll: the save state slot (0 = none), to save with
 	// Shift held, else to load.
 	int  state_slot;
@@ -560,6 +561,12 @@ fn Input Display.poll(&self) {
 	int n;
 	char* ks = sdl::get_keyboard_state(&n);
 	in.fast = !self.is_bound(sdl::SC_TAB) && sdl::SC_TAB < n && ks[sdl::SC_TAB] != 0;
+	in.rewind = !self.typing && !self.is_bound(sdl::SC_R) && sdl::SC_R < n && ks[sdl::SC_R] != 0;
+	foreach (p : self.pads) {
+		if (!p) continue;
+		if (sdl::get_gamepad_button(p, sdl::GAMEPAD_BUTTON_LEFT_SHOULDER)) in.rewind = true;
+		if (sdl::get_gamepad_button(p, sdl::GAMEPAD_BUTTON_RIGHT_SHOULDER)) in.fast = true;
+	}
 	for (int i = 0; i < 8; i++) {
 		bool held = !self.typing && self.bindings.keys[i] < n && ks[self.bindings.keys[i]] != 0;
 		bool held2;

@@ -77,6 +77,7 @@ fn gameboy::Cartridge? load_game(gameboy::GameBoy* gb, String path, bool boot, M
 	save_base = base.copy(mem);
 	gameboy::Cartridge cart = gb.load_rom_named(data, base);
 	cart.print();
+	rewind.reset();
 	link_replug();
 	return cart;
 }
@@ -214,6 +215,9 @@ fn void Notice.show(&self, String s) {
 
 fn String Notice.current(&self) => clock::now() < self.until ? (String)self.text[:self.len] : "";
 
+// The last stretch of play, to run backwards (R, the left shoulder, <<).
+gameboy::Rewind rewind;
+
 // Frame blending (display::Blend) and the frames run so far (its parity).
 display::Blend blend;
 ulong frames_run;
@@ -251,6 +255,7 @@ fn bool load_slot(gameboy::GameBoy* gb, String rom_path, int n, Notice* notice) 
 		return false;
 	}
 	notice.show(string::tformat("Loaded state %d", n));
+	rewind.reset();
 	return true;
 }
 
@@ -575,7 +580,12 @@ fn bool frame() {
 	gb.set_tilt(tilt.x, tilt.y);
 	char[] view = screen.camera(has_rom && gb.has_camera());
 	if (view.len) gb.set_camera_image(view);
-	if (running && in.fast && !paused) {
+	// Rewind: not with another Game Boy on the cable, which couldn't follow.
+	bool rewinding = running && in.rewind && !paused && (link_mode == OFF || link_mode == PRINTER);
+	if (rewinding) {
+		if (!rewind.back(&gb)) notice.show("Nothing more to rewind");
+		screen.clear_audio();
+	} else if (running && in.fast && !paused) {
 		// Fast forward: as many frames as fit in most of a frame's time,
 		// the last one shown, without sound.
 		Clock start = clock::now();
@@ -583,6 +593,7 @@ fn bool frame() {
 		int n = 0;
 		do {
 			link_run_frame(&in);
+			rewind.record(&gb);
 			frames_run++;
 			gb.audio(&audio);
 			n++;
@@ -590,6 +601,7 @@ fn bool frame() {
 		screen.clear_audio();
 	} else if (running) {
 		link_run_frame(&in);
+		rewind.record(&gb);
 		frames_run++;
 		if (paused) {
 			gb.audio(&audio); // a single frame's sound would only click
@@ -610,6 +622,7 @@ fn bool frame() {
 	if (!message.len && has_rom && !menu) {
 		if (paused) message = "Paused";
 		if (in.fast && !paused) message = "Fast forward";
+		if (rewinding) message = "Rewind";
 	}
 	if (!skip_picture) {
 		char[] picture;
@@ -741,6 +754,7 @@ fn int main(String[] args) @winmain
 	screen = opened;
 	defer screen.close();
 	defer link_stop(); // player 2's battery save, the network
+	defer rewind.free();
 	// Going to the background (Android may end the app there): write the
 	// battery save now.
 	display::background_hook = fn (ctx) {

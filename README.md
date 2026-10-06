@@ -42,8 +42,9 @@ ROMs: they never leave the browser; touch controls on phones).
   browsers with a short code. Infrared too, between two Game Boys here.
 - **Game Boy Printer**: printouts (Game Boy Camera photos, Pokédex pages,
   ...) become PNG files next to the game.
-- **Save states** (9 slots per game), **pause**, **frame advance** and
-  **fast forward**.
+- **Save states** (9 slots per game), **rewind** (hold R, the left shoulder
+  or the touch screen's << to run the game backwards), **pause**, **frame
+  advance** and **fast forward**.
 - **Gamepads** (any SDL3 gamepad), **key remapping**, **window scale** 1x-4x,
   a menu, a file dialog to open ROMs, and settings kept in `~/.wer/wer.conf`.
 
@@ -166,7 +167,8 @@ Options given on the command line override `~/.wer/wer.conf` for that run.
 | Load state 1-9 | F1 … F9 | Menu |
 | Pause | P | |
 | Frame advance | N | |
-| Fast forward | hold Tab | |
+| Fast forward | hold Tab | hold right shoulder |
+| Rewind | hold R | hold left shoulder |
 | Tilt (MBC7 games) | I / J / K / L | left stick |
 | Link cable, 2 players here: the other Game Boy | ` | second gamepad |
 
