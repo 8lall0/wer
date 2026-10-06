@@ -69,7 +69,7 @@
         "-sALLOW_MEMORY_GROWTH=1",
         "-sSTACK_SIZE=1048576",
         // The page (web/index.html) hands chosen ROMs to wer_rom_chosen.
-        "-sEXPORTED_FUNCTIONS=_main,_wer_rom_chosen,_wer_frames,_wer_save,_wer_longest_work,_wer_longest_gap,_wer_touch,_wer_motion,_wer_net_open,_wer_net_closed,_wer_net_packet,_wer_net_join_code,_wer_cheat_add",
+        "-sEXPORTED_FUNCTIONS=_main,_wer_rom_chosen,_wer_frames,_wer_save,_wer_longest_work,_wer_longest_gap,_wer_touch,_wer_motion,_wer_net_open,_wer_net_closed,_wer_net_packet,_wer_net_join_code,_wer_cheat_add,_wer_barcode_swipe",
         "-sEXPORTED_RUNTIME_METHODS=ccall,FS",
         // Saves and settings kept in the browser (IndexedDB).
         "-lidbfs.js"

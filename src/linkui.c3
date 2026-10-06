@@ -7,12 +7,14 @@ import gameboy, mmu, display, netlink, png;
 enum LinkMode : char {
 	OFF,
 	LOCAL,  // two Game Boys here
+	FOUR,   // four here, on the 4-Player Adapter
 	PRINTER, // the Game Boy Printer: printouts become PNG files
+	BARCODE, // the Barcode Boy: cards typed in by number
 	HOST,   // waiting for, or linked with, a side that joined
 	JOIN,   // linked with a side that hosts
 }
 
-const String[5] LINK_LABELS = { "Off", "2 players here", "Printer", "Host", "Join" };
+const String[7] LINK_LABELS = { "Off", "2 players here", "4 players here", "Printer", "Barcode Boy", "Host", "Join" };
 
 // Pixels between the two pictures.
 const int LINK_GAP = 8;
@@ -20,6 +22,18 @@ const int LINK_GAP = 8;
 LinkMode link_mode;
 LinkMode link_pick;      // the menu's choice, applied with Enter
 netlink::NetLink net;
+
+// FOUR: players 2-4 (gb2 is player 2) and the adapter between all four.
+gameboy::GameBoy gb3;
+gameboy::GameBoy gb4;
+mmu::Adapter adapter;
+char[] rgb3;
+char[] rgb4;
+
+// BARCODE: the reader and its cable.
+mmu::BarcodeBoy barcode;
+mmu::Link barcode_cable;
+bool typing_card;        // the text being typed is a card number
 
 // PRINTER: the printer and its cable.
 mmu::Printer printer;
@@ -52,8 +66,35 @@ fn void link_step(int step) {
 	} while (!link_available(link_pick));
 }
 
+// A card number typed in: through the reader.
+fn void swipe(String digits) {
+	if (!digits.len) return;
+	if (catch barcode.swipe_card(digits, gb.mmu.rt_clock)) {
+		notice.show("A card number has 13 digits");
+		return;
+	}
+	menu = false;
+	notice.show("Card swiped");
+}
+
+// The Swipe card line, then asking for the number.
+fn String swipe_line() => typing && typing_card ? string::tformat("Card: %s_", (String)typed[:typed_len]) : "Swipe card...";
+
+fn void swipe_ask() {
+	$if env::EMSCRIPTEN:
+		display::run_script("werCardPrompt()");
+	$else
+		typing = true;
+		typing_card = true;
+		typed_len = 0;
+		screen.start_text();
+	$endif
+}
+
+fn void web_swipe(ZString code) @export("wer_barcode_swipe") @feat(EMSCRIPTEN) => swipe(code.str_view().trim());
+
 fn String link_line() {
-	if (typing) return string::tformat("Join: %s_", (String)typed[:typed_len]);
+	if (typing && !typing_cheat && !typing_card) return string::tformat("Join: %s_", (String)typed[:typed_len]);
 	// The choice only takes effect with Enter: say so until it has.
 	String state;
 	if (link_pick != link_mode) {
@@ -77,6 +118,10 @@ fn void link_stop() {
 		gb2.destroy();
 		has_p2 = false;
 	}
+	if (link_mode == FOUR) {
+		gb3.destroy();
+		gb4.destroy();
+	}
 	gb.mmu.unplug();
 	if (printer_on) printer.free();
 	printer_on = false;
@@ -91,8 +136,16 @@ fn void link_apply() {
 		case OFF:
 			link_stop();
 			notice.show("Link cable unplugged");
+		case FOUR:
+			link_four();
 		case PRINTER:
 			link_printer();
+		case BARCODE:
+			link_stop();
+			barcode.init((uint)gb.mmu.model.clock_hz());
+			gb.mmu.connect_barcode(&barcode_cable, &barcode);
+			link_mode = BARCODE;
+			notice.show("Barcode Boy: Menu > Swipe card");
 		case LOCAL:
 			// The second game comes from the file dialog (link_second_chosen).
 			dialog_p2 = true;
@@ -130,7 +183,13 @@ fn bool link_typing(display::Input* in) {
 	if (in.pressed & display::KEY_MENU) {
 		typing = false;
 		typing_cheat = false;
+		typing_card = false;
 		screen.stop_text();
+	} else if (in.pressed & display::KEY_ENTER && typing_card) {
+		typing = false;
+		typing_card = false;
+		screen.stop_text();
+		swipe((String)typed[:typed_len]);
 	} else if (in.pressed & display::KEY_ENTER && typing_cheat) {
 		typing = false;
 		typing_cheat = false;
@@ -201,14 +260,45 @@ fn void link_replug() {
 				String path = p2_path.tcopy();
 				link_second_chosen(path);
 			}
+		case FOUR:
+			link_four();
 		case PRINTER:
 			gb.mmu.connect_printer(&printer_cable, &printer);
+		case BARCODE:
+			gb.mmu.connect_barcode(&barcode_cable, &barcode);
 		case HOST:
 		case JOIN:
 			net.replug(&gb.mmu);
 		default:
 			break;
 	}
+}
+
+// Four copies of the running game on the 4-Player Adapter (each its own
+// battery save: game-2.sav ... game-4.sav).
+fn void link_four() {
+	if (!rom_path.len) {
+		notice.show("Open the game first");
+		return;
+	}
+	char[]? data = file::load_temp(rom_path);
+	if (catch data) data = display::load_file_temp(rom_path);
+	if (catch data) return;
+	link_stop();
+	gameboy::GameBoy*[3] others = { &gb2, &gb3, &gb4 };
+	foreach (i, o : others) {
+		*o = gameboy::new(boot, gb.mmu.model);
+		o.set_cgb_revision(mode.revision());
+		o.set_dmg_revision(mode.dmg_revision());
+		apply_preset(o, pal);
+		o.load_rom_named(data, string::tformat("%s-%d", save_base, i + 2));
+	}
+	has_p2 = true;
+	adapter.init((uint)gb.mmu.model.clock_hz());
+	link_mode = FOUR;
+	screen.two_players = true;
+	keyboard_player = 0;
+	notice.show("4 players: gamepads 1-4, ` moves the keyboard");
 }
 
 fn void link_printer() {
@@ -251,6 +341,22 @@ fn void link_printout() {
 // One frame of emulation with whatever is on the cable. The input goes to
 // the keyboard's player, and the second gamepad's to the other.
 fn void link_run_frame(display::Input* in) {
+	if (link_mode == FOUR) {
+		gameboy::GameBoy*[4] g = { &gb, &gb2, &gb3, &gb4 };
+		for (int p = 0; p < 4; p++) {
+			char b = in.pad_buttons[p];
+			char d = in.pad_dpad[p];
+			if (p == keyboard_player) {
+				b |= in.kb_buttons;
+				d |= in.kb_dpad;
+			}
+			g[p].mmu.set_input(b, d);
+		}
+		gameboy::run_four_frame(g, &adapter);
+		short[4096] discard;
+		for (int p = 1; p < 4; p++) g[p].audio(&discard);
+		return;
+	}
 	if (link_mode == LOCAL && has_p2) {
 		bool second = keyboard_player == 1;
 		gb.mmu.set_input(second ? in.buttons2 : in.buttons, second ? in.dpad2 : in.dpad);
@@ -266,6 +372,10 @@ fn void link_run_frame(display::Input* in) {
 		link_printout();
 		return;
 	}
+	if (link_mode == BARCODE) {
+		gb.run_frame_polled(fn (ctx) { barcode.tick(&gb.mmu); }, null, 16);
+		return;
+	}
 	if (net.state != OFF) {
 		gb.run_frame_polled(fn (ctx) { (void)net.poll(&gb.mmu); }, null, 8);
 		(void)net.poll(&gb.mmu);
@@ -278,6 +388,7 @@ fn void link_run_frame(display::Input* in) {
 fn gameboy::FrameSize link_picture(char[]* out) {
 	gameboy::FrameSize a = gb.frame_rgb(rgb, colors);
 	*out = rgb;
+	if (link_mode == FOUR) return four_picture(a, out);
 	if (link_mode != LOCAL || !has_p2) return a;
 	if (!rgb2.len) {
 		rgb2 = mem::new_array(char, gameboy::MAX_FRAME_RGB);
@@ -312,4 +423,39 @@ fn void web_join_code(ZString code) @export("wer_net_join_code") @feat(EMSCRIPTE
 	link_pick = JOIN;
 	menu = false;
 	notice.show("Connecting...");
+}
+
+// The four pictures, two by two, player 1 top left.
+fn gameboy::FrameSize four_picture(gameboy::FrameSize a, char[]* out) {
+	if (!rgb2.len) {
+		rgb2 = mem::new_array(char, gameboy::MAX_FRAME_RGB);
+		both = mem::new_array(char, display::MAX_W * display::MAX_H * 3);
+	}
+	if (!rgb3.len) {
+		rgb3 = mem::new_array(char, gameboy::MAX_FRAME_RGB);
+		rgb4 = mem::new_array(char, gameboy::MAX_FRAME_RGB);
+	}
+	char[][4] px = { rgb, rgb2, rgb3, rgb4 };
+	gameboy::GameBoy*[4] g = { &gb, &gb2, &gb3, &gb4 };
+	gameboy::FrameSize[4] size;
+	size[0] = a;
+	for (int p = 1; p < 4; p++) size[p] = g[p].frame_rgb(px[p], colors);
+	int cw = a.w;
+	int ch = a.h;
+	foreach (s : size) {
+		if (s.w > cw) cw = s.w;
+		if (s.h > ch) ch = s.h;
+	}
+	int w = cw * 2 + LINK_GAP;
+	int h = ch * 2 + LINK_GAP;
+	both[:(usz)(w * h * 3)] = 0x10;
+	for (int p = 0; p < 4; p++) {
+		int x0 = (p & 1) * (cw + LINK_GAP) + (cw - size[p].w) / 2;
+		int y0 = (p >> 1) * (ch + LINK_GAP) + (ch - size[p].h) / 2;
+		for (int y = 0; y < size[p].h; y++) {
+			both[(usz)(((y0 + y) * w + x0) * 3) : (usz)(size[p].w * 3)] = px[p][(usz)(y * size[p].w * 3) : (usz)(size[p].w * 3)];
+		}
+	}
+	*out = both;
+	return { w, h };
 }

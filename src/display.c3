@@ -11,7 +11,7 @@ const int DEFAULT_SCALE = 3;
 
 // Largest picture the display is ever handed (the SGB screen).
 const int MAX_W = sgb::BORDER_W * 2 + 8; // two pictures side by side (link cable)
-const int MAX_H = sgb::BORDER_H;
+const int MAX_H = sgb::BORDER_H * 2 + 8; // four pictures, two by two (4-Player Adapter)
 
 const char[12] PALETTE = {
 	0xE0, 0xF8, 0xD0,
@@ -162,6 +162,12 @@ struct Input {
 	// `buttons`).
 	char buttons2;
 	char dpad2;
+	// Each source on its own, for four Game Boys here: the keyboard (with
+	// touch and the left stick), and the gamepads in the order they came.
+	char kb_buttons;
+	char kb_dpad;
+	char[MAX_PADS] pad_buttons;
+	char[MAX_PADS] pad_dpad;
 	// Text typed this poll, while Display.start_text is on.
 	char[64] text;
 	int  text_len;
@@ -620,11 +626,16 @@ fn Input Display.poll(&self) {
 	in.rewind = self.hotkey_held(ks, n, config::Hotkey.REWIND);
 	for (int i = 0; i < 8; i++) {
 		bool held = !self.typing && self.bindings.keys[i] < n && ks[self.bindings.keys[i]] != 0;
+		bool button = i < (int)config::Button.UP.ordinal;
+		if (held && button) in.kb_buttons |= JOYPAD_BIT[i];
+		if (held && !button) in.kb_dpad |= JOYPAD_BIT[i];
 		bool held2;
 		int nth;
 		foreach (p : self.pads) {
 			if (!p) continue;
 			bool down = sdl::get_gamepad_button(p, self.bindings.pads[i]);
+			if (down && button) in.pad_buttons[nth] |= JOYPAD_BIT[i];
+			if (down && !button) in.pad_dpad[nth] |= JOYPAD_BIT[i];
 			if (self.two_players && nth > 0) {
 				held2 |= down;
 			} else {
@@ -632,19 +643,30 @@ fn Input Display.poll(&self) {
 			}
 			nth++;
 		}
-		bool button = i < (int)config::Button.UP.ordinal;
 		if (held && button) in.buttons |= JOYPAD_BIT[i];
 		if (held && !button) in.dpad |= JOYPAD_BIT[i];
 		if (held2 && button) in.buttons2 |= JOYPAD_BIT[i];
 		if (held2 && !button) in.dpad2 |= JOYPAD_BIT[i];
 	}
-	if (self.touch_ui) self.touch_input(&in);
-	if (!self.tilt_on) switch (dir) {
-		case KEY_UP:    in.dpad |= joypad::PAD_UP;
-		case KEY_DOWN:  in.dpad |= joypad::PAD_DOWN;
-		case KEY_LEFT:  in.dpad |= joypad::PAD_LEFT;
-		case KEY_RIGHT: in.dpad |= joypad::PAD_RIGHT;
+	if (self.touch_ui) {
+		Input t;
+		self.touch_input(&t);
+		in.pressed |= t.pressed;
+		in.rewind |= t.rewind;
+		in.buttons |= t.buttons;
+		in.dpad |= t.dpad;
+		in.kb_buttons |= t.buttons;
+		in.kb_dpad |= t.dpad;
 	}
+	char stick;
+	if (!self.tilt_on) switch (dir) {
+		case KEY_UP:    stick = joypad::PAD_UP;
+		case KEY_DOWN:  stick = joypad::PAD_DOWN;
+		case KEY_LEFT:  stick = joypad::PAD_LEFT;
+		case KEY_RIGHT: stick = joypad::PAD_RIGHT;
+	}
+	in.dpad |= stick;
+	in.kb_dpad |= stick;
 
 	return in;
 }

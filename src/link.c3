@@ -14,6 +14,7 @@ module mmu;
 struct Link {
 	Mmu* peer;          // the other Game Boy here, or null: over the network
 	Printer* printer;   // ... or the Game Boy Printer (printer.c3)
+	BarcodeBoy* barcode; // ... or the Barcode Boy (barcode.c3)
 	bool out_pending;   // network: a byte to send for a transfer this side clocks
 	char out_byte;
 	char out_control;   // SC as written (bit 1: the CGB's fast clock)
@@ -46,7 +47,7 @@ fn void Mmu.unplug(&self) {
 
 // SC = $81: a transfer this side clocks starts.
 fn void Mmu.link_start(&self) {
-	if (!self.link || self.link.peer || self.link.printer) return;
+	if (!self.link || self.link.peer || self.link.printer || self.link.barcode) return;
 	self.link.out_pending = true;
 	self.link.out_byte = self.io[0x01];
 	self.link.out_control = self.io[0x02];
@@ -58,6 +59,7 @@ fn void Mmu.link_start(&self) {
 fn int Mmu.link_exchange(&self) {
 	Link* l = self.link;
 	if (l.printer) return l.printer.exchange(self.serial_out, self.rt_clock);
+	if (l.barcode) return l.barcode.exchange(self.serial_out);
 	if (l.peer) return l.peer.link_take(self.serial_out);
 	if (!l.in_ready) return -1;
 	l.in_ready = false;

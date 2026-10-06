@@ -292,6 +292,7 @@ enum MenuItem : char {
 	CONTROLS,
 	CHEATS,
 	LINK,
+	SWIPE,
 	RESET,
 	QUIT,
 }
@@ -400,9 +401,9 @@ fn bool frame() {
 			screen.clear_audio();
 			notice.show(paused ? "Paused" : "");
 		}
-		if ((in.pressed & display::KEY_SWAP) && link_mode == LOCAL) {
-			keyboard_player ^= 1;
-			notice.show(keyboard_player ? "Keyboard: player 2" : "Keyboard: player 1");
+		if ((in.pressed & display::KEY_SWAP) && (link_mode == LOCAL || link_mode == FOUR)) {
+			keyboard_player = (keyboard_player + 1) % (link_mode == FOUR ? 4 : 2);
+			notice.show(string::tformat("Keyboard: player %d", keyboard_player + 1));
 		}
 		if (in.pressed & display::KEY_ADVANCE) {
 			if (!paused) screen.clear_audio();
@@ -485,6 +486,7 @@ fn bool frame() {
 		items[count++] = CONTROLS;
 		if (has_rom) items[count++] = CHEATS;
 		items[count++] = LINK;
+		if (link_mode == BARCODE) items[count++] = SWIPE;
 		if (has_rom) items[count++] = RESET;
 		items[count++] = QUIT;
 		if (selected >= count) selected = count - 1;
@@ -568,6 +570,8 @@ fn bool frame() {
 				case CHEATS:
 					cheat_menu = true;
 					selected = 0;
+				case SWIPE:
+					swipe_ask();
 				case LINK:
 					link_apply();
 					if (link_mode == HOST) menu = false;
@@ -612,6 +616,7 @@ fn bool frame() {
 				case CONTROLS: lines[i] = "Controls...";
 				case CHEATS:  lines[i] = cheats.count ? string::tformat("Cheats... (%d)", cheats.count) : "Cheats...";
 				case LINK:    lines[i] = link_line();
+				case SWIPE:   lines[i] = swipe_line();
 				case RESET:   lines[i] = "Reset";
 				case QUIT:    lines[i] = "Quit";
 			}
@@ -859,7 +864,13 @@ fn int main(String[] args) @winmain
 
 	// The link cable from the command line.
 	if (link_rom.len && has_rom) link_second_chosen(link_rom);
-	if (link_arg == "printer") {
+	if (link_arg == "barcode") {
+		link_pick = LinkMode.BARCODE;
+		link_apply();
+	} else if (link_arg == "four") {
+		link_four();
+		link_pick = LinkMode.FOUR;
+	} else if (link_arg == "printer") {
 		link_printer();
 		link_pick = LinkMode.PRINTER;
 	} else if (link_arg == "host") {

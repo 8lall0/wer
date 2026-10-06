@@ -179,6 +179,10 @@
     });
   }
   window.werLinkOpen = () => !!(netConn && netConn.open); // for testing
+  function werCardPrompt() {
+    const code = prompt('The card\'s 13-digit barcode number:');
+    Module.ccall('wer_barcode_swipe', null, ['string'], [code || '']);
+  }
   function werCheatPrompt() {
     const code = prompt('Game Genie or GameShark code (and what it does):');
     Module.ccall('wer_cheat_add', null, ['string'], [code || '']);

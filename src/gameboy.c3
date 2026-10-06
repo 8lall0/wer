@@ -486,6 +486,31 @@ fn void run_linked_frame(GameBoy* a, GameBoy* b) {
 	b.mmu.ppu.frame_ready = false;
 }
 
+// Four Game Boys on the DMG-07 4-Player Adapter (mmu/adapter.c3), a frame
+// of the first at a time, the others kept level with it, the adapter's
+// transfers when they fall due.
+fn void run_four_frame(GameBoy*[4] g, mmu::Adapter* adapter) {
+	mmu::Mmu*[4] m;
+	for (int i = 0; i < 4; i++) {
+		m[i] = &g[i].mmu;
+		g[i].mmu.apply_gameshark();
+	}
+	GameBoy* a = g[0];
+	ulong frame = a.mmu.double_speed ? 35112 : 17556;
+	bool lcd = (a.mmu.ppu.lcdc & ppu::LCDC_ENABLE) != 0;
+	a.mmu.ppu.frame_ready = false;
+	ulong end = a.cpu.clk + (lcd ? frame * 2 : frame);
+	if (adapter.next_at == 0) adapter.next_at = a.mmu.rt_clock;
+	while ((!lcd || !a.mmu.ppu.frame_ready) && a.cpu.clk < end) {
+		a.step();
+		for (int i = 1; i < 4; i++) {
+			while (g[i].mmu.rt_clock < a.mmu.rt_clock) g[i].step();
+		}
+		if (a.mmu.rt_clock >= adapter.next_at) adapter.tick(m, a.mmu.rt_clock);
+	}
+	for (int i = 0; i < 4; i++) g[i].mmu.ppu.frame_ready = false;
+}
+
 fn void GameBoy.set_audio_rate(&self, uint rate) {
 	self.mmu.apu.out_rate = rate;
 }

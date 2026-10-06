@@ -42,6 +42,10 @@ ROMs: they never leave the browser; touch controls on phones).
   browsers with a short code. Infrared too, between two Game Boys here.
 - **Game Boy Printer**: printouts (Game Boy Camera photos, Pokédex pages,
   ...) become PNG files next to the game.
+- **4-Player Adapter** (DMG-07): four Game Boys in one window for F-1 Race,
+  Wave Race, Yoshi's Cookie, Faceball 2000 and the other four-player games.
+- **Barcode Boy**: the card reader of Battle Space and Monster Maker: Barcode
+  Saga; cards are swiped by typing their 13-digit number.
 - **Save states** (9 slots per game), **rewind** (hold R, the left shoulder
   or the touch screen's << to run the game backwards), **pause**, **frame
   advance** and **fast forward**.
@@ -150,6 +154,8 @@ wer --mode=cgb game.gbc
 | `--scale=1..4` | window size, multiples of 160x144 |
 | `--no-boot` | skip the boot ROM |
 | `--link-rom=ROM` | a second Game Boy in the window, running ROM, joined by the link cable |
+| `--link=four` | four Game Boys on the 4-Player Adapter, all running the game |
+| `--link=barcode` | the Barcode Boy (Menu → Swipe card) |
 | `--link=printer` | the Game Boy Printer on the link port |
 | `--cheat=CODE` | a Game Genie (`ABC-DEF-GHI`) or GameShark (`01VVAAAA`) code, for this run |
 | `--printer-log` | print every packet the printer gets and its answers |
@@ -196,6 +202,12 @@ Enter to plug it in):
   which), a second gamepad the other. Their infrared ports see each other
   too (the Game Boy Color's, and HuC1/HuC3 cartridges'): infrared needs
   both Game Boys here, its pulses are timed to the cycle.
+- **4 players here** puts four copies of the game on the 4-Player Adapter,
+  two by two in the window: gamepads 1-4 play players 1-4, the keyboard and
+  touch player 1 (` moves them on to the next player). Players 2-4 keep
+  their own battery saves (`game-2.sav` ...).
+- **Barcode Boy** plugs in the card reader: **Swipe card...** in the menu
+  asks for a card's 13-digit barcode number (printed under its bars).
 - **Printer** plugs in the Game Boy Printer: each printout is saved as a
   PNG next to the game (`game-print-1.png`, `-2`, ...; in a browser it
   downloads).
