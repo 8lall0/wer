@@ -1,4 +1,4 @@
-// Minimal hand-written SDL3 binding — only what src/display.c3 needs.
+// Minimal hand-written SDL3 binding — only what src/frontend/display.c3 needs.
 // Links against the system libSDL3 (see project.json "linked-libraries").
 module sdl;
 

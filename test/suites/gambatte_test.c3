@@ -16,7 +16,7 @@ import std::core::test;
 // fetches the ROMs into test/gambatte/ and indexes them (index.txt).
 //
 // With several thousand checks there is no list of them here: the checks
-// that pass are kept in test/gambatte_pass.txt, and one of those failing is
+// that pass are kept in test/suites/gambatte_pass.txt, and one of those failing is
 // a regression. WER_GAMBATTE_UPDATE=1 rewrites that file with today's passes.
 //
 // They take minutes (over ten unoptimized), so they only run when asked:
@@ -25,7 +25,7 @@ import std::core::test;
 // ones display.
 
 const String DIR = "test/gambatte/";
-const String PASS_FILE = "test/gambatte_pass.txt";
+const String PASS_FILE = "test/suites/gambatte_pass.txt";
 
 // Real time a test runs: Gambatte's runner stops after 15 frames plus the
 // part of a frame its last call runs past; 16 frames covers every test.

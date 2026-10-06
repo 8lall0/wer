@@ -33,7 +33,7 @@
   "targets": {
     "wer": {
       "type": "executable",
-      // SDL3 (system library) is used by src/display.c3 for the window,
+      // SDL3 (system library) is used by src/frontend/display.c3 for the window,
       // renderer and audio. Only the executable links it; `c3c test` does not.
       "linked-libraries": [ "SDL3" ],
     },

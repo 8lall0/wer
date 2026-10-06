@@ -2,7 +2,7 @@
 # Fetch the Mealybug Tearoom tests (https://github.com/mattcurrie/mealybug-tearoom-tests,
 # MIT) into test/mealybug/: the ROMs, and the expected screenshots for a DMG
 # (DMG-blob) and a CGB (CPU CGB C, and CPU CGB D where there is one), converted to binary PGM / PPM so
-# test/mealybug_test.c3 needs no PNG decoder. Needs git, unzip and ImageMagick.
+# test/suites/mealybug_test.c3 needs no PNG decoder. Needs git, unzip and ImageMagick.
 #
 #   scripts/fetch-mealybug.sh
 #

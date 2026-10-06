@@ -4,7 +4,7 @@
 #
 #   scripts/fetch-mooneye.sh
 #
-# The ROMs are git-ignored. test/mooneye_test.c3 runs whatever is present;
+# The ROMs are git-ignored. test/suites/mooneye_test.c3 runs whatever is present;
 # with none it prints one line and passes.
 set -euo pipefail
 

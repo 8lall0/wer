@@ -5,7 +5,7 @@
 #   scripts/make-icon.py
 #
 # Writes resources/wer.svg (the icon, one rect per horizontal run of a colour)
-# and src/icon.c3 (the same pixels, for the window icon). Needs python3.
+# and src/frontend/icon.c3 (the same pixels, for the window icon). Needs python3.
 import math, os
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 N = 32
@@ -168,5 +168,5 @@ c3 += ["};", "",
        "\t\t}",
        "\t}",
        "}", ""]
-open(os.path.join(ROOT, "src", "icon.c3"), "w").write("\n".join(c3))
-print("wrote resources/wer.svg and src/icon.c3")
+open(os.path.join(ROOT, "src", "frontend", "icon.c3"), "w").write("\n".join(c3))
+print("wrote resources/wer.svg and src/frontend/icon.c3")

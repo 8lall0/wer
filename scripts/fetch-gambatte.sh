@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Fetch Gambatte's hardware tests (sinamas, via pokemon-speedrunning/gambatte-core)
 # as prebuilt by c-sp/game-boy-test-roms into test/gambatte/, and index them
-# for test/gambatte_test.c3. From the same collection, the MBC3 tests
-# rtc3test and mbc3-tester go to test/mbc3/ (test/mbc3_test.c3).
+# for test/suites/gambatte_test.c3. From the same collection, the MBC3 tests
+# rtc3test and mbc3-tester go to test/mbc3/ (test/suites/mbc3_test.c3).
 #
 #   scripts/fetch-gambatte.sh
 #

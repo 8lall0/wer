@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Fetch gbmicrotest (aappleby/GBMicrotest, MIT), as prebuilt by
-# c-sp/game-boy-test-roms, into test/gbmicrotest/ for test/gbmicrotest_test.c3.
+# c-sp/game-boy-test-roms, into test/gbmicrotest/ for test/suites/gbmicrotest_test.c3.
 #
 #   scripts/fetch-gbmicrotest.sh
 #

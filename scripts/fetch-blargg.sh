@@ -4,7 +4,7 @@
 #
 #   scripts/fetch-blargg.sh
 #
-# The ROMs are git-ignored. test/blargg_test.c3 runs whatever is present;
+# The ROMs are git-ignored. test/suites/blargg_test.c3 runs whatever is present;
 # with none it prints one line per suite and passes.
 set -euo pipefail
 

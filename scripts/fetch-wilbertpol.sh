@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Fetch wilbertpol's 2016 fork of the Mooneye test suite (MIT), as prebuilt by
-# c-sp/game-boy-test-roms, into test/wilbertpol/ for test/wilbertpol_test.c3.
+# c-sp/game-boy-test-roms, into test/wilbertpol/ for test/suites/wilbertpol_test.c3.
 #
 #   scripts/fetch-wilbertpol.sh
 #

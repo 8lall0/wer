@@ -3,7 +3,7 @@
 # (cgb-acid-hell, bully, strikethrough, turtle-tests, scribbltests,
 # little-things-gb firstwhite and tellinglys, Mooneye's manual-only
 # sprite_priority, rtc3test, mbc3-tester) into test/screens/ for
-# test/screens_test.c3.
+# test/suites/screens_test.c3.
 #
 #   scripts/fetch-screens.sh
 #

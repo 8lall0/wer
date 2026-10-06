@@ -4,7 +4,7 @@
 #   scripts/fetch-sm83-tests.sh          curated subset (~25 MB) used by CI
 #   scripts/fetch-sm83-tests.sh --all    every opcode (~500 MB, sweep ~5 min)
 #
-# The vectors are git-ignored. test/sm83_test.c3 runs whatever is present.
+# The vectors are git-ignored. test/suites/sm83_test.c3 runs whatever is present.
 set -euo pipefail
 
 BASE="https://raw.githubusercontent.com/SingleStepTests/sm83/main/v1"

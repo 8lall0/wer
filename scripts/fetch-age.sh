@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Fetch the AGE test ROMs (c-sp/age-test-roms, MIT), as prebuilt by
 # c-sp/game-boy-test-roms, into test/age/ and index them for
-# test/age_test.c3.
+# test/suites/age_test.c3.
 #
 #   scripts/fetch-age.sh
 #

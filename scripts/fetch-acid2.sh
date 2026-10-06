@@ -5,7 +5,7 @@
 #   scripts/fetch-acid2.sh
 #
 # Downloads the ROMs and their reference screenshots, and converts the PNGs to
-# binary PGM/PPM so test/acid2_test.c3 needs no PNG decoder. Needs ImageMagick.
+# binary PGM/PPM so test/suites/acid2_test.c3 needs no PNG decoder. Needs ImageMagick.
 # The files are git-ignored. Without them the test prints one line and passes.
 set -euo pipefail
 
