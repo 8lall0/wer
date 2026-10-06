@@ -197,7 +197,9 @@ Enter to plug it in):
 In a browser, Host shows a short code (and a link with it) and Join asks
 for it: the two browsers then talk directly (WebRTC; PeerJS's public server
 only introduces them). Opening `…/?link=host` hosts straight away, and
-`…/?link=CODE` joins.
+`…/?link=CODE` joins. The connection is direct, with no relay server: networks
+that keep their devices apart (guest or "isolated" Wi-Fi, some firewalls)
+block it, and the page says so; a phone's hotspot usually works.
 
 Battery saves and save states are stored next to the ROM, named after it
 without its extension: `game.sav`, as other emulators name it, and
