@@ -175,3 +175,22 @@ fn void tama5_pages_read_back() @test {
 		test::eq(c.read(0xA000) & 0xF, page + 5);
 	}
 }
+
+// Tamagotchi 3's minute status (command $03): $F1 is the pet calling, which
+// the cartridge buzzes for; $11 is all well.
+fn void tama5_calling_buzzes() @test {
+	cart::Cartridge* c = cart::new(rom_of(0xFD, 32), "");
+	defer c.free();
+	tama5_reg(c, 0x4, 0x1);
+	tama5_reg(c, 0x5, 0xF);
+	tama5_reg(c, 0x6, 0x4);
+	tama5_reg(c, 0x7, 0x3);  // $03 with $F1
+	assert(c.tama5.calling);
+	test::eq(c.tama5.buzzes, 1u);
+	tama5_reg(c, 0x7, 0x3);  // a minute later, still calling
+	test::eq(c.tama5.buzzes, 2u);
+	tama5_reg(c, 0x5, 0x1);
+	tama5_reg(c, 0x7, 0x3);  // $11: cared for
+	assert(!c.tama5.calling);
+	test::eq(c.tama5.buzzes, 2u);
+}

@@ -266,6 +266,18 @@ fn void GameBoy.set_camera_image(&self, char[] gray) {
 	c.camera.has_image = true;
 }
 
+// Tamagotchi 3's buzzer: the times the cartridge called since the last
+// look (each a few beeps), and whether it is calling now.
+fn uint GameBoy.buzzes(&self) {
+	cart::Cartridge* c = self.mmu.cart;
+	if (!c || c.mbc != TAMA5) return 0;
+	uint n = c.tama5.buzzes;
+	c.tama5.buzzes = 0;
+	return n;
+}
+
+fn bool GameBoy.calling(&self) => self.mmu.cart != null && self.mmu.cart.mbc == TAMA5 && self.mmu.cart.tama5.calling;
+
 fn bool GameBoy.has_rumble(&self) => self.mmu.cart != null && self.mmu.cart.has_rumble;
 
 fn void GameBoy.destroy(&self) {

@@ -45,6 +45,7 @@ const char TAMA6_MINUTE_WRITE  = 0x4;
 const char TAMA6_HOUR_WRITE    = 0x5;
 const char TAMA6_MINUTE_READ   = 0x6;
 const char TAMA6_HOUR_READ     = 0x7;
+const char TAMA6_STATUS        = 0x3;  // see Tama5.status
 const char TAMA6_DISABLE_ALARM = 0x10;
 const char TAMA6_ENABLE_ALARM  = 0x11;
 
@@ -74,6 +75,14 @@ struct Tama5 {
 	char[RTC_MAX] free0;
 	char[RTC_MAX] free1;
 	long pending;    // emulated seconds since the clock was last brought up to date
+	// The cartridge's piezo buzzer. Not documented anywhere: the TAMA6 is a
+	// microcontroller with its own program. What Tamagotchi 3 is seen to do
+	// (wer's tests): once a minute it sends command $03 with the pet's state,
+	// $11 while all is well and $F1 while the pet wants you (droppings,
+	// hunger...): the cartridge's call. wer takes $F1 as "beep".
+	char status;
+	bool calling;
+	uint buzzes;     // calls since the frontend last looked
 }
 
 fn void Tama5.init(&self) {
@@ -236,6 +245,10 @@ fn void Cartridge.tama5_write(&self, ushort addr, char value) {
 						case TAMA6_HOUR_WRITE:
 							t.timer[RTC_HOUR_1] = out & 0x0F;
 							t.timer[RTC_HOUR_10] = out >> 4;
+						case TAMA6_STATUS:
+							t.status = out;
+							t.calling = out == 0xF1;
+							if (t.calling) t.buzzes++;
 						case TAMA6_DISABLE_ALARM:
 							t.set_page_bits(0xB, 0);
 						case TAMA6_ENABLE_ALARM:

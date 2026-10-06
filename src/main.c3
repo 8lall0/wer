@@ -657,7 +657,9 @@ fn bool frame() {
 		if (paused) {
 			gb.audio(&audio); // a single frame's sound would only click
 		} else {
-			screen.queue_audio(&audio, gb.audio(&audio));
+			uint got = gb.audio(&audio);
+			buzzer_mix(&audio, got, gb.mmu.apu.out_rate ? gb.mmu.apu.out_rate : display::AUDIO_RATE);
+			screen.queue_audio(&audio, got);
 			int queued = screen.audio_queued();
 			avg += (queued - avg) / 32;
 			float e = (avg - AUDIO_TARGET_BYTES) / AUDIO_TARGET_BYTES;
@@ -667,6 +669,7 @@ fn bool frame() {
 			gb.set_audio_rate((uint)(display::AUDIO_RATE * (1 - MAX_RATE_ADJ * e - integ)));
 		}
 	}
+	if (running) buzzer_update(&gb);
 	float motor = gb.rumble();
 	screen.rumble(running && !paused ? motor : 0);
 	String message = notice.current();
