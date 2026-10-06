@@ -128,9 +128,28 @@
     s.onerror = () => netShow('Could not load the link library');
     document.head.appendChild(s);
   }
+  // The two browsers couldn't reach each other: say why, and give up.
+  const NET_BLOCKED = 'The two devices couldn\'t reach each other: this network keeps them apart' +
+    '<br>(a guest or "isolated" Wi-Fi, or a firewall). Try another network, or a phone\'s hotspot.';
+  function netFail(conn, text) {
+    if (netConn !== conn) return;
+    netShow(text);
+    netConn = null;
+    conn.close();
+    Module._wer_net_closed();
+  }
   function netUse(conn) {
     netConn = conn;
-    conn.on('open', () => { netShow(''); Module._wer_net_open(); });
+    const timer = setTimeout(() => { if (!conn.open) netFail(conn, NET_BLOCKED); }, 20000);
+    const watch = setInterval(() => {
+      const pc = conn.peerConnection;
+      if (!pc) return;
+      clearInterval(watch);
+      pc.addEventListener('iceconnectionstatechange', () => {
+        if (pc.iceConnectionState === 'failed') netFail(conn, NET_BLOCKED);
+      });
+    }, 50);
+    conn.on('open', () => { clearTimeout(timer); netShow(''); Module._wer_net_open(); });
     conn.on('data', (d) => {
       const b = new Uint8Array(d);
       for (let i = 0; i + 8 <= b.length; i += 8) Module._wer_net_packet(b[i], b[i + 1], b[i + 2], b[i + 3]);
