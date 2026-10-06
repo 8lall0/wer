@@ -43,10 +43,7 @@ bool typing;
 char[64] typed;
 int typed_len;
 
-fn bool link_available(LinkMode m) {
-	// No sockets in a browser.
-	return !(env::EMSCRIPTEN && (m == HOST || m == JOIN));
-}
+fn bool link_available(LinkMode m) => true;
 
 fn void link_step(int step) {
 	int n = (int)LINK_LABELS.len;
@@ -64,7 +61,7 @@ fn String link_line() {
 	} else {
 		switch (link_mode) {
 			case HOST:    state = net.connected() ? "  linked" : "  waiting";
-			case JOIN:    state = net.connected() ? "  linked" : "  lost";
+			case JOIN:    state = net.connected() ? "  linked" : net.state == CONNECTING ? "  connecting" : "  lost";
 			case PRINTER:
 			case LOCAL:   state = "  on";
 			default:      break;
@@ -102,13 +99,18 @@ fn void link_apply() {
 			screen.open_rom_dialog();
 		case HOST:
 			link_stop();
-			if (catch net.host(netlink::DEFAULT_PORT)) {
+			if (catch net.host(netlink::DEFAULT_PORT, &gb.mmu)) {
 				notice.show("Can't listen on port 8765");
 				return;
 			}
 			link_mode = HOST;
-			notice.show("Waiting on port 8765");
+			notice.show(env::EMSCRIPTEN ? "Waiting: the code is on the page" : "Waiting on port 8765");
 		case JOIN:
+			$if env::EMSCRIPTEN:
+				// The page asks for the code (a phone's keyboard comes up for it).
+				display::run_script("werNetAskJoin()");
+				return;
+			$endif
 			typing = true;
 			typed_len = 0;
 			foreach (c : cfg.link) if (typed_len < typed.len) typed[typed_len++] = c;
@@ -141,7 +143,7 @@ fn bool link_typing(display::Input* in) {
 		}
 		link_mode = JOIN;
 		menu = false;
-		notice.show("Linked");
+		notice.show(env::EMSCRIPTEN ? "Connecting..." : "Linked");
 	}
 	in.pressed = 0;
 	return true;
@@ -287,4 +289,19 @@ fn gameboy::FrameSize link_picture(char[]* out) {
 	}
 	*out = both;
 	return { w, h };
+}
+
+// Browser: the code the player typed in the page's prompt (empty: cancelled).
+fn void web_join_code(ZString code) @export("wer_net_join_code") @if(env::EMSCRIPTEN) {
+	String c = code.str_view();
+	if (!c.len) return;
+	link_stop();
+	if (catch net.join(c, &gb.mmu)) {
+		notice.show("That's not a link code");
+		return;
+	}
+	link_mode = JOIN;
+	link_pick = JOIN;
+	menu = false;
+	notice.show("Connecting...");
 }

@@ -765,7 +765,7 @@ fn int main(String[] args) @winmain
 		link_printer();
 		link_pick = LinkMode.PRINTER;
 	} else if (link_arg == "host") {
-		if (catch net.host(netlink::DEFAULT_PORT)) {
+		if (catch net.host(netlink::DEFAULT_PORT, &gb.mmu)) {
 			io::eprintn("link: can't listen on port 8765");
 		} else {
 			link_mode = HOST;

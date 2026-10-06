@@ -38,7 +38,8 @@ ROMs: they never leave the browser; touch controls on phones).
   `bootrom/`); no Nintendo code. `--no-boot` starts games directly instead.
 - **Link cable**: two Game Boys in one window, side by side (trade with
   yourself, Tetris versus with two gamepads), or two copies of wer over the
-  network, in BGB's link protocol (so wer also links with BGB).
+  network, in BGB's link protocol (so wer also links with BGB), or two
+  browsers with a short code. Infrared too, between two Game Boys here.
 - **Game Boy Printer**: printouts (Game Boy Camera photos, Pokédex pages,
   ...) become PNG files next to the game.
 - **Save states** (9 slots per game), **pause**, **frame advance** and
@@ -193,8 +194,10 @@ Enter to plug it in):
   transfer's bytes cross the network when it happens, so a slow connection
   slows link play down, but nothing goes out of step.
 
-Not in the browser version, which can't open network connections (2 players
-here works there).
+In a browser, Host shows a short code (and a link with it) and Join asks
+for it: the two browsers then talk directly (WebRTC; PeerJS's public server
+only introduces them). Opening `…/?link=host` hosts straight away, and
+`…/?link=CODE` joins.
 
 Battery saves and save states are stored next to the ROM, named after it
 without its extension: `game.sav`, as other emulators name it, and
