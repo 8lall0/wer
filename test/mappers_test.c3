@@ -157,3 +157,21 @@ fn void tama5_clock_runs() @test {
 	c.write(0xA001, 0xC);
 	test::eq(c.read(0xA000) & 0xF, 3);
 }
+
+// The clock chip's four pages read back what was written to each.
+fn void tama5_pages_read_back() @test {
+	cart::Cartridge* c = cart::new(rom_of(0xFD, 32), "");
+	defer c.free();
+	// Register 4 of page n (written with ADDR_LO 0/2/4/6) = n + 5.
+	for (int page = 0; page < 4; page++) {
+		tama5_reg(c, 0x4, 0x4);              // the register
+		tama5_reg(c, 0x5, (char)(page + 5)); // the value
+		tama5_reg(c, 0x6, 0x8);              // clock access
+		tama5_reg(c, 0x7, (char)(page * 2)); // write to the page
+	}
+	for (int page = 0; page < 4; page++) {
+		tama5_reg(c, 0x7, (char)(page * 2 + 1)); // read from the page
+		c.write(0xA001, 0xC);
+		test::eq(c.read(0xA000) & 0xF, page + 5);
+	}
+}

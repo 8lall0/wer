@@ -280,8 +280,19 @@ fn char Cartridge.tama5_read(&self, ushort addr) {
 				case 0x4:
 					if (t.reg == TAMA5_READ_HI) break;
 					t.latch();
+					// The page the read asks for (1, 3, 5, 7: the four pages, as
+					// writes 0, 2, 4, 6 do). mGBA reads the time page for all four.
 					char a = t.regs[TAMA5_WRITE_LO];
-					value = a > RTC_PAGE ? 0 : t.timer[a];
+					if (a > RTC_PAGE) {
+						value = 0;
+					} else {
+						switch (t.regs[TAMA5_ADDR_LO]) {
+							case 3:  value = t.alarm[a];
+							case 5:  value = t.free0[a];
+							case 7:  value = t.free1[a];
+							default: value = t.timer[a];
+						}
+					}
 				default:
 					break;
 			}
