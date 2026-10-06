@@ -16,6 +16,7 @@ fn void trace() @test {
 	defer gb.destroy();
 	gb.load_rom(data);
 	cpu::io_trace = true;
+	mmu::lazy_ppu = false;
 	ppu::trace_m0 = true;
 	ulong t;
 	while (t < 70224UL * (ulong)frames) {
@@ -23,4 +24,5 @@ fn void trace() @test {
 		t += gb.mmu.double_speed ? (ulong)m * 2 : (ulong)m * 4;
 	}
 	cpu::io_trace = false;
+	mmu::lazy_ppu = true;
 }

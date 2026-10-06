@@ -47,7 +47,6 @@ const char REV_AGB = 6; // a Game Boy Advance
 
 struct Ppu {
 	int  irq_dot;        // tick(): the dot of the call that raised the first IRQ, or -1
-	char[0x2000] vram;
 	char*        vram1;  // CGB: VRAM bank 1 (heap), null otherwise
 	char[0xA0]   oam;
 	// An OAM DMA owns OAM from oam_dma_from until oam_dma_until (Ppu.cc):
@@ -97,6 +96,7 @@ struct Ppu {
 	bool first_line;
 	int  line;         // line being processed (LY runs LY_EARLY_DOTS ahead of it)
 	bool predicting;   // a dry-run copy (Ppu.predict_mode3): no pixels, no prediction of its own
+	bool catching_up;  // running dots nobody has seen yet (Mmu.ppu_catch_up): no write lands among them
 	bool repredict;    // a renderer write landed during mode 3: predict again
 	int  pipe_end_dot; // the dot the pipeline outputs its last pixel this line (predicted)
 	int  m0_irq_pred;  // ... and the mode 0 interrupt's dot (Ppu.m0_irq_dot)
@@ -123,6 +123,8 @@ struct Ppu {
 	char     scan_x_bus;
 	ulong    cc;            // Gambatte's cycle count: +1 per dot, +2 in double speed (ppu_irq.c3)
 	StatIrq  si;
+	// Last: Ppu.predict_mode3 saves and restores everything before it.
+	char[0x2000] vram;
 }
 
 // Dot of a visible line at which mode 3 drawing starts fetching (a variable
@@ -265,6 +267,14 @@ fn char Ppu.tick(&self, uint tcycles) {
 				self.dot += (int)k;
 				self.cc += (ulong)k * self.spd();
 				i += (uint)k - 1;
+				continue;
+			}
+		}
+		// Catching up, the OAM scan and the drawing go faster (Ppu.catch_up_line).
+		if (self.catching_up && self.line < VBLANK_LINE && (self.r.active || self.dot < render_start_dot)) {
+			uint m = self.catch_up_line(tcycles - i);
+			if (m > 0) {
+				i += m - 1;
 				continue;
 			}
 		}
@@ -414,24 +424,31 @@ fn void Ppu.predict_mode3(&self) {
 		self.m0_irq_pred = self.pipe_end_dot - M0_IRQ_BEFORE_END;
 		return;
 	}
-	Ppu sim = *self;
-	sim.fb = {};
-	sim.cfb = {};
-	sim.predicting = true;
+	// Run this PPU itself ahead, then put it back as it was: all of it but
+	// VRAM, which drawing only reads.
+	sz kept = (sz)((char*)&self.vram - (char*)self);
+	char[Ppu::size] saved @noinit;
+	mem::copy(&saved, self, kept);
+	self.fb = {};
+	self.cfb = {};
+	self.predicting = true;
 	// Only what the pipeline needs, dot by dot: the register writes landing,
 	// then a pixel step (as in Ppu.tick).
-	self.pipe_end_dot = DOTS_PER_LINE;
-	while (sim.dot < DOTS_PER_LINE) {
-		sim.scx_landed = false;
-		sim.apply_writes();
-		if (sim.r.active) sim.render_dot();
-		sim.dot++;
-		if (!sim.r.active) {
-			self.pipe_end_dot = sim.dot;
+	int end = DOTS_PER_LINE;
+	while (self.dot < DOTS_PER_LINE) {
+		self.scx_landed = false;
+		self.apply_writes();
+		if (self.r.active) self.render_dot();
+		self.dot++;
+		if (!self.r.active) {
+			end = self.dot;
 			break;
 		}
 	}
-	self.m0_irq_pred = sim.r.x158_dot >= 0 ? sim.r.x158_dot + 2 - M0_IRQ_BEFORE_END : self.pipe_end_dot - M0_IRQ_BEFORE_END;
+	int x158 = self.r.x158_dot;
+	mem::copy(self, &saved, kept);
+	self.pipe_end_dot = end;
+	self.m0_irq_pred = x158 >= 0 ? x158 + 2 - M0_IRQ_BEFORE_END : end - M0_IRQ_BEFORE_END;
 }
 
 // STAT's mode, as Gambatte's LCD::getStat has it (in dots of the line, LY

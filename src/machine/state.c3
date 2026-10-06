@@ -325,6 +325,7 @@ fn void load_blob(char[] rec, String name, void* p, usz n) {
 // --- Saving and loading -----------------------------------------------------
 
 fn char[] GameBoy.save_state(&self, Allocator alloc) {
+	self.mmu.ppu_touch();
 	self.mmu.apu.sync();
 	StateHeader h = self.state_header(STATE_VERSION);
 	StateWriter w;
@@ -400,6 +401,9 @@ fn void? GameBoy.load_state(&self, char[] data) {
 		}
 	}
 	self.restore_host_side(&keep);
+	// Saved in step with the PPU (Mmu.ppu_touch).
+	self.mmu.ppu_lag = 0;
+	self.mmu.ppu_room = 0;
 }
 
 // What belongs to this run rather than to the machine: kept across a load.
@@ -444,6 +448,7 @@ fn void GameBoy.restore_host_side(&self, HostSide* k) {
 // --- Version 1: the structs byte for byte -----------------------------------
 
 fn usz GameBoy.raw_state_size(&self) {
+	self.mmu.ppu_touch();
 	usz n = StateHeader::size + cpu::Cpu::size + mmu::Mmu::size;
 	if (self.mmu.wram_ext) n += mmu::WRAM_EXT_SIZE + 0x2000 + self.mmu.ppu.cfb.len * 2;
 	n += self.mmu.ppu.fb.len;
@@ -469,6 +474,7 @@ fn void StateCursor.get(&self, void* p, usz n) {
 
 // A version 1 state (for the tests: wer writes version 2).
 fn char[] GameBoy.save_state_raw(&self, Allocator alloc) {
+	self.mmu.ppu_touch();
 	self.mmu.apu.sync();
 	StateHeader h = self.state_header(STATE_RAW);
 	StateCursor w = { .data = alloc::alloc_array(alloc, char, (sz)self.raw_state_size()) };
@@ -521,6 +527,8 @@ fn void? GameBoy.load_state_raw(&self, char[] data, StateHeader* h) {
 		r.get(self.mmu.sgb, sgb::Sgb::size);
 		self.mmu.sgb.log = log;
 	}
+	self.mmu.ppu_lag = 0;
+	self.mmu.ppu_room = 0;
 }
 
 fn void? GameBoy.save_state_file(&self, String path) {

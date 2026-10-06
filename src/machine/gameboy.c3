@@ -415,6 +415,7 @@ fn char GameBoy.step(&self) {
 }
 
 fn char[] GameBoy.framebuffer(&self) {
+	self.mmu.ppu_touch();
 	return self.mmu.ppu.fb;
 }
 
@@ -430,6 +431,7 @@ const usz MAX_FRAME_RGB = sgb::BORDER_W * sgb::BORDER_H * 3;
 // the SGB in SGB mode (256x224 once the game sent a border), otherwise the
 // PPU's shades 0-3 through `colors` (4 RGB triples).
 fn FrameSize GameBoy.frame_rgb(&self, char[] rgb, char[12] colors) {
+	self.mmu.ppu_touch();
 	// A CGB shows colours in both modes (DMG games through its palettes).
 	if (self.mmu.model == CGB) {
 		if (color_correction == OFF) {
@@ -470,11 +472,13 @@ fn void GameBoy.run_frame(&self) {
 	if ((self.mmu.ppu.lcdc & ppu::LCDC_ENABLE) == 0) {
 		ulong target = self.cpu.clk + frame;
 		while (self.cpu.clk < target) self.step();
+		self.mmu.ppu_touch();
 		return;
 	}
 	self.mmu.ppu.frame_ready = false;
 	ulong deadline = self.cpu.clk + frame * 2; // guards against a hang
 	while (!self.mmu.ppu.frame_ready && self.cpu.clk < deadline) self.step();
+	self.mmu.ppu_touch();
 	self.mmu.ppu.frame_ready = false;
 }
 
@@ -497,6 +501,7 @@ fn void GameBoy.run_frame_polled(&self, Between between, void* ctx, int slices) 
 			next += slice;
 		}
 	}
+	self.mmu.ppu_touch();
 	self.mmu.ppu.frame_ready = false;
 }
 
@@ -513,6 +518,8 @@ fn void run_linked_frame(GameBoy* a, GameBoy* b) {
 		a.step();
 		while (b.mmu.rt_clock < a.mmu.rt_clock) b.step();
 	}
+	a.mmu.ppu_touch();
+	b.mmu.ppu_touch();
 	a.mmu.ppu.frame_ready = false;
 	b.mmu.ppu.frame_ready = false;
 }
@@ -539,6 +546,7 @@ fn void run_four_frame(GameBoy*[4] g, mmu::Adapter* adapter) {
 		}
 		if (a.mmu.rt_clock >= adapter.next_at) adapter.tick(m, a.mmu.rt_clock);
 	}
+	for (int i = 0; i < 4; i++) g[i].mmu.ppu_touch();
 	for (int i = 0; i < 4; i++) g[i].mmu.ppu.frame_ready = false;
 }
 

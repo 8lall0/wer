@@ -178,6 +178,11 @@ struct Mmu {
 	sgb::Sgb* sgb;      // non-null in SGB mode (heap, freed by GameBoy.destroy)
 
 	Dma dma;
+	// The PPU runs behind while nothing can see it (Mmu.tick): `ppu_lag` dots
+	// not run yet, allowed until the PPU's clock reaches `ppu_room` (an
+	// M-cycle short of its next possible interrupt).
+	uint  ppu_lag;
+	ulong ppu_room;
 }
 
 fn char Mmu.get(&self, ushort addr) {
@@ -198,7 +203,10 @@ fn char Mmu.get(&self, ushort addr) {
 		if (self.cheats && self.cheats.genie_on) v = self.cheats.patch(addr, v);
 		return v;
 	}
-	if (addr < 0xA000) return *self.vram_at(addr - 0x8000);
+	if (addr < 0xA000) {
+		self.ppu_touch();
+		return *self.vram_at(addr - 0x8000);
+	}
 	if (addr < 0xC000) {
 		if (!self.cart) return self.has_extram ? self.extram[addr - 0xA000] : 0xFF;
 		if (self.cart.mbc == HUC1 || self.cart.mbc == HUC3) self.cart.ir_in = self.ir_seen();
@@ -206,13 +214,19 @@ fn char Mmu.get(&self, ushort addr) {
 	}
 	if (addr < 0xE000) return *self.wram_at(addr - 0xC000);
 	if (addr < 0xFE00) return *self.wram_at(addr - 0xE000); // echo RAM
-	if (addr < 0xFEA0) return self.ppu.oam[addr - 0xFE00];
+	if (addr < 0xFEA0) {
+		self.ppu_touch();
+		return self.ppu.oam[addr - 0xFE00];
+	}
 	if (addr < 0xFF00) {
 		// Unused: $00 on a DMG; a CGB (C) has RAM here (Gambatte oamdma_*_busypushFF01).
 		return self.model == CGB ? self.extra_oam[(addr & ~0x18) - 0xFEA0] : 0;
 	}
 	if (addr >= 0xFF10 && addr <= 0xFF3F) return self.apu.read(addr);
-	if (addr < 0xFF80) return self.io_get(addr);
+	if (addr < 0xFF80) {
+		if (addr >= 0xFF40) self.ppu_touch();
+		return self.io_get(addr);
+	}
 	if (addr < 0xFFFF) return self.hram[addr - 0xFF80];
 	return self.ie;
 }
@@ -225,7 +239,11 @@ fn void Mmu.set(&self, ushort addr, char value) {
 		if (self.cart) self.cart.write(addr, value);
 		return;
 	}
-	if (addr < 0xA000) { *self.vram_at(addr - 0x8000) = value; return; }
+	if (addr < 0xA000) {
+		self.ppu_touch();
+		*self.vram_at(addr - 0x8000) = value;
+		return;
+	}
 	if (addr < 0xC000) {
 		if (self.cart) {
 			self.cart.write(addr, value);
@@ -236,7 +254,11 @@ fn void Mmu.set(&self, ushort addr, char value) {
 	}
 	if (addr < 0xE000) { *self.wram_at(addr - 0xC000) = value; return; }
 	if (addr < 0xFE00) { *self.wram_at(addr - 0xE000) = value; return; }  // echo RAM
-	if (addr < 0xFEA0) { self.ppu.oam[addr - 0xFE00] = value; return; }
+	if (addr < 0xFEA0) {
+		self.ppu_touch();
+		self.ppu.oam[addr - 0xFE00] = value;
+		return;
+	}
 	if (addr < 0xFF00) {                                              // unused
 		if (self.model == CGB) self.extra_oam[(addr & ~0x18) - 0xFEA0] = value;
 		return;
@@ -249,7 +271,11 @@ fn void Mmu.set(&self, ushort addr, char value) {
 		self.apu.write(addr, value);
 		return;
 	}
-	if (addr < 0xFF80) { self.io_set(addr, value); return; }
+	if (addr < 0xFF80) {
+		if (addr >= 0xFF40) self.ppu_touch();
+		self.io_set(addr, value);
+		return;
+	}
 	if (addr < 0xFFFF) { self.hram[addr - 0xFF80] = value; return; }
 	self.ie = value;
 }
@@ -341,6 +367,7 @@ fn void Mmu.hdma_halt(&self) {
 // A general purpose VRAM DMA: everything at once while the CPU waits. The
 // destination running past $FFFF ends it (Gambatte Memory::dma).
 fn void Mmu.gdma_run(&self) {
+	self.ppu_touch();
 	self.gdma_due = false;
 	for (int n = self.vdma_left; n >= 0; n--) {
 		self.vdma_block();
@@ -365,6 +392,7 @@ fn void Mmu.hdma_stop(&self, bool to_double) {
 
 // The CPU wakes: the block it held back, or one for an HBlank HALT slept into.
 fn void Mmu.hdma_unhalt(&self) {
+	self.ppu_touch();
 	if (!self.cgb_mode) return;
 	if ((self.vdma_hblank && self.hdma_period() && self.halt_hdma == 0) || self.halt_hdma >= 2) self.hdma_due = true;
 	// A block held back by HALT or a speed switch gives the CPU an M-cycle
@@ -386,6 +414,7 @@ fn bool Mmu.in_hblank(&self) {
 }
 
 fn void Mmu.vdma_hblank_step(&self, bool halted) {
+	self.ppu_touch();
 	if (!self.vdma_hblank) {
 		// Stopped after this block was requested: it still goes, and counts
 		// down the length written with the stop (Gambatte Memory::dma).
@@ -424,6 +453,7 @@ int oam_bug_row_offset = 4; // dot offset of the PPU's row (calibrated on Blargg
 
 fn void Mmu.oam_bug(&self, bool read, bool write) {
 	if (self.model == CGB) return;
+	self.ppu_touch();
 	if ((self.ppu.lcdc & ppu::LCDC_ENABLE) == 0 || self.ppu.mode != 2) return;
 	if (self.ppu.line >= ppu::VBLANK_LINE) return;
 	int row = (self.ppu.dot + oam_bug_row_offset) / 4;
@@ -756,6 +786,7 @@ fn bool Mmu.dma_cgb_open(&self, ushort addr) {
 // CPU reads and writes to OAM/VRAM are locked at slightly different moments
 // (see Ppu.oam_locked, vram_locked, oam_write_locked; Mooneye lcdon_*_timing).
 fn bool Mmu.ppu_blocks(&self, ushort addr, bool write) {
+	if (addr >= 0x8000 && addr < 0xA000 || addr >= 0xFE00 && addr < 0xFF00) self.ppu_touch();
 	if ((self.ppu.lcdc & ppu::LCDC_ENABLE) == 0) return false;
 	if (addr >= 0xFE00 && addr < 0xFF00) {
 		return write ? self.ppu.oam_write_locked() : self.ppu.oam_read_locked();
@@ -928,6 +959,7 @@ fn void Mmu.power_on_wram(&self) {
 // A CGB running a DMG game: the CGB registers lock, and the PPU draws like a
 // DMG's, coloured through palette RAM (BG palette 0, OBJ palettes 0 and 1).
 fn void Mmu.enter_compat_mode(&self) {
+	self.ppu_touch();
 	self.cgb_mode = false;
 	self.ppu.cgb = false;
 	self.ppu.compat = true;
@@ -938,6 +970,7 @@ fn void Mmu.enter_compat_mode(&self) {
 
 // Switch CGB double speed on or off (STOP with KEY1 bit 0 set).
 fn void Mmu.set_double_speed(&self, bool on) {
+	self.ppu_touch();
 	self.double_speed = on;
 	self.timer.double_speed = on;
 	self.apu.sync();
@@ -981,7 +1014,14 @@ fn void Mmu.tick(&self, char mcycles) {
 		self.ppu_freeze -= (int)skip;
 		dots -= skip;
 	}
-	char pirq = dots ? self.ppu.tick(dots) : 0;
+	char pirq = 0;
+	if (dots && self.ppu_may_lag(dots)) {
+		self.ppu_lag += dots;
+	} else if (dots) {
+		self.ppu_catch_up();
+		pirq = self.ppu.tick(dots);
+		self.ppu_room = self.dma.active || self.dma.pending || self.vdma_hblank || self.vdma_feed_len ? 0 : self.ppu.quiet_until();
+	}
 	// An IF write lands a cycle after the CPU's access (Gambatte: interrupts
 	// up to then are overwritten).
 	if (self.if_written && self.ppu.irq_dot == 0) pirq = 0;
@@ -1009,6 +1049,77 @@ fn void Mmu.tick(&self, char mcycles) {
 	if (self.cart && (self.cart.has_rtc || self.cart.has_clock)) self.cart.tick(rt);
 	// The camera runs on the CPU's clock pin, which stops in HALT.
 	if (self.cart && self.cart.camera.countdown && !self.cpu_halted) self.cart.camera_tick(rt);
+}
+
+// Off: the PPU runs in step all the time (debug traces show its position).
+bool lazy_ppu = true;
+
+// The PPU's dots of an M-cycle can wait: they'd only count and draw, with
+// no interrupt among them and nobody looking (an access to VRAM, OAM or a
+// PPU register catches the PPU up first: Mmu.ppu_touch).
+fn bool Mmu.ppu_may_lag(&self, uint dots) @inline {
+	if (!lazy_ppu) return false;
+	ulong spd = self.double_speed ? 2 : 1;
+	return self.ppu.cc + (ulong)(self.ppu_lag + dots + 8) * spd < self.ppu_room;
+}
+
+// Run the dots the PPU is behind.
+fn void Mmu.ppu_catch_up(&self) @inline {
+	if (self.ppu_lag == 0) return;
+	uint n = self.ppu_lag;
+	self.ppu_lag = 0;
+	if (ppu::check_catch_up) {
+		self.ppu_catch_up_checked(n);
+	} else {
+		self.ppu.catching_up = true;
+		// (No interrupt comes while catching up; one that did would still count.)
+		self.request_irq(self.ppu.tick(n));
+		self.ppu.catching_up = false;
+	}
+	// (Nobody waits for HBlank DMA when the PPU may lag.)
+	self.ppu.hblank_start = false;
+}
+
+// Debugging (ppu::check_catch_up): catch up a copy the ordinary way too,
+// dot by dot, and compare.
+fn void Mmu.ppu_catch_up_checked(&self, uint n) {
+	ppu::Ppu* ref = mem::new(ppu::Ppu);
+	defer free(ref);
+	*ref = self.ppu;
+	char[] fb = mem::new_array(char, self.ppu.fb.len);
+	ushort[] cfb = mem::new_array(ushort, self.ppu.cfb.len);
+	defer { free(fb.ptr); free(cfb.ptr); }
+	if (fb.len) fb[..] = self.ppu.fb[..];
+	if (cfb.len) cfb[..] = self.ppu.cfb[..];
+	ref.fb = fb;
+	ref.cfb = cfb;
+	ref.tick(n);
+	self.ppu.catching_up = true;
+	self.ppu.tick(n);
+	self.ppu.catching_up = false;
+	ref.fb = self.ppu.fb;
+	ref.cfb = self.ppu.cfb;
+	ref.irq_dot = self.ppu.irq_dot;
+	ref.hblank_start = self.ppu.hblank_start;
+	ppu::catch_up_checked++;
+	// A prediction made earlier (or later) is the same one: compare both made.
+	ppu::Ppu* mine = mem::new(ppu::Ppu);
+	defer free(mine);
+	*mine = self.ppu;
+	ref.pipe_end();
+	mine.pipe_end();
+	bool same = mem::equals(ref, mine, ppu::Ppu::size) && fb == self.ppu.fb && cfb == self.ppu.cfb;
+	if (!same) {
+		ppu::catch_up_mismatches++;
+		if (ppu::catch_up_mismatches < 5) io::eprintfn("catch-up of %d dots differs, now line %d dot %d", n, self.ppu.line, self.ppu.dot);
+	}
+}
+
+// Something is about to see or change the PPU: catch it up, and keep it in
+// step until the next M-cycle has looked at what comes next.
+fn void Mmu.ppu_touch(&self) @inline {
+	self.ppu_catch_up();
+	self.ppu_room = 0;
 }
 
 // PPU interrupt bits (ppu::INT_VBLANK / INT_STAT) -> IF.

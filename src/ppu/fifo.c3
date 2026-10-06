@@ -1,4 +1,5 @@
 module ppu;
+import std::io;
 
 // The drawing part of mode 3, one dot at a time, as the hardware does it: a
 // background fetcher reads the tile map and tile data a step per dot into an
@@ -348,6 +349,74 @@ fn void Ppu.render_dot(&self) {
 			self.pixel_and_fetch();
 	}
 }
+
+// Catching up (Mmu.ppu_catch_up), no write lands and no interrupt is due,
+// and nobody reads STAT until it's over: the dots of the OAM scan and of the
+// drawing go through the same steps as in Ppu.tick, without its checks for
+// what can't happen meanwhile. At most `left` dots, up to the dot drawing
+// starts or the end of drawing; returns how many it ran.
+fn uint Ppu.catch_up_line(&self, uint left) {
+	if (!fast_catch_up) return 0;
+	Renderer* r = &self.r;
+	ulong spd = self.spd();
+	uint n = 0;
+	if (!r.active) {
+		// The OAM scan, up to the dot drawing starts (Ppu.tick).
+		while (n < left && self.dot < render_start_dot) {
+			if (self.line == 0 && self.dot <= 2) self.window_line_checks();
+			int scan = self.dot < 88 ? self.oam_scan_index() : -1;
+			if (scan >= 0) {
+				self.oam_scan(scan);
+			} else if (self.cgb_hw && r.scan_tall_only > 0) {
+				self.oam_scan_second();
+			}
+			self.dot++;
+			self.cc += spd;
+			n++;
+			// (Ppu.update_mode)
+			if (self.dot == MODE3_START_DOT) {
+				self.pipe_end_dot = DOTS_PER_LINE;
+				self.m0_irq_pred = DOTS_PER_LINE;
+			}
+		}
+	} else if (self.plain_line()) {
+		// Only background: no object to fetch, no window that could start.
+		// (Where drawing ends is predicted while it's on: Ppu.update_mode.)
+		self.pipe_end();
+		while (n < left && r.active) {
+			self.render_pixel();
+			self.advance_fetcher();
+			if (r.pos == 160) self.render_end();
+			self.dot++;
+			self.cc += spd;
+			n++;
+		}
+	} else {
+		self.pipe_end();
+		while (n < left && r.active) {
+			if (self.cgb_hw && r.scan_tall_only > 0) self.oam_scan_second();
+			self.render_dot();
+			self.dot++;
+			self.cc += spd;
+			n++;
+		}
+	}
+	if (n) self.update_mode();
+	return n;
+}
+
+fn bool Ppu.plain_line(&self) {
+	Renderer* r = &self.r;
+	return r.n_obj == 0 && r.scan_tall_only == 0 && !r.wy_triggered && !r.wx_triggered && self.wy2 != u8(self.line)
+		&& !r.tile_sel_glitch && !self.win_abortable && !self.win_late_off;
+}
+
+bool fast_catch_up = true;
+
+// Debugging: run each catch-up the ordinary way too and compare (Mmu.ppu_catch_up).
+bool check_catch_up;
+int  catch_up_mismatches;
+int  catch_up_checked;
 
 // The rest of an ordinary dot: output a pixel, step the fetcher, finish the
 // line after pixel 159.

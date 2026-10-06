@@ -221,6 +221,33 @@ fn void Ppu.irq_reschedule(&self, bool lcd_on) {
 	s.oneshot_time = NEVER;
 }
 
+// Until when the PPU raises no interrupt and needs nobody (Mmu.ppu_may_lag):
+// its next scheduled event (VBlank among them), or now while LCD is off, a
+// register write is on its way or the LCD has just come on.
+fn ulong Ppu.quiet_until(&self) {
+	if ((self.lcdc & LCDC_ENABLE) == 0 || self.n_writes || self.first_line) return 0;
+	StatIrq* s = &self.si;
+	ulong t = s.m1_time;
+	if (s.m2_time < t) t = s.m2_time;
+	if (s.lyc_time < t) t = s.lyc_time;
+	if (s.oneshot_time < t) t = s.oneshot_time;
+	ulong vblank = self.next_frame_cycle((long)(VBLANK_LINE - 1) * DOTS_PER_LINE + VBLANK_START_DOT);
+	if (vblank < t) t = vblank;
+	if (s.m0_armed) {
+		// This line's mode 0 interrupt is known once drawing has started
+		// (Ppu.predict_mode3); until then, up to where the line's mode 3 begins.
+		if (self.line < VBLANK_LINE && !self.r.active && self.dot <= render_start_dot) {
+			if (self.dot >= MODE3_START_DOT) return 0;
+			ulong m3 = self.cc + (ulong)(MODE3_START_DOT - self.dot) * self.spd();
+			if (m3 < t) t = m3;
+		} else {
+			ulong m0 = self.m0_time();
+			if (m0 < t) t = m0;
+		}
+	}
+	return t;
+}
+
 fn void Ppu.irq_lcd_off(&self) {
 	StatIrq* s = &self.si;
 	s.m1_time = s.m2_time = s.lyc_time = s.oneshot_time = NEVER;
