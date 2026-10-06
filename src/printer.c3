@@ -1,5 +1,8 @@
 module mmu;
-import std::collections::list;
+import std::collections::list, std::io;
+
+// --printer-log: every packet the printer gets, and its answers.
+bool printer_log;
 
 // The Game Boy Printer on the link cable, after SameBoy (MIT: see
 // LICENSE-sameboy). The Game Boy clocks every byte; the printer answers each
@@ -59,6 +62,7 @@ struct Printer {
 	ushort    checksum;
 	char      status;
 	char      reply;          // the answer to the next byte
+	char      reply_status;   // the status answered in this packet (for the log)
 	char      run_left;       // compression: bytes left in this run
 	bool      run_repeat;     // ... the run repeats one byte
 	ulong     last_byte;      // rt_clock of the last byte
@@ -116,6 +120,7 @@ fn void Printer.receive(&self, char b, ulong now) {
 		case CHECKSUM_HIGH:
 			self.checksum ^= (ushort)b << 8;
 			if (self.checksum) {
+				if (printer_log) io::eprintfn("printer: command %d, %d bytes: bad checksum (off by $%04x)", self.command, self.data_len, self.checksum);
 				self.status |= PRINTER_BAD_CHECKSUM;
 				self.state = MAGIC1;
 				return;
@@ -128,7 +133,13 @@ fn void Printer.receive(&self, char b, ulong now) {
 				if ((self.status & PRINTER_PRINTING) && now >= self.busy_until) self.status = PRINTER_FULL;
 				self.reply = self.status;
 			}
+			self.reply_status = self.reply;
 		case STATUS:
+			if (printer_log) {
+				io::eprintfn("printer: command %d, %d bytes%s: answered $81 $%02x%s", self.command, self.data_len,
+					self.compressed ? " (compressed)" : "", self.reply_status,
+					self.command == PRINTER_PRINT && self.data_len == 4 ? string::tformat(" (margins $%02x palette $%02x exposure $%02x)", self.data[1], self.data[2], self.data[3]) : "");
+			}
 			self.state = MAGIC1;
 			self.run(now);
 			return;

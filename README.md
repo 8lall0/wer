@@ -144,6 +144,7 @@ wer --mode=cgb game.gbc
 | `--no-boot` | skip the boot ROM |
 | `--link-rom=ROM` | a second Game Boy in the window, running ROM, joined by the link cable |
 | `--link=printer` | the Game Boy Printer on the link port |
+| `--printer-log` | print every packet the printer gets and its answers |
 | `--link=host` | wait for another wer (or BGB) to join over the network, on port 8765 |
 | `--link=ADDRESS` | join one that waits there (`192.168.1.20`, or `host:port`) |
 | `--sgb-log` | print the commands an SGB game sends |
@@ -175,7 +176,8 @@ are saved to `~/.wer/wer.conf`.
 
 ### Link cable
 
-**Menu → Link** picks how the cable is plugged in:
+**Menu → Link** picks how the cable is plugged in (Left/Right to choose,
+Enter to plug it in):
 
 - **2 players here** asks for the second game (the same ROM is fine: its
   battery save becomes `game-2.sav`) and shows both Game Boys side by

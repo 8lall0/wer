@@ -661,6 +661,7 @@ fn int main(String[] args) @winmain
 			case a.starts_with("--frames="): frames = a[9..].to_int() ?? 600;
 			case a.starts_with("--palette="): palette = a[10..];
 			case a == "--sgb-log": sgb_log = true;
+			case a == "--printer-log": mmu::printer_log = true;
 			case a.starts_with("--link="): link_arg = a[7..];
 			case a.starts_with("--link-rom="): link_rom = a[11..];
 			case a.starts_with("--colors="):

@@ -57,12 +57,17 @@ fn void link_step(int step) {
 
 fn String link_line() {
 	if (typing) return string::tformat("Join: %s_", (String)typed[:typed_len]);
+	// The choice only takes effect with Enter: say so until it has.
 	String state;
-	if (link_pick == link_mode) {
+	if (link_pick != link_mode) {
+		state = link_pick == OFF ? "  Enter: unplug" : "  Enter: plug in";
+	} else {
 		switch (link_mode) {
-			case HOST: state = net.connected() ? "  linked" : "  waiting";
-			case JOIN: state = net.connected() ? "  linked" : "  lost";
-			default:   break;
+			case HOST:    state = net.connected() ? "  linked" : "  waiting";
+			case JOIN:    state = net.connected() ? "  linked" : "  lost";
+			case PRINTER:
+			case LOCAL:   state = "  on";
+			default:      break;
 		}
 	}
 	return string::tformat("Link:    < %s >%s", LINK_LABELS[link_pick.ordinal], state);
