@@ -28,6 +28,10 @@ enum Mbc : char {
 	HUC3, // $FE: clock and infrared (mappers.c3)
 	TAMA5, // $FD: Tamagotchi 3's clock and RAM (tama5.c3)
 	CAMERA, // $FC: the Game Boy Camera (camera.c3)
+	MBC6,   // $20: two ROM/flash windows, two RAM windows (rare.c3)
+	M161,   // Mani's 4 in 1: one 32 KiB bank, chosen once (rare.c3)
+	WISDOM, // Wisdom Tree: one 32 KiB bank by address (rare.c3)
+	TPP1,   // homebrew: 16-bit banks, RAM, clock, rumble (rare.c3)
 }
 
 // MBC7's own state (SameBoy's model, MIT: see LICENSE-sameboy). $A000-$AFFF
@@ -93,6 +97,9 @@ struct Cartridge {
 	Mmm01 mmm01;
 	Tama5 tama5;
 	Camera camera;
+	Mbc6  mbc6;
+	Tpp1  tpp1;
+	bool  m161_locked;
 }
 
 fn Mbc mbc_of(char type) {
@@ -109,6 +116,8 @@ fn Mbc mbc_of(char type) {
 			return MBC7;
 		case 0x0B: case 0x0C: case 0x0D:
 			return MMM01;
+		case 0x20:
+			return MBC6;
 		case 0xFC:
 			return CAMERA;
 		case 0xFD:
@@ -155,6 +164,17 @@ fn Cartridge* new(char[] image, String path) {
 	}
 	c.mbc = mbc_of(type);
 	c.has_battery = has_battery(type);
+	// Mappers the header doesn't name.
+	if (is_tpp1(c.rom)) {
+		c.mbc = TPP1;
+		c.has_battery = (c.rom[0x153] & 8) != 0;
+	} else if (c.rom.len == 0x40000 && (String)c.rom[0x134 : 10] == "TETRIS SET") {
+		c.mbc = M161;
+	} else if (is_wisdom_tree(c.rom)) {
+		c.mbc = WISDOM;
+	} else if (c.mbc == MBC6) {
+		c.has_battery = true; // the flash keeps what was written to it
+	}
 	c.has_rtc = type == 0x0F || type == 0x10;
 
 	// MBC1M multicart: a 1 MB MBC1 whose bank $10 (the second game) has its own
@@ -168,11 +188,19 @@ fn Cartridge* new(char[] image, String path) {
 		ram_len = 0x100; // the 93LC56 EEPROM
 	} else if (c.mbc == TAMA5) {
 		ram_len = 0x20;
+	} else if (c.mbc == MBC6) {
+		ram_len = MBC6_RAM + MBC6_FLASH;
+	} else if (c.mbc == TPP1) {
+		char n = c.rom[0x152];
+		ram_len = n >= 1 && n <= 9 ? 0x2000u << (n - 1) : 0;
+	} else if (c.mbc == M161 || c.mbc == WISDOM) {
+		ram_len = 0;
 	} else {
 		ram_len = ram_code < 6 ? RAM_SIZE[ram_code] : 0;
 	}
 	if (ram_len > 0) c.ram = mem::new_array(char, (sz)ram_len);
-	c.has_rumble = type >= 0x1C && type <= 0x1E;
+	c.has_rumble = (type >= 0x1C && type <= 0x1E) || (c.mbc == TPP1 && (c.rom[0x153] & 1));
+	if (c.mbc == MBC6) c.flash()[..] = 0xFF; // an erased flash chip
 	if (c.mbc == MBC7) {
 		c.ram[..] = 0xFF; // a blank EEPROM
 		c.mbc7.x_latch = c.mbc7.y_latch = 0x8000;
@@ -183,7 +211,8 @@ fn Cartridge* new(char[] image, String path) {
 
 	c.rom_bank = 1;
 	c.bank1 = 1;
-	c.has_clock = c.mbc == HUC3 || c.mbc == TAMA5;
+	c.has_clock = c.mbc == HUC3 || c.mbc == TAMA5 || (c.mbc == TPP1 && (c.rom[0x153] & 4));
+	if (c.mbc == M161 || c.mbc == WISDOM) c.rom_bank = 0;
 	if (c.mbc == HUC3) c.huc3.unset();
 	if (c.mbc == TAMA5) c.tama5.init();
 	if (c.mbc == MMM01) c.mmm01.ram_mask = 3;
@@ -199,6 +228,7 @@ fn Cartridge* new(char[] image, String path) {
 				switch (c.mbc) {
 					case HUC3:  c.huc3.deserialize(block, unix_now());
 					case TAMA5: c.tama5.deserialize(block, unix_now());
+					case TPP1:  c.tpp1.deserialize(block, unix_now());
 					default:    c.rtc.deserialize(block, unix_now());
 				}
 			}
@@ -222,6 +252,7 @@ fn usz Cartridge.clock_save_len(&self) {
 		case self.has_rtc:      return RTC_SAVE_LEN;
 		case self.mbc == HUC3:  return HUC3_SAVE_LEN;
 		case self.mbc == TAMA5: return TAMA5_SAVE_LEN;
+		case self.mbc == TPP1:  return self.has_clock ? TPP1_SAVE_LEN : 0;
 		default:                return 0;
 	}
 }
@@ -240,6 +271,7 @@ fn void Cartridge.save(&self) {
 		switch (self.mbc) {
 			case HUC3:  self.huc3.serialize(block, unix_now());
 			case TAMA5: self.tama5.serialize(block, unix_now());
+			case TPP1:  self.tpp1.serialize(block, unix_now());
 			default:    self.rtc.serialize(block, unix_now());
 		}
 	}
@@ -271,6 +303,7 @@ fn usz Cartridge.mbc1_rom_offset(&self, ushort addr) {
 fn usz Cartridge.rom_offset(&self, ushort addr) {
 	if (self.mbc == MBC1) return self.mbc1_rom_offset(addr);
 	if (self.mbc == MMM01) return self.mmm01_rom_offset(addr);
+	if (self.mbc == M161 || self.mbc == WISDOM) return self.big_bank_offset(addr);
 
 	if (addr < 0x4000) return addr;
 	uint bank = self.rom_bank;
@@ -285,6 +318,7 @@ fn bool Cartridge.rtc_selected(&self) {
 }
 
 fn char Cartridge.read(&self, ushort addr) {
+	if (addr < 0x8000 && self.mbc == MBC6) return self.mbc6_read_rom(addr);
 	if (addr < 0x8000) {
 		usz off = self.rom_offset(addr);
 		return off < self.rom.len ? self.rom[off] : 0xFF;
@@ -292,6 +326,7 @@ fn char Cartridge.read(&self, ushort addr) {
 	// $A000-$BFFF
 	switch (self.mbc) {
 		case MBC7:  return self.mbc7_read(addr);
+		case TPP1:  return self.tpp1_read(addr);
 		case HUC1:  return self.huc1_read(addr);
 		case HUC3:  return self.huc3_read(addr);
 		case TAMA5: return self.tama5_read(addr);
@@ -331,6 +366,8 @@ fn void Cartridge.tick(&self, uint tcycles) {
 		self.clock_subsec -= hz;
 		if (self.mbc == HUC3) {
 			self.huc3.tick_second();
+		} else if (self.mbc == TPP1) {
+			self.tpp1.tick_second();
 		} else {
 			self.tama5.pending++;
 		}
@@ -340,6 +377,7 @@ fn void Cartridge.tick(&self, uint tcycles) {
 fn usz Cartridge.ram_offset(&self, ushort addr) {
 	usz local = (usz)(addr - 0xA000);
 	if (self.mbc == MBC2) return local & 0x1FF;
+	if (self.mbc == MBC6) return self.mbc6_ram_offset(addr);
 	uint bank = (self.mbc == MBC1 && !self.mode1) ? 0 : self.ram_bank;
 	// MBC3 banks $08-$0C are the RTC registers, not RAM: keep them out of range
 	// (reads $FF, writes dropped) instead of wrapping onto real save RAM.
@@ -359,6 +397,7 @@ fn void Cartridge.write(&self, ushort addr, char value) {
 		case HUC1:  self.huc1_write(addr, value); return;
 		case HUC3:  self.huc3_write(addr, value); return;
 		case TAMA5: self.tama5_write(addr, value); return;
+		case TPP1:  self.tpp1_write(addr, value); return;
 		case CAMERA: self.camera_write(addr, value); return;
 		default:    break;
 	}
@@ -433,6 +472,10 @@ fn void Cartridge.write_control(&self, ushort addr, char value) {
 		case HUC1:  self.huc1_control(addr, value);
 		case HUC3:  self.huc3_control(addr, value);
 		case TAMA5: break; // everything goes through $A000/$A001
+		case MBC6:  self.mbc6_control(addr, value);
+		case M161:
+		case WISDOM: self.big_bank_control(addr, value);
+		case TPP1:  self.tpp1_control(addr, value);
 		case CAMERA: self.camera_control(addr, value);
 		case MBC7:
 			switch {

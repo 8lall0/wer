@@ -264,6 +264,7 @@ fn void GameBoy.set_tilt(&self, float x, float y) {
 fn float GameBoy.rumble(&self) {
 	cart::Cartridge* c = self.mmu.cart;
 	if (!c || !c.has_rumble) return 0;
+	if (c.mbc == TPP1) return c.tpp1.rumble / 3.0f; // TPP1 sets a strength
 	float level = c.rumble_writes ? (float)c.rumble_on / c.rumble_writes : c.rumble ? 1 : 0;
 	c.rumble_writes = c.rumble_on = 0;
 	return level;

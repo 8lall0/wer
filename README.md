@@ -27,7 +27,7 @@ ROMs: they never leave the browser; touch controls on phones).
   where they happen.
 - **Cartridges**: MBC1 (including multicarts), MBC2, MBC3 with the real-time
   clock, MBC5 (with rumble), MBC7 (Kirby Tilt 'n' Tumble's accelerometer and
-  EEPROM), the Game Boy Camera, MMM01 multicarts, HuC1 and HuC3 (with HuC3's clock), TAMA5
+  EEPROM), the Game Boy Camera, MBC6 (Net de Get, with its flash chip), MMM01 multicarts, M161 (Mani's 4 in 1), the Wisdom Tree games' mapper, TPP1 (homebrew, with clock and rumble), HuC1 and HuC3 (with HuC3's clock), TAMA5
   (Tamagotchi 3, with its clock and the buzzer that calls you, approximated); battery saves (`.sav`, with the clocks in the formats other
   emulators use).
 - **Game Boy Camera**: the camera sees through your webcam, the phone's

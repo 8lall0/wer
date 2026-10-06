@@ -194,3 +194,119 @@ fn void tama5_calling_buzzes() @test {
 	assert(!c.tama5.calling);
 	test::eq(c.tama5.buzzes, 2u);
 }
+
+// A flash command through window A.
+fn void mbc6_cmd(cart::Cartridge* c, char v) {
+	c.write(0x2000, 2);
+	c.write(0x5555, 0xAA);
+	c.write(0x2000, 1);
+	c.write(0x4AAA, 0x55);
+	c.write(0x2000, 2);
+	c.write(0x5555, v);
+}
+
+// MBC6: two 8 KiB windows on ROM or flash, two 4 KiB RAM windows; the
+// flash takes JEDEC commands (Pan Docs).
+fn void mbc6_windows_and_flash() @test {
+	char[] rom = mem::temp_array(char, 0x40000);
+	for (usz b = 0; b < 0x40000 / 0x2000; b++) rom[b * 0x2000 + 0x100] = (char)b;
+	rom[0x147] = 0x20;
+	cart::Cartridge* c = cart::new(rom, "");
+	defer c.free();
+	c.write(0x2000, 5);
+	c.write(0x3000, 9);
+	test::eq(c.read(0x4100), 5);
+	test::eq(c.read(0x6100), 9);
+	// RAM: bank 3 in window B.
+	c.write(0x0000, 0x0A);
+	c.write(0x0800, 3);
+	c.write(0xB010, 0x77);
+	test::eq(c.ram[3 * 0x1000 + 0x10], 0x77);
+	// The flash in window A, bank 4 (sector 0 is write-protected without $1000).
+	c.write(0x0C00, 1);
+	c.write(0x2800, 0x08);
+	c.write(0x2000, 0x10); // flash $20000: sector 1
+	test::eq(c.read(0x4000), 0xFF);   // erased
+	// Command addresses are flash addresses: $5555 = bank 2 + $1555, $2AAA = bank 1 + $0AAA.
+	mbc6_cmd(c, 0xA0);                       // program
+	c.write(0x2000, 0x10);
+	c.write(0x4000, 0x5A);
+	c.write(0x4000, 0xF0);              // done: reading again
+	test::eq(c.read(0x4000), 0x5A);
+	mbc6_cmd(c, 0x90);                       // ID
+	test::eq(c.read(0x4000), 0xC2);
+	test::eq(c.read(0x4001), 0x81);
+	c.write(0x4000, 0xF0);
+	mbc6_cmd(c, 0x80);                       // erase prefix, then sector erase
+	c.write(0x2000, 2); c.write(0x5555, 0xAA);
+	c.write(0x2000, 1); c.write(0x4AAA, 0x55);
+	c.write(0x2000, 0x10); c.write(0x4000, 0x30);
+	test::eq(c.read(0x4000), 0x80);     // status: done
+	c.write(0x4000, 0xF0);
+	test::eq(c.read(0x4000), 0xFF);
+}
+
+fn void m161_and_wisdom_tree() @test {
+	char[] rom = mem::temp_array(char, 0x40000);
+	for (usz b = 0; b < 8; b++) rom[b * 0x8000 + 0x150] = (char)b;
+	rom[0x134 : 10] = ((char[])"TETRIS SET")[..];
+	rom[0x147] = 0x10;
+	cart::Cartridge* m = cart::new(rom, "");
+	defer m.free();
+	test::eq(m.read(0x0150), 0);
+	m.write(0x5000, 3);
+	test::eq(m.read(0x0150), 3);
+	m.write(0x5000, 5);                 // once only
+	test::eq(m.read(0x0150), 3);
+
+	char[] wt = mem::temp_array(char, 0x40000);
+	for (usz b = 0; b < 8; b++) wt[b * 0x8000 + 0x150] = (char)b;
+	wt[0x1000 : 11] = ((char[])"WISDOM TREE")[..];
+	cart::Cartridge* w = cart::new(wt, "");
+	defer w.free();
+	test::eq(w.read(0x0150), 0);
+	w.write(0x0006, 0x00);              // the address picks the bank
+	test::eq(w.read(0x0150), 6);
+	test::eq(w.read(0x4000 + 0x150 - 0x150), w.rom[6 * 0x8000 + 0x4000]);
+}
+
+// TPP1: registers by address bits 0-1, MR3 commands, the clock.
+fn void tpp1_banks_ram_clock_rumble() @test {
+	char[] rom = mem::temp_array(char, 0x80000);
+	for (usz b = 0; b < 32; b++) rom[b * 0x4000 + 0x150] = (char)b;
+	rom[0x147] = 0xBC;
+	rom[0x149] = 0xC1;
+	rom[0x14A] = 0x65;
+	rom[0x152] = 1;                     // 8 KiB RAM
+	rom[0x153] = 0x0D;                  // rumble, clock, battery
+	cart::Cartridge* c = cart::new(rom, "");
+	defer c.free();
+	c.write(0x0000, 0x13);
+	c.write(0x0001, 0x00);
+	test::eq(c.read(0x4150), 0x13);
+	c.write(0x0003, 0x03);              // RAM read/write
+	c.write(0xA005, 0x42);
+	test::eq(c.read(0xA005), 0x42);
+	c.write(0x0003, 0x02);              // read-only
+	c.write(0xA005, 0x99);
+	test::eq(c.read(0xA005), 0x42);
+	c.write(0x0003, 0x00);              // the MR registers
+	test::eq(c.read(0xA000), 0x13);
+	c.write(0x0003, 0x22);              // rumble 2
+	test::eq(c.read(0xA003) & 3, 2);
+	// Set 23:59:59, Saturday (6), week 0, start the clock, let a second pass.
+	c.write(0x0003, 0x05);
+	c.write(0xA003, 59);                // seconds (read back at address 3)
+	c.write(0xA002, 59);
+	c.write(0xA001, 23 | (6 << 5));
+	c.write(0xA000, 0);
+	c.write(0x0003, 0x11);              // set from the latch
+	c.write(0x0003, 0x19);              // start
+	c.rtc.cpu_hz = 1000;
+	c.tick(1000);
+	c.write(0x0003, 0x10);              // latch
+	c.write(0x0003, 0x05);
+	test::eq(c.read(0xA003), 0);
+	test::eq(c.read(0xA001), 0);        // midnight, Sunday
+	test::eq(c.read(0xA000), 1);        // week 1
+}
