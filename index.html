@@ -105,6 +105,74 @@
   canvasEl.addEventListener('contextmenu', (e) => e.preventDefault());
   for (const t of ['pointerdown', 'pointermove', 'pointerup', 'pointercancel', 'pointerenter', 'pointerleave'])
     document.addEventListener(t, onTouch, { capture: true, passive: false });
+  // The link cable between two browsers (src/netlink.c3): WebRTC through
+  // PeerJS (its public broker only introduces the two sides). The host
+  // shows a code, the other side types it in; then BGB link packets go
+  // straight between the two browsers.
+  let netPeer = null, netConn = null, netBox = null;
+  function netShow(text) {
+    if (!netBox) {
+      netBox = document.createElement('div');
+      netBox.style.cssText = 'position:fixed;left:50%;top:8px;transform:translateX(-50%);z-index:11;' +
+        'background:#081820e8;color:#e0f8d0;border:1px solid #88c070;padding:8px 14px;font:16px monospace;text-align:center';
+      document.body.appendChild(netBox);
+    }
+    netBox.innerHTML = text;
+    netBox.style.display = text ? 'block' : 'none';
+  }
+  function netLoad(then) {
+    if (window.Peer) { then(); return; }
+    const s = document.createElement('script');
+    s.src = 'https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js';
+    s.onload = then;
+    s.onerror = () => netShow('Could not load the link library');
+    document.head.appendChild(s);
+  }
+  function netUse(conn) {
+    netConn = conn;
+    conn.on('open', () => { netShow(''); Module._wer_net_open(); });
+    conn.on('data', (d) => {
+      const b = new Uint8Array(d);
+      for (let i = 0; i + 8 <= b.length; i += 8) Module._wer_net_packet(b[i], b[i + 1], b[i + 2], b[i + 3]);
+    });
+    const gone = () => { if (netConn === conn) { netConn = null; Module._wer_net_closed(); } };
+    conn.on('close', gone);
+    conn.on('error', gone);
+  }
+  function werNetHost() {
+    netShow('Link: starting...');
+    netLoad(() => {
+      const code = Array.from(crypto.getRandomValues(new Uint8Array(5)), (v) => 'abcdefghjkmnpqrstuvwxyz23456789'[v % 31]).join('');
+      netPeer = new Peer('wer-link-' + code);
+      const url = location.origin + location.pathname + '?link=' + code;
+      netPeer.on('open', () => netShow('Link code: <b>' + code + '</b><br>the other player picks Join and types it,' +
+        '<br>or opens <a style="color:#88c070" href="' + url + '">' + url + '</a>'));
+      netPeer.on('connection', (c) => { if (netConn) netConn.close(); netUse(c); });
+      netPeer.on('error', (e) => netShow('Link: ' + e.type));
+    });
+  }
+  function werNetJoin(code) {
+    netShow('Link: connecting...');
+    netLoad(() => {
+      netPeer = new Peer();
+      netPeer.on('open', () => netUse(netPeer.connect('wer-link-' + code, { reliable: true, serialization: 'raw' })));
+      netPeer.on('error', (e) => { netShow(e.type === 'peer-unavailable' ? 'No one is hosting code ' + code : 'Link: ' + e.type); Module._wer_net_closed(); });
+    });
+  }
+  window.werLinkOpen = () => !!(netConn && netConn.open); // for testing
+  function werNetAskJoin() {
+    const code = prompt('Link code from the other player:');
+    Module.ccall('wer_net_join_code', null, ['string'], [code || '']);
+  }
+  function werNetSend(cmd, b2, b3, b4, stamp) {
+    if (netConn && netConn.open) netConn.send(new Uint8Array([cmd, b2, b3, b4, stamp, stamp >> 8, stamp >> 16, stamp >> 24]));
+  }
+  function werNetClose() {
+    if (netConn) netConn.close();
+    if (netPeer) netPeer.destroy();
+    netConn = netPeer = null;
+    netShow('');
+  }
   // A Game Boy Printer printout (src/linkui.c3): save it from the in-memory
   // filesystem as a download.
   function werDownload(path) {
@@ -186,7 +254,8 @@
   }
   var Module = {
     canvas: document.getElementById('canvas'),
-    arguments: [],
+    // index.html?link=host waits for the other side; ?link=CODE joins it.
+    arguments: new URLSearchParams(location.search).get('link') ? ['--link=' + new URLSearchParams(location.search).get('link')] : [],
     preRun: [() => {
       for (const dir of KEPT) {
         try { FS.mkdir(dir); } catch (e) {}
