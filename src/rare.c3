@@ -3,6 +3,14 @@ module cart;
 // Rare mappers: MBC6 (Net de Get), M161 (Mani's 4 in 1), the Wisdom Tree
 // games' mapper, and TPP1 (homebrew: a big ROM, RAM, a clock and rumble).
 
+// A ROM that needs a cartridge mapper: the header names one, or it is one
+// of those the header doesn't name (TPP1, M161, Wisdom Tree, Sachen).
+fn bool needs_mapper(char[] rom) {
+	if (rom.len > 0x147 && mbc_of(rom[0x147]) != NONE) return true;
+	if (is_tpp1(rom) || is_wisdom_tree(rom) || is_sachen_mmc1(rom) || is_sachen_mmc2(rom)) return true;
+	return rom.len == 0x40000 && (String)rom[0x134 : 10] == "TETRIS SET";
+}
+
 // --- MBC6 ($20) -------------------------------------------------------------
 // Pan Docs: $4000-$5FFF and $6000-$7FFF are two 8 KiB windows (A, B) on the
 // ROM or on an 8 Mbit Macronix MX29F008 flash chip, $A000-$AFFF and

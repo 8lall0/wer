@@ -1,5 +1,5 @@
 module mappers_test;
-import cart;
+import cart, gameboy;
 import std::core::test;
 
 // HuC1, HuC3, MMM01 and TAMA5 on made-up ROMs: each 16 KiB bank holds its
@@ -309,4 +309,51 @@ fn void tpp1_banks_ram_clock_rumble() @test {
 	test::eq(c.read(0xA003), 0);
 	test::eq(c.read(0xA001), 0);        // midnight, Sunday
 	test::eq(c.read(0xA000), 1);        // week 1
+}
+
+// Sachen: base bank and mask (open only with bank bits 4-5 set), and $01xx
+// reads through scrambled address lines.
+fn void sachen_banks_and_scrambling() @test {
+	char[] rom = mem::temp_array(char, 0x40000);
+	for (usz b = 0; b < 16; b++) rom[b * 0x4000 + 0x2000] = (char)b;
+	rom[0x104] = 0xCE; rom[0x144] = 0xED; rom[0x114] = 0x66; // MMC1's scrambled logo
+	rom[0x103] = 0x5A;                                       // $0150 reads $0103: bits 6 and 4 move to 0 and 1
+	cart::Cartridge* c = cart::new(rom, "");
+	defer c.free();
+	test::eq(c.mbc, cart::Mbc.SACHEN);
+	c.sachen.locked = false;
+	test::eq(c.read(0x0150), 0x5A);
+	c.write(0x2000, 0x05);
+	test::eq(c.read(0x6000), 5);
+	// Open the base/mask registers, then put game 2 (banks 8-15) in place.
+	c.write(0x2000, 0x30);
+	c.write(0x0000, 0x08);                // base
+	c.write(0x4000, 0x08);                // mask: bit 3 comes from the base
+	test::eq(c.read(0x2000), 8);          // $0000-$3FFF: base & mask
+	c.write(0x2000, 0x03);
+	test::eq(c.read(0x6000), 11);         // 3 | 8
+}
+
+// Mappers the header doesn't name still get their cartridge when a game loads.
+fn void unnamed_mappers_load_as_cartridges() @test {
+	char[] rom = mem::temp_array(char, 0x40000);
+	rom[0x147] = 0xBC; rom[0x149] = 0xC1; rom[0x14A] = 0x65;
+	gameboy::GameBoy a = gameboy::new(false, DMG);
+	defer a.destroy();
+	a.load_rom(rom);
+	assert(a.mmu.cart != null && a.mmu.cart.mbc == cart::Mbc.TPP1);
+
+	char[] wt = mem::temp_array(char, 0x40000);
+	wt[0x1000 : 11] = ((char[])"WISDOM TREE")[..];
+	gameboy::GameBoy b = gameboy::new(false, DMG);
+	defer b.destroy();
+	b.load_rom(wt);
+	assert(b.mmu.cart != null && b.mmu.cart.mbc == cart::Mbc.WISDOM);
+
+	char[] sa = mem::temp_array(char, 0x40000);
+	sa[0x104] = 0xCE; sa[0x144] = 0xED; sa[0x114] = 0x66;
+	gameboy::GameBoy c = gameboy::new(false, DMG);
+	defer c.destroy();
+	c.load_rom(sa);
+	assert(c.mmu.cart != null && c.mmu.cart.mbc == cart::Mbc.SACHEN && !c.mmu.cart.sachen.locked);
 }

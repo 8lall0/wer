@@ -32,6 +32,7 @@ enum Mbc : char {
 	M161,   // Mani's 4 in 1: one 32 KiB bank, chosen once (rare.c3)
 	WISDOM, // Wisdom Tree: one 32 KiB bank by address (rare.c3)
 	TPP1,   // homebrew: 16-bit banks, RAM, clock, rumble (rare.c3)
+	SACHEN, // Sachen MMC1/MMC2: base bank and mask, logo scrambling (sachen.c3)
 }
 
 // MBC7's own state (SameBoy's model, MIT: see LICENSE-sameboy). $A000-$AFFF
@@ -100,6 +101,7 @@ struct Cartridge {
 	Mbc6  mbc6;
 	Tpp1  tpp1;
 	bool  m161_locked;
+	Sachen sachen;
 }
 
 fn Mbc mbc_of(char type) {
@@ -172,6 +174,10 @@ fn Cartridge* new(char[] image, String path) {
 		c.mbc = M161;
 	} else if (is_wisdom_tree(c.rom)) {
 		c.mbc = WISDOM;
+	} else if (is_sachen_mmc1(c.rom) || is_sachen_mmc2(c.rom)) {
+		c.mbc = SACHEN;
+		c.has_battery = false;
+		c.sachen.locked = true; // until the boot ROM hands over (Mmu)
 	} else if (c.mbc == MBC6) {
 		c.has_battery = true; // the flash keeps what was written to it
 	}
@@ -193,7 +199,7 @@ fn Cartridge* new(char[] image, String path) {
 	} else if (c.mbc == TPP1) {
 		char n = c.rom[0x152];
 		ram_len = n >= 1 && n <= 9 ? 0x2000u << (n - 1) : 0;
-	} else if (c.mbc == M161 || c.mbc == WISDOM) {
+	} else if (c.mbc == M161 || c.mbc == WISDOM || c.mbc == SACHEN) {
 		ram_len = 0;
 	} else {
 		ram_len = ram_code < 6 ? RAM_SIZE[ram_code] : 0;
@@ -304,6 +310,7 @@ fn usz Cartridge.rom_offset(&self, ushort addr) {
 	if (self.mbc == MBC1) return self.mbc1_rom_offset(addr);
 	if (self.mbc == MMM01) return self.mmm01_rom_offset(addr);
 	if (self.mbc == M161 || self.mbc == WISDOM) return self.big_bank_offset(addr);
+	if (self.mbc == SACHEN) return self.sachen_rom_offset(addr);
 
 	if (addr < 0x4000) return addr;
 	uint bank = self.rom_bank;
@@ -476,6 +483,7 @@ fn void Cartridge.write_control(&self, ushort addr, char value) {
 		case M161:
 		case WISDOM: self.big_bank_control(addr, value);
 		case TPP1:  self.tpp1_control(addr, value);
+		case SACHEN: self.sachen_control(addr, value);
 		case CAMERA: self.camera_control(addr, value);
 		case MBC7:
 			switch {

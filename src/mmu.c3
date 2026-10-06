@@ -646,6 +646,8 @@ fn void Mmu.io_set(&self, ushort addr, char value) {
 			self.boot_active = false;
 			// The CGB boot ROM chose DMG compatibility mode through KEY0.
 			if (self.model == CGB && (self.key0 & 0x04) != 0) self.enter_compat_mode();
+			// Sachen cartridges stop hiding their logo once the boot ROM is done.
+			if (self.cart && self.cart.mbc == SACHEN) self.cart.sachen.locked = false;
 			// A GBA's boot ROM ends with INC B: what games check (Pan Docs).
 			if (self.model == CGB && self.cgb_rev == AGB) self.agb_inc_b = true;
 		case 0xFF4C:   // KEY0: writable only while the CGB boot ROM runs

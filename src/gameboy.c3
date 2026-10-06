@@ -362,11 +362,13 @@ fn Cartridge GameBoy.load_rom_named(&self, char[] data, String save_path) {
 	}
 	c.header_ok = header_checksum_ok(data);
 
-	if (cart::mbc_of(c.type) == cart::Mbc.NONE) {
+	if (!cart::needs_mapper(data)) {
 		self.mmu.load(0, data);
 		self.mmu.has_extram = c.type == 0x08 || c.type == 0x09;
 	} else {
 		self.mmu.cart = cart::new(data, save_path);
+		// Started past the boot ROM: a Sachen cartridge is already unlocked.
+		if (self.mmu.cart.mbc == SACHEN && !self.mmu.boot_active) self.mmu.cart.sachen.locked = false;
 		// The cartridge clock has its own crystal: it keeps real time even
 		// when the Game Boy runs fast (SGB).
 		self.mmu.cart.rtc.cpu_hz = self.mmu.model.clock_hz();
