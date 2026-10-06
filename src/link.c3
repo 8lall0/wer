@@ -21,6 +21,16 @@ struct Link {
 	char in_byte;
 }
 
+// Infrared: the CGB's port (RP, $FF56) and HuC1/HuC3 cartridges' LEDs.
+// Light only crosses between two Game Boys here: games time its pulses to
+// the cycle, which a network can't carry.
+fn bool Mmu.ir_led(&self) {
+	if (self.cgb_mode && (self.rp & 1)) return true;
+	return self.cart && self.cart.ir_out && (self.cart.ir_mode || (self.cart.mbc == HUC3 && self.cart.huc3.mode == 0xE));
+}
+
+fn bool Mmu.ir_seen(&self) => self.link && self.link.peer && self.link.peer.ir_led();
+
 // Connect two Game Boys in this process (both Links must stay where they are).
 fn void connect_local(Mmu* a, Link* la, Mmu* b, Link* lb) {
 	*la = { .peer = b };

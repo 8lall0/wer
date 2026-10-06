@@ -191,7 +191,11 @@ fn char Mmu.get(&self, ushort addr) {
 	}
 	if (addr < 0x8000) return self.cart ? self.cart.read(addr) : self.rom[addr];
 	if (addr < 0xA000) return *self.vram_at(addr - 0x8000);
-	if (addr < 0xC000) return self.cart ? self.cart.read(addr) : (self.has_extram ? self.extram[addr - 0xA000] : 0xFF);
+	if (addr < 0xC000) {
+		if (!self.cart) return self.has_extram ? self.extram[addr - 0xA000] : 0xFF;
+		if (self.cart.mbc == HUC1 || self.cart.mbc == HUC3) self.cart.ir_in = self.ir_seen();
+		return self.cart.read(addr);
+	}
 	if (addr < 0xE000) return *self.wram_at(addr - 0xC000);
 	if (addr < 0xFE00) return *self.wram_at(addr - 0xE000); // echo RAM
 	if (addr < 0xFEA0) return self.ppu.oam[addr - 0xFE00];
@@ -510,7 +514,8 @@ fn char Mmu.io_get(&self, ushort addr) {
 			case 0xFF77: return self.apu.pcm34();
 			// Infrared: bit 0 = LED on, bits 6-7 = receiver enable, bit 1 = 0
 			// while light is received (never: no other device).
-			case 0xFF56: return c ? (char)((self.rp & 0xC1) | 0x3E) : 0xFF;
+			// Bit 1 reads 0 while light comes in, with reading on (bits 6-7).
+			case 0xFF56: return c ? (char)((self.rp & 0xC1) | 0x3C | ((self.rp & 0xC0) == 0xC0 && self.ir_seen() ? 0 : 2)) : 0xFF;
 		}
 	}
 	switch (addr) {

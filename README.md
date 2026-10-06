@@ -182,7 +182,9 @@ Enter to plug it in):
 - **2 players here** asks for the second game (the same ROM is fine: its
   battery save becomes `game-2.sav`) and shows both Game Boys side by
   side. The keyboard, touch and the first gamepad play one of them (` swaps
-  which), a second gamepad the other.
+  which), a second gamepad the other. Their infrared ports see each other
+  too (the Game Boy Color's, and HuC1/HuC3 cartridges'): infrared needs
+  both Game Boys here, its pulses are timed to the cycle.
 - **Printer** plugs in the Game Boy Printer: each printout is saved as a
   PNG next to the game (`game-print-1.png`, `-2`, ...; in a browser it
   downloads).

@@ -99,3 +99,31 @@ fn void network_cable_swaps_bytes() @test {
 	test::eq(b.mmu.io[0x01], 0x42);
 	test::eq(a.mmu.io[0x02] & 0x80, 0);
 }
+
+// Infrared between two Game Boy Colors here: RP bit 1 reads 0 while the
+// other's LED is on, and only with reading switched on (bits 6-7).
+fn void infrared_between_two_cgbs() @test {
+	gameboy::GameBoy a = gameboy::new(false, CGB);
+	gameboy::GameBoy b = gameboy::new(false, CGB);
+	defer { a.destroy(); b.destroy(); }
+	char[] rom = program(0, 0);
+	rom[0x143] = 0x80; // CGB mode
+	a.load_rom(rom);
+	b.load_rom(rom);
+	mmu::Link la;
+	mmu::Link lb;
+	mmu::connect_local(&a.mmu, &la, &b.mmu, &lb);
+	b.mmu.set(0xFF56, 0xC0);           // reading on
+	test::eq(b.mmu.get(0xFF56) & 2, 2); // dark
+	a.mmu.set(0xFF56, 0x01);           // the other's LED on
+	test::eq(b.mmu.get(0xFF56) & 2, 0);
+	b.mmu.set(0xFF56, 0x00);           // reading off: nothing seen
+	test::eq(b.mmu.get(0xFF56) & 2, 2);
+	b.mmu.set(0xFF56, 0xC0);
+	a.mmu.set(0xFF56, 0x00);
+	test::eq(b.mmu.get(0xFF56) & 2, 2);
+	a.mmu.unplug();
+	b.mmu.unplug();
+	a.mmu.set(0xFF56, 0x01);
+	test::eq(b.mmu.get(0xFF56) & 2, 2); // no cable, no light
+}
