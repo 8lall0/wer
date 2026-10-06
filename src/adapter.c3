@@ -8,14 +8,14 @@ module mmu;
 // Ping phase: packets of 4 bytes, $FE then three status bytes (bits 4-7: the
 // players connected, bits 0-2: the player's own number). A Game Boy answers
 // $88 $88 (it's there), then the rate and the packet size it wants (player
-// 1's count). Four $AA from player 1 in place of a packet ask for the
-// transmission phase; the adapter answers four $CC.
+// 1's count). $AA from player 1 asks for the transmission phase: after
+// that packet the adapter answers four $CC.
 //
 // Transmission phase: packets of SIZE x 4 bytes. In each, every Game Boy
 // sends its SIZE bytes first, while the adapter sends everyone what it
 // collected in the packet before: player 1's bytes, then 2's, 3's, 4's
-// (zeros for a missing player). Three $FF from player 1 go back to ping,
-// after a packet of $FF.
+// (zeros for a missing player). $FF twice from player 1 in a packet goes
+// back to ping, after a packet of $FF.
 
 enum AdapterPhase : char {
 	PING,
@@ -37,10 +37,8 @@ struct Adapter {
 	char  pending;          // ... as this ping packet finds them
 	char  rate;
 	int   size;             // bytes per player in a packet
-	char  new_rate;         // ... as player 1 answers this ping packet
-	int   new_size;
-	int   aa;               // $AA from player 1 in a row
-	int   ff;               // $FF from player 1 in a row
+	bool  sync;             // player 1 sent $AA: the data phase after this packet
+	int   ff;               // $FF from player 1 in this data packet
 	char[4 * 255] collect;  // this packet's bytes, by player
 	char[4 * 255] out;      // last packet's, to send
 }
@@ -91,41 +89,38 @@ fn void Adapter.tick(&self, Mmu*[4] gbs, ulong now) {
 	}
 }
 
-// What the four sent for the byte at `index` (-1: not waiting for it).
+// What the four sent with the byte at `index` (-1: not waiting for it). A
+// Game Boy loads its answer to a byte after receiving it, so the answer
+// arrives with the byte after (GBE+, whose author documented the adapter):
+// in a ping packet the two $88 come at 1 and 2, the rate at 3 and the
+// packet size at the next 0; in a data packet a player's bytes at 1 to SIZE.
 fn void Adapter.receive(&self, int[4] got) {
 	int p1 = got[0];
 	switch (self.phase) {
 		case PING:
-			if (p1 == 0xAA) {
-				self.aa++;
-			} else {
-				self.aa = 0;
-			}
+			if (p1 == 0xAA) self.sync = true; // player 1 asks for the data phase
 			for (int p = 0; p < 4; p++) {
 				char bit = (char)(0x10 << p);
-				switch (self.index) {
-					case 0:
-					case 1:
-						if (got[p] == 0x88) {
-							if (self.index == 0) self.pending |= bit;
-						} else {
-							self.pending &= ~bit;
-						}
-					case 2: if (p == 0 && got[p] >= 0) self.new_rate = (char)got[p];
-					case 3: if (p == 0 && got[p] > 0) self.new_size = got[p];
+				if (self.index == 1 || self.index == 2) {
+					if (got[p] == 0x88 || (p == 0 && self.sync)) {
+						if (self.index == 1) self.pending |= bit;
+					} else {
+						self.pending &= ~bit;
+					}
 				}
+			}
+			if (!self.sync) {
+				if (self.index == 3 && p1 >= 0) self.rate = (char)p1;
+				if (self.index == 0 && p1 > 0 && p1 != 0xAA) self.size = p1;
 			}
 		case TRANSMIT:
-			if (self.index < self.size) {
+			if (self.index >= 1 && self.index <= self.size) {
 				for (int p = 0; p < 4; p++) {
-					self.collect[p * self.size + self.index] = got[p] >= 0 && (self.connected & (0x10 << p)) ? (char)got[p] : 0;
+					self.collect[p * self.size + self.index - 1] = got[p] >= 0 && (self.connected & (0x10 << p)) ? (char)got[p] : 0;
 				}
 			}
-			if (p1 == 0xFF) {
-				self.ff++;
-			} else {
-				self.ff = 0;
-			}
+			if (self.index == 1) self.ff = 0;
+			if (p1 == 0xFF) self.ff++;
 		default:
 			break;
 	}
@@ -134,26 +129,18 @@ fn void Adapter.receive(&self, int[4] got) {
 fn void Adapter.end_packet(&self) {
 	switch (self.phase) {
 		case PING:
-			if (self.aa >= 4) {
+			self.connected = self.pending;
+			if (self.sync) {
+				self.sync = false;
 				self.phase = CONFIRM;
-			} else {
-				self.connected = self.pending;
-				// Player 1's rate and size count once it answered the packet.
-				if ((self.pending & 0x10) && self.new_size) {
-					self.rate = self.new_rate;
-					self.size = self.new_size;
-				}
 			}
-			self.new_size = 0;
-			self.pending = 0;
-			self.aa = 0;
 		case CONFIRM:
 			self.phase = TRANSMIT;
 			self.out[..] = 0;
 			self.collect[..] = 0;
 			self.ff = 0;
 		case TRANSMIT:
-			if (self.ff >= 3) {
+			if (self.ff >= 2) {
 				self.phase = RESTART;
 			} else {
 				int n = self.size * 4;
