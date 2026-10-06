@@ -54,10 +54,10 @@ fn void prints_a_page() @test {
 	// Print: no margin before, 2 after, the usual palette ($E4), exposure.
 	s = packet(&p, 2, { 1, 0x02, 0xE4, 0x40 }, &now);
 	s = packet(&p, 15, {}, &now);
-	test::eq(s.status & mmu::PRINTER_PRINTING, mmu::PRINTER_PRINTING);
-	now += HZ; // 16 rows take half a second
+	test::eq(s.status, 0x06); // printing
+	now += HZ; // 16 rows take a second
 	s = packet(&p, 15, {}, &now);
-	test::eq(s.status, mmu::PRINTER_DONE);
+	test::eq(s.status, 0x04); // printed
 
 	char[] page = p.take_page(now);
 	test::eq(page.len, 160 * 16);

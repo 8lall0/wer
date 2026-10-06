@@ -34,14 +34,16 @@ const char PRINTER_INIT  = 1;
 const char PRINTER_PRINT = 2;
 const char PRINTER_DATA_CMD = 4;
 
-// Status bits.
+// Status bits, and the values the status goes through (Pan Docs): $08 with
+// data waiting, $06 while printing, $04 once printed. The Game Boy Camera
+// reports a print error when printing doesn't show as $06.
 const char PRINTER_BAD_CHECKSUM = 0x01;
 const char PRINTER_PRINTING     = 0x02;
-const char PRINTER_DONE         = 0x04;
+const char PRINTER_FULL         = 0x04; // "image data full": printing, and after
 const char PRINTER_UNPRINTED    = 0x08;
 
-// Rows printed per second: a whole Game Boy screen in four and a half.
-const ulong PRINTER_ROWS_PER_SEC = 32;
+// Rows printed per second: a whole Game Boy screen in nine (SameBoy's pace).
+const ulong PRINTER_ROWS_PER_SEC = 16;
 // No byte for this long in the middle of a packet: start over.
 const ulong PRINTER_TIMEOUT_SEC = 1;
 // A page with no margin after its last print is done after this long.
@@ -123,9 +125,7 @@ fn void Printer.receive(&self, char b, ulong now) {
 			if (self.command == PRINTER_INIT) {
 				self.reply = 0; // games expect 0 after initialising
 			} else {
-				if ((self.status & PRINTER_PRINTING) && now >= self.busy_until) {
-					self.status = (self.status & (char)~PRINTER_PRINTING) | PRINTER_DONE;
-				}
+				if ((self.status & PRINTER_PRINTING) && now >= self.busy_until) self.status = PRINTER_FULL;
 				self.reply = self.status;
 			}
 		case STATUS:
@@ -166,8 +166,8 @@ fn void Printer.run(&self, ulong now) {
 			self.status = 0;
 			self.image_len = 0;
 		case PRINTER_DATA_CMD:
-			if (self.data_len != PRINTER_DATA) return;
-			self.status |= PRINTER_UNPRINTED;
+			if (self.data_len != PRINTER_DATA) return; // the empty packet that ends the data
+			self.status = PRINTER_UNPRINTED;
 			if (self.image_len + PAPER_W * 16 > self.image.len) self.image_len = 0;
 			// Two rows of 20 tiles, 2 bits a pixel.
 			for (int row = 0; row < 2; row++) {
@@ -194,7 +194,7 @@ fn void Printer.run(&self, ulong now) {
 			foreach (s : self.image[:self.image_len]) self.paper.push((palette >> (s * 2)) & 3);
 			ulong rows = self.image_len / PAPER_W;
 			self.image_len = 0;
-			self.status = (self.status & (char)~(PRINTER_UNPRINTED | PRINTER_DONE)) | PRINTER_PRINTING;
+			self.status = PRINTER_PRINTING | PRINTER_FULL;
 			self.busy_until = now + rows * self.hz / PRINTER_ROWS_PER_SEC;
 			self.last_print = now;
 			if (margins & 0x0F) self.page_done = true;
