@@ -105,6 +105,16 @@
   canvasEl.addEventListener('contextmenu', (e) => e.preventDefault());
   for (const t of ['pointerdown', 'pointermove', 'pointerup', 'pointercancel', 'pointerenter', 'pointerleave'])
     document.addEventListener(t, onTouch, { capture: true, passive: false });
+  // A Game Boy Printer printout (src/linkui.c3): save it from the in-memory
+  // filesystem as a download.
+  function werDownload(path) {
+    const blob = new Blob([FS.readFile(path)], { type: 'image/png' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = path.split('/').pop();
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  }
   // Tilt for MBC7 games (src/tilt.c3): the phone's accelerometer, turned to
   // the screen as shown, in g (x right, y the bottom edge down).
   const IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) ||
