@@ -1,17 +1,18 @@
 module wer;
 import std::io, std::io::file;
-import gameboy, mmu, display, netlink;
+import gameboy, mmu, display, netlink, png;
 
 // The link cable in the menu: off, a second Game Boy in this window (both
 // pictures side by side), or another wer (or BGB) over the network.
 enum LinkMode : char {
 	OFF,
 	LOCAL,  // two Game Boys here
+	PRINTER, // the Game Boy Printer: printouts become PNG files
 	HOST,   // waiting for, or linked with, a side that joined
 	JOIN,   // linked with a side that hosts
 }
 
-const String[4] LINK_LABELS = { "Off", "2 players here", "Host", "Join" };
+const String[5] LINK_LABELS = { "Off", "2 players here", "Printer", "Host", "Join" };
 
 // Pixels between the two pictures.
 const int LINK_GAP = 8;
@@ -19,6 +20,11 @@ const int LINK_GAP = 8;
 LinkMode link_mode;
 LinkMode link_pick;      // the menu's choice, applied with Enter
 netlink::NetLink net;
+
+// PRINTER: the printer and its cable.
+mmu::Printer printer;
+mmu::Link printer_cable;
+bool printer_on;
 
 // LOCAL: the second Game Boy and the cable between them.
 gameboy::GameBoy gb2;
@@ -70,6 +76,8 @@ fn void link_stop() {
 		has_p2 = false;
 	}
 	gb.mmu.unplug();
+	if (printer_on) printer.free();
+	printer_on = false;
 	screen.two_players = false;
 	link_mode = OFF;
 	keyboard_player = 0;
@@ -81,6 +89,8 @@ fn void link_apply() {
 		case OFF:
 			link_stop();
 			notice.show("Link cable unplugged");
+		case PRINTER:
+			link_printer();
 		case LOCAL:
 			// The second game comes from the file dialog (link_second_chosen).
 			dialog_p2 = true;
@@ -176,12 +186,51 @@ fn void link_replug() {
 				String path = p2_path.tcopy();
 				link_second_chosen(path);
 			}
+		case PRINTER:
+			gb.mmu.connect_printer(&printer_cable, &printer);
 		case HOST:
 		case JOIN:
 			net.replug(&gb.mmu);
 		default:
 			break;
 	}
+}
+
+fn void link_printer() {
+	link_stop();
+	printer.init((uint)gb.mmu.model.clock_hz());
+	printer_on = true;
+	gb.mmu.connect_printer(&printer_cable, &printer);
+	link_mode = PRINTER;
+	notice.show("Printer connected");
+}
+
+// A finished printout: a PNG next to the game's saves (game-print-1.png,
+// -2, ...); in a browser it downloads too.
+fn void link_printout() {
+	if (!printer_on) return;
+	char[] page = printer.take_page(gb.mmu.rt_clock);
+	if (!page.len) return;
+	defer printer.clear_page();
+	char[] grey = mem::temp_array(char, page.len);
+	const char[4] SHADES = { 255, 170, 85, 0 };
+	foreach (i, s : page) grey[i] = SHADES[s & 3];
+	String path;
+	for (int n = 1; n < 10000; n++) {
+		path = string::tformat("%s-print-%d.png", save_base, n);
+		if (!file::is_file(path)) break;
+	}
+	char[] data = png::grey(grey, mmu::PAPER_W, (int)(page.len / mmu::PAPER_W), tmem);
+	if (catch file::save(path, data)) {
+		notice.show("Could not save the printout");
+		return;
+	}
+	io::printfn("printed %s", path);
+	sz slash = path.rindex_of_char('/') ?? -1;
+	notice.show(string::tformat("Printed %s", path[slash + 1..]));
+	$if env::EMSCRIPTEN:
+		display::run_script(string::tformat("werDownload('%s')", path).zstr_tcopy());
+	$endif
 }
 
 // One frame of emulation with whatever is on the cable. The input goes to
@@ -197,6 +246,11 @@ fn void link_run_frame(display::Input* in) {
 		return;
 	}
 	gb.mmu.set_input(in.buttons, in.dpad);
+	if (printer_on) {
+		gb.run_frame();
+		link_printout();
+		return;
+	}
 	if (net.state != OFF) {
 		gb.run_frame_polled(fn (ctx) { (void)net.poll(&gb.mmu); }, null, 8);
 		(void)net.poll(&gb.mmu);

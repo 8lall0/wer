@@ -760,7 +760,10 @@ fn int main(String[] args) @winmain
 
 	// The link cable from the command line.
 	if (link_rom.len && has_rom) link_second_chosen(link_rom);
-	if (link_arg == "host") {
+	if (link_arg == "printer") {
+		link_printer();
+		link_pick = LinkMode.PRINTER;
+	} else if (link_arg == "host") {
 		if (catch net.host(netlink::DEFAULT_PORT)) {
 			io::eprintn("link: can't listen on port 8765");
 		} else {

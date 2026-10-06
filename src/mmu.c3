@@ -849,7 +849,7 @@ fn void Mmu.serial_shift(&self) {
 	if (++self.serial_bits < 8) return;
 	if (self.link) {
 		int b = self.link_exchange();
-		if (b == -1 && !self.link.peer) {
+		if (b == -1 && !self.link.peer && !self.link.printer) {
 			self.serial_waiting = true;
 			return;
 		}

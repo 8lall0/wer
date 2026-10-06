@@ -39,6 +39,8 @@ ROMs: they never leave the browser; touch controls on phones).
 - **Link cable**: two Game Boys in one window, side by side (trade with
   yourself, Tetris versus with two gamepads), or two copies of wer over the
   network, in BGB's link protocol (so wer also links with BGB).
+- **Game Boy Printer**: printouts (Game Boy Camera photos, Pokédex pages,
+  ...) become PNG files next to the game.
 - **Save states** (9 slots per game), **pause**, **frame advance** and
   **fast forward**.
 - **Gamepads** (any SDL3 gamepad), **key remapping**, **window scale** 1x-4x,
@@ -141,6 +143,7 @@ wer --mode=cgb game.gbc
 | `--scale=1..4` | window size, multiples of 160x144 |
 | `--no-boot` | skip the boot ROM |
 | `--link-rom=ROM` | a second Game Boy in the window, running ROM, joined by the link cable |
+| `--link=printer` | the Game Boy Printer on the link port |
 | `--link=host` | wait for another wer (or BGB) to join over the network, on port 8765 |
 | `--link=ADDRESS` | join one that waits there (`192.168.1.20`, or `host:port`) |
 | `--sgb-log` | print the commands an SGB game sends |
@@ -178,6 +181,9 @@ are saved to `~/.wer/wer.conf`.
   battery save becomes `game-2.sav`) and shows both Game Boys side by
   side. The keyboard, touch and the first gamepad play one of them (` swaps
   which), a second gamepad the other.
+- **Printer** plugs in the Game Boy Printer: each printout is saved as a
+  PNG next to the game (`game-print-1.png`, `-2`, ...; in a browser it
+  downloads).
 - **Host** waits for the other side on port 8765; **Join** asks for the
   host's address (it is remembered). Each side runs its own game; a
   transfer's bytes cross the network when it happens, so a slow connection
