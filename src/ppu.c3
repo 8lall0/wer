@@ -43,6 +43,7 @@ const char REV_B = 2;
 const char REV_C = 3;
 const char REV_D = 4;
 const char REV_E = 5;
+const char REV_AGB = 6; // a Game Boy Advance
 
 struct Ppu {
 	int  irq_dot;        // tick(): the dot of the call that raised the first IRQ, or -1

@@ -198,8 +198,23 @@ fn GameBoy new(bool boot = true, mmu::Model model = DMG) {
 }
 
 // Which CGB chip revision to emulate (C unless set).
+// A GBA's boot ROM leaves B one higher, its flags from that INC B: Z if B
+// wrapped, H on a carry out of the low nibble, N clear, C as it was.
+fn void GameBoy.agb_inc_b(&self) {
+	self.mmu.agb_inc_b = false;
+	char old = self.cpu.bc.hi;
+	char b = old + 1;
+	self.cpu.bc.hi = b;
+	char f = self.cpu.af.lo & 0x10;
+	if (b == 0) f |= 0x80;
+	if ((old & 0xF) == 0xF) f |= 0x20;
+	self.cpu.af.lo = f;
+}
+
 fn void GameBoy.set_cgb_revision(&self, mmu::CgbRevision rev) {
 	self.mmu.cgb_rev = rev;
+	// Started past the boot ROM: its last instruction is still owed.
+	if (rev == AGB && self.mmu.model == CGB && !self.mmu.boot_active) self.mmu.agb_inc_b = true;
 	self.mmu.apu.rev = (char)rev.ordinal;
 	self.mmu.ppu.rev = (char)rev.ordinal;
 }
@@ -391,6 +406,7 @@ fn void Cartridge.print(&self) {
 }
 
 fn char GameBoy.step(&self) {
+	if (self.mmu.agb_inc_b) self.agb_inc_b();
 	char cycles = self.cpu.step(&self.mmu);
 	return cycles;
 }
@@ -420,7 +436,7 @@ fn FrameSize GameBoy.frame_rgb(&self, char[] rgb, char[12] colors) {
 				rgb[i * 3 + 2] = expand5((c >> 10) & 0x1F);
 			}
 		} else {
-			char[3]* lut = cgb_colors();
+			char[3]* lut = cgb_colors(self.mmu.cgb_rev == AGB);
 			foreach (i, c : self.mmu.ppu.cfb) rgb[i * 3 : 3] = lut[c & 0x7FFF][..];
 		}
 		return { ppu::WIDTH, ppu::HEIGHT };

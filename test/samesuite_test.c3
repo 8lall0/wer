@@ -37,7 +37,7 @@ const Rom[*] ROMS = {
 	{ "apu/channel_1/channel_1_duty_delay", true },
 	{ "apu/channel_1/channel_1_extra_length_clocking-cgb0B", true },
 	{ "apu/channel_1/channel_1_freq_change", true },
-	{ "apu/channel_1/channel_1_freq_change_timing-A", false },
+	{ "apu/channel_1/channel_1_freq_change_timing-A", true },
 	{ "apu/channel_1/channel_1_freq_change_timing-cgb0BC", true },
 	{ "apu/channel_1/channel_1_freq_change_timing-cgbDE", true },
 	{ "apu/channel_1/channel_1_nrx2_glitch", true },
@@ -118,9 +118,10 @@ enum Outcome : char {
 }
 
 // SameSuite targets a CGB-E, unless a test's name lists other revisions
-// (-cgb0B: CGB 0 and B, -cgbB, -cgbDE; -A, a GBA, isn't emulated): the
+// (-cgb0B: CGB 0 and B, -cgbB, -cgbDE; -A: a GBA): the
 // first one named.
 fn mmu::CgbRevision revision_of(String path) {
+	if (path.ends_with("-A")) return AGB;
 	if (path.contains("-cgb0")) return CGB0;
 	if (path.contains("-cgbB")) return B;
 	if (path.contains("-cgbD")) return D;

@@ -43,6 +43,8 @@ enum CgbRevision : char {
 	C,
 	D,
 	E,
+	AGB,  // a Game Boy Advance: a CGB-E as far as Game Boy games go, but for the
+	      // start-up B register, its sound mixing and its screen (agb notes)
 }
 
 // A DMG's revision, where it matters: the CPU DMG 0's boot ROM leaves other
@@ -129,6 +131,7 @@ struct Mmu {
 	usz    serial_log_len;
 
 	bool boot_active;
+	bool agb_inc_b;     // GBA: the boot ROM's last INC B is still to happen (GameBoy.step)
 	Model model;
 	CgbRevision cgb_rev; // CGB only
 	DmgRevision dmg_rev; // DMG only
@@ -643,6 +646,8 @@ fn void Mmu.io_set(&self, ushort addr, char value) {
 			self.boot_active = false;
 			// The CGB boot ROM chose DMG compatibility mode through KEY0.
 			if (self.model == CGB && (self.key0 & 0x04) != 0) self.enter_compat_mode();
+			// A GBA's boot ROM ends with INC B: what games check (Pan Docs).
+			if (self.model == CGB && self.cgb_rev == AGB) self.agb_inc_b = true;
 		case 0xFF4C:   // KEY0: writable only while the CGB boot ROM runs
 			if (self.model == CGB && self.boot_active) self.key0 = value;
 		default:       self.io[addr - 0xFF00] = value;

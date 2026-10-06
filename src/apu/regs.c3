@@ -16,6 +16,7 @@ const char[23] READ_MASK = {
 fn int Apu.wave_access(&self, int i) {
 	if (!self.active[WAV]) return i;
 	if (!self.cgb && !self.wave.just_read) return -1;
+	if (self.rev == REV_AGB) return -1; // a GBA: no wave RAM while channel 3 plays (SameBoy)
 	return self.wave.current_sample_index / 2;
 }
 
@@ -201,7 +202,8 @@ fn void Apu.write_nrx4(&self, int i, int reg, char value) {
 	// A frequency change from >= $700 to < $700 right before a step: the
 	// countdown should use the old length but the sample must not change.
 	if ((value & 0x80) == 0 && self.active[i] && (old_nrx4 & 7) == 7 && (value & 7) != 7) {
-		if (self.after_c() || (s.sample_countdown & 1)) {
+		// A GBA, like a CGB-C and older, differs in double speed (SameBoy).
+		if (self.d_or_e() || (s.sample_countdown & 1)) {
 			if (s.did_tick && s.sample_countdown >> 1 == (s.sample_length ^ 0x7FF)) {
 				s.current_sample_index = (s.current_sample_index - 1) & 7;
 				s.sample_surpressed = false;
@@ -220,7 +222,7 @@ fn void Apu.write_nrx4(&self, int i, int reg, char value) {
 		s.did_tick = false;
 		bool force_unsurpressed = false;
 		if (!self.active[i]) {
-			if (self.after_c()) {
+			if (self.d_or_e()) {
 				if ((value & 4) == 0 && (((s.sample_countdown - s.delay) / 2) & 0x400) == 0) {
 					s.current_sample_index = (s.current_sample_index + 1) & 7;
 					self.latch_duty(i);
@@ -233,8 +235,8 @@ fn void Apu.write_nrx4(&self, int i, int reg, char value) {
 			if (self.cgb && self.rev == REV_C) s.sample_countdown = self.duty_start_ticks(i, false) - 1;
 		} else {
 			int extra_delay = 0;
-			if (self.after_c()) {
-				// SameBoy (CGB-E): the duty steps on a restart almost always.
+			if (self.d_or_e()) {
+				// SameBoy (CGB-D/E, not a GBA): the duty steps on a restart almost always.
 				if (!s.just_reloaded && (value & 4) == 0 && (((s.sample_countdown - 1 - s.delay) / 2) & 0x400) == 0) {
 					s.current_sample_index = (s.current_sample_index + 1) & 7;
 					self.latch_duty(i);

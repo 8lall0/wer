@@ -26,11 +26,12 @@ struct Link {
 // Light only crosses between two Game Boys here: games time its pulses to
 // the cycle, which a network can't carry.
 fn bool Mmu.ir_led(&self) {
+	if (self.cgb_rev == AGB && self.model == CGB) return false; // a GBA has no infrared port
 	if (self.cgb_mode && (self.rp & 1)) return true;
 	return self.cart && self.cart.ir_out && (self.cart.ir_mode || (self.cart.mbc == HUC3 && self.cart.huc3.mode == 0xE));
 }
 
-fn bool Mmu.ir_seen(&self) => self.link && self.link.peer && self.link.peer.ir_led();
+fn bool Mmu.ir_seen(&self) => self.link && self.link.peer && self.link.peer.ir_led() && !(self.model == CGB && self.cgb_rev == AGB);
 
 // Connect two Game Boys in this process (both Links must stay where they are).
 fn void connect_local(Mmu* a, Link* la, Mmu* b, Link* lb) {

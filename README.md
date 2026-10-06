@@ -15,7 +15,9 @@ ROMs: they never leave the browser; touch controls on phones).
 
 - **Models**: Game Boy (DMG, also the first CPU DMG 0), Game Boy Pocket,
   Super Game Boy and Super Game Boy 2, Game Boy Color in each chip revision
-  (CPU CGB 0 to E). CGB-only games switch to the Game Boy Color automatically.
+  (CPU CGB 0 to E), and a Game Boy Advance running Game Boy games (games that
+  look for one find it: B set at start, its sound timing, its screen's
+  colours, no infrared port). CGB-only games switch to the Game Boy Color automatically.
 - **Super Game Boy**: game-controlled colours and borders, the 32 built-in
   palettes, the original SGB running about 2.4% fast like the real one.
 - **Game Boy Color**: colour games, double speed, VRAM DMA, and original Game
@@ -65,7 +67,7 @@ ROMs: they never leave the browser; touch controls on phones).
 | Blargg `cpu_instrs`, `instr_timing`, `mem_timing`, `mem_timing-2`, `halt_bug`, `interrupt_time` | pass |
 | Blargg `dmg_sound`, `cgb_sound` | 12/12, 12/12 |
 | Blargg `oam_bug` | 8/8 (`7-timing_effect` prints more than its 8 KB text buffer: the harness empties it) |
-| [SameSuite](https://github.com/LIJI32/SameSuite) | 77/78 (the other is for a Game Boy Advance) |
+| [SameSuite](https://github.com/LIJI32/SameSuite) | 78/78 (one on the Game Boy Advance model) |
 | [Gambatte test suite](https://github.com/pokemon-speedrunning/gambatte-core) | 5225/5225 |
 | [AGE test ROMs](https://github.com/c-sp/age-test-roms) | 119/119 on the revisions each test names (DMG, CGB-B, C, E) |
 | [gbmicrotest](https://github.com/aappleby/GBMicrotest) | 480/482 (the other two are disabled in its own runner) |
@@ -145,7 +147,7 @@ wer --mode=cgb game.gbc
 
 | Option | |
 |---|---|
-| `--mode=dmg\|mgb\|sgb\|sgb2\|cgb` | the model to emulate: `dmg` is a CPU DMG A/B/C (`dmg-0` the first DMGs), `mgb` a Game Boy Pocket, `cgb` a CPU CGB C (the others with `cgb-0`, `cgb-a`, `cgb-b`, `cgb-c`, `cgb-d`, `cgb-e`) |
+| `--mode=dmg\|mgb\|sgb\|sgb2\|cgb` | the model to emulate: `dmg` is a CPU DMG A/B/C (`dmg-0` the first DMGs), `mgb` a Game Boy Pocket, `cgb` a CPU CGB C (the others with `cgb-0`, `cgb-a`, `cgb-b`, `cgb-c`, `cgb-d`, `cgb-e`), `gba` a Game Boy Advance |
 | `--palette=1-A` … `4-H` | SGB built-in palette (SGB modes) |
 | `--blend=off\|simple\|accurate` | frame blending, like the LCD's slow response (games that flicker objects for transparency look right): `simple` mixes each frame half and half with the last, `accurate` is SameBoy's model of the LCD |
 | `--colors=balanced` | CGB/SGB colour correction, as the real screens looked: `off` (raw colours), `balanced` (the default), `accurate`, `boost`, `reduce`, `low` (SameBoy's modes) |

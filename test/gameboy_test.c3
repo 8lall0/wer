@@ -66,3 +66,31 @@ fn void sgb_post_boot_state() @test
 	test::eq((char)0xFF, gb.mmu.get(0xFF00));  // both P1 select lines high
 	test::eq((char)0xF0, gb.mmu.get(0xFF26));  // no boot chime: channel 1 off
 }
+
+// A Game Boy Advance hands over with B one higher (Pan Docs): B = $01 and
+// F = $00 for a Game Boy Color game, whether the boot ROM runs or not.
+fn void gba_hands_over_with_b_set() @test {
+	char[] rom = mem::temp_array(char, 0x8000);
+	rom[0x143] = 0x80; // CGB game
+	rom[0x100] = 0x18; // jr $
+	rom[0x101] = 0xFE;
+	foreach (boot : (bool[]){ false, true }) {
+		gameboy::GameBoy gb = gameboy::new(boot, CGB);
+		defer gb.destroy();
+		gb.set_cgb_revision(AGB);
+		gb.load_rom(rom);
+		while (gb.cpu.pc != 0x100 || gb.mmu.boot_active) gb.step();
+		gb.step(); // the boot ROM's last INC B lands before the game's first instruction
+		test::eq(gb.cpu.bc.hi, 0x01);
+		test::eq(gb.cpu.af.lo, 0x00);
+		test::eq(gb.cpu.af.hi, 0x11);
+	}
+	// A CGB, for comparison.
+	gameboy::GameBoy c = gameboy::new(false, CGB);
+	defer c.destroy();
+	c.set_cgb_revision(E);
+	c.load_rom(rom);
+	c.step();
+	test::eq(c.cpu.bc.hi, 0x00);
+	test::eq(c.cpu.af.lo, 0x80);
+}

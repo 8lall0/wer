@@ -132,10 +132,14 @@ const char REV_B = 2;
 const char REV_C = 3;
 const char REV_D = 4;
 const char REV_E = 5;
+const char REV_AGB = 6; // a Game Boy Advance
 
 // SameBoy's `model <= GB_MODEL_CGB_C` (a DMG counts) and `> CGB_C` (D, E).
 fn bool Apu.le_c(&self) => !self.cgb || self.rev <= REV_C;
 fn bool Apu.after_c(&self) => self.cgb && self.rev > REV_C;
+// Exactly a CGB-D or E: where SameBoy names those two (a GBA, revision
+// AGB, goes the older way there).
+fn bool Apu.d_or_e(&self) => self.cgb && (self.rev == REV_D || self.rev == REV_E);
 
 // Clears the channel state like a power cycle does (not the registers).
 fn void Apu.clear_state(&self) {
@@ -313,7 +317,7 @@ fn void Apu.div_event(&self) {
 		if (!self.noise.env.clock && !self.env_grace[2]) self.noise.volume_countdown = (self.noise.volume_countdown - 1) & 7;
 	}
 
-	if (self.double_speed && self.after_c()) {
+	if (self.double_speed && self.d_or_e()) {
 		self.pending_envelope_tick = true;
 	} else {
 		for (int i = 0; i < 2; i++) {

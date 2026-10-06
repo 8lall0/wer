@@ -110,7 +110,7 @@ fn bool Config.set(&self, String name, String value) {
 		case name == "mode":
 			switch (value) {
 				case "dmg": case "dmg-0": case "mgb": case "sgb": case "sgb2": case "cgb":
-				case "cgb-0": case "cgb-a": case "cgb-b": case "cgb-c": case "cgb-d": case "cgb-e":
+				case "cgb-0": case "cgb-a": case "cgb-b": case "cgb-c": case "cgb-d": case "cgb-e": case "gba":
 					break;
 				default:
 					return false;

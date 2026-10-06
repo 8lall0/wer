@@ -92,7 +92,7 @@ fn uint GameBoy.state_flags(&self) {
 
 // The model in a state's header, with the CGB and DMG revisions (0 for C and
 // A/B/C, so states from before revisions still load).
-fn uint GameBoy.state_model(&self) => (uint)self.mmu.model.ordinal | (uint)((self.mmu.cgb_rev.ordinal + 3) % 6) << 8
+fn uint GameBoy.state_model(&self) => (uint)self.mmu.model.ordinal | (uint)(self.mmu.cgb_rev == AGB ? 6 : (self.mmu.cgb_rev.ordinal + 3) % 6) << 8
 	| (uint)((self.mmu.dmg_rev.ordinal + 2) % 3) << 12;
 
 fn StateHeader GameBoy.state_header(&self, uint version) {
