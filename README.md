@@ -145,6 +145,8 @@ wer --mode=cgb game.gbc
 | `--palette=1-A` … `4-H` | SGB built-in palette (SGB modes) |
 | `--blend=off\|simple\|accurate` | frame blending, like the LCD's slow response (games that flicker objects for transparency look right): `simple` mixes each frame half and half with the last, `accurate` is SameBoy's model of the LCD |
 | `--colors=balanced` | CGB/SGB colour correction, as the real screens looked: `off` (raw colours), `balanced` (the default), `accurate`, `boost`, `reduce`, `low` (SameBoy's modes) |
+| `--filter=off\|sharp\|smooth\|lcd\|scanlines` | how the pixels are drawn: `sharp` keeps them crisp and even at any size (full screen, a phone), `smooth` blurs them, `lcd` shows the dot grid of a Game Boy's screen, `scanlines` dark lines between rows (the last two from 3x up) |
+| `--screenshot=FILE` | with `--frames=N`: save the picture as a PNG after N frames, then quit |
 | `--scale=1..4` | window size, multiples of 160x144 |
 | `--no-boot` | skip the boot ROM |
 | `--link-rom=ROM` | a second Game Boy in the window, running ROM, joined by the link cable |
@@ -169,6 +171,7 @@ Options given on the command line override `~/.wer/wer.conf` for that run.
 | Open ROM | Ctrl+O | |
 | Save state 1-9 | Shift+F1 … Shift+F9 | Menu |
 | Load state 1-9 | F1 … F9 | Menu |
+| Screenshot | F12 (`game-shot-N.png` next to the game) | |
 | Pause | P | |
 | Frame advance | N | |
 | Fast forward | hold Tab | hold right shoulder |

@@ -86,6 +86,9 @@ struct Display {
 
 	// Frame blending (blend.c3): the last raw frame, and the frame parity.
 	Blend             blend;
+	Filter            filter;    // filter.c3
+	String            shot_path; // a screenshot to save at the next present (temp memory)
+	bool              shot_ok;   // ... and whether it was
 	char[]            prev;      // RGB, sized for MAX_W x MAX_H
 	char[]            mixed;     // the blended frame, the same size
 	int               prev_w;
@@ -145,6 +148,7 @@ const ushort KEY_PAUSE   = 0x80; // P
 const ushort KEY_ADVANCE = 0x100; // N: one frame while paused
 const ushort KEY_SWAP    = 0x200; // `: the keyboard goes to the other Game Boy (link cable)
 const ushort KEY_BACKSPACE = 0x400; // text entry
+const ushort KEY_SHOT    = 0x800; // F12: a screenshot
 
 struct Input {
 	bool quit;     // window closed
@@ -351,7 +355,7 @@ fn void Display.resize(&self, int w, int h) {
 	if (self.texture) sdl::destroy_texture(self.texture);
 	self.texture = sdl::create_texture(self.renderer, sdl::PIXELFORMAT_ABGR8888,
 		sdl::TEXTUREACCESS_STREAMING, w, h);
-	sdl::set_texture_scale_mode(self.texture, sdl::SCALEMODE_NEAREST);
+	sdl::set_texture_scale_mode(self.texture, self.filter.scale_mode());
 	if (!env::ANDROID) sdl::set_window_size(self.window, w * self.scale, h * self.scale);
 	self.width = w;
 	self.height = h;
@@ -377,6 +381,12 @@ fn void Display.present(&self, char[] rgb, int w, int h, String[] menu = {}, int
 	sdl::render_clear(self.renderer);
 	Layout l = self.layout();
 	sdl::render_texture(self.renderer, self.texture, null, &l.screen);
+	self.draw_filter(l.screen, w, h);
+	// A screenshot asked for: the picture as shown, before anything goes over it.
+	if (self.shot_path.len) {
+		self.save_shot(l.screen);
+		self.shot_path = "";
+	}
 	if (self.touch_ui) self.draw_touch(&l);
 	if (menu.len) self.draw_menu(menu, selected, l.screen);
 	if (message.len && !menu.len) self.draw_message(message, l.screen);
@@ -525,6 +535,7 @@ fn Input Display.poll(&self) {
 					case sdl::SC_RIGHT:  in.pressed |= KEY_RIGHT;
 					case sdl::SC_RETURN: if (!k.repeat) in.pressed |= KEY_ENTER;
 					case sdl::SC_O:      if (!k.repeat && (k.mod & sdl::KMOD_CTRL) != 0) in.pressed |= KEY_OPEN;
+					case sdl::SC_F12:    if (!k.repeat) in.pressed |= KEY_SHOT;
 					case sdl::SC_GRAVE:  if (!k.repeat && !self.is_bound(sdl::SC_GRAVE)) in.pressed |= KEY_SWAP;
 					case sdl::SC_BACKSPACE: in.pressed |= KEY_BACKSPACE;
 				}

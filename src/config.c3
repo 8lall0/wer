@@ -1,5 +1,5 @@
 module config;
-import gameboy;
+import gameboy, display;
 
 import std::io, std::io::file, std::io::path, std::os::env;
 
@@ -45,6 +45,7 @@ struct Config {
 	String    palette;  // SGB palette "1-A" .. "4-H"
 	String    color;    // CGB/SGB colour correction: gameboy::COLOR_NAMES
 	String    blend;    // frame blending: "off", "simple", "accurate"
+	String    filter;   // screen filter: display::FILTER_NAMES
 	int       scale;    // 1-4
 	String    link;     // the address the link cable last joined ("host" or "host:port")
 	String[8] keys;
@@ -58,6 +59,7 @@ fn Config defaults() {
 	c.palette = "1-A".copy(mem);
 	c.color = "balanced".copy(mem);
 	c.blend = "off".copy(mem);
+	c.filter = "off".copy(mem);
 	c.scale = 3;
 	c.link = "".copy(mem);
 	foreach (i, k : DEFAULT_KEYS) c.keys[i] = k.copy(mem);
@@ -70,6 +72,7 @@ fn void Config.free(&self) {
 	free(self.palette.ptr);
 	free(self.color.ptr);
 	free(self.blend.ptr);
+	free(self.filter.ptr);
 	free(self.link.ptr);
 	foreach (k : self.keys) free(k.ptr);
 	foreach (p : self.pads) free(p.ptr);
@@ -101,6 +104,9 @@ fn bool Config.set(&self, String name, String value) {
 		case name == "blend":
 			if (blend_index(value) < 0) return false;
 			replace(&self.blend, value);
+		case name == "filter":
+			if (display::filter_index(value) < 0) return false;
+			replace(&self.filter, value);
 		case name == "link":
 			replace(&self.link, value);
 		case name == "scale":
@@ -172,6 +178,7 @@ fn String Config.to_text(&self, Allocator allocator) {
 	out.appendf("palette = %s\n", self.palette);
 	out.appendf("color = %s\n", self.color);
 	out.appendf("blend = %s\n", self.blend);
+	out.appendf("filter = %s\n", self.filter);
 	out.appendf("scale = %d\n", self.scale);
 	if (self.link.len) out.appendf("link = %s\n", self.link);
 	foreach (i, n : BUTTON_NAMES) out.appendf("key.%s = %s\n", n, self.keys[i]);

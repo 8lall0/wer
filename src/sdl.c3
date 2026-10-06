@@ -67,6 +67,8 @@ const int GAMEPAD_AXIS_LEFTY = 1;
 const uint PIXELFORMAT_ABGR8888   = 0x16762004; // memory order R,G,B,A
 const int  TEXTUREACCESS_STREAMING = 1;
 const int  SCALEMODE_NEAREST       = 0;
+const int  SCALEMODE_LINEAR        = 1;
+const int  SCALEMODE_PIXELART      = 2; // SDL 3.4
 
 // SDL_Scancode values used for input mapping
 const int SC_A      = 4;
@@ -91,6 +93,7 @@ const int SC_BACKSPACE = 42;
 const int SC_AC_BACK = 282; // Android's Back
 const int SC_F1     = 58; // F1-F9 are consecutive
 const int SC_F9     = 66;
+const int SC_F12    = 69;
 
 // SDL_Keymod: either Ctrl / either Shift key
 const ushort KMOD_CTRL  = 0x00C0;
@@ -220,6 +223,7 @@ extern fn bool      set_render_draw_color(Renderer* r, char red, char green, cha
 extern fn bool      set_render_draw_blend_mode(Renderer* r, uint mode) @cname("SDL_SetRenderDrawBlendMode");
 extern fn bool      render_fill_rect(Renderer* r, FRect* rect)      @cname("SDL_RenderFillRect");
 extern fn bool      render_rect(Renderer* r, FRect* rect)           @cname("SDL_RenderRect");
+extern fn bool      render_fill_rects(Renderer* r, FRect* rects, int count) @cname("SDL_RenderFillRects");
 extern fn bool      get_render_output_size(Renderer* r, int* w, int* h) @cname("SDL_GetRenderOutputSize");
 extern fn bool      set_hint(ZString name, ZString value)          @cname("SDL_SetHint");
 extern fn bool      set_window_fullscreen(Window* w, bool on)       @cname("SDL_SetWindowFullscreen");
@@ -292,6 +296,7 @@ struct Surface {
 	void* reserved;
 }
 const uint PIXELFORMAT_XRGB8888 = 0x16161804;
+const uint PIXELFORMAT_RGB24    = 0x17101803;
 const uint PIXELFORMAT_MJPG     = 0x47504a4d;
 const int  CAMERA_POSITION_FRONT_FACING = 1;
 const ZString PROP_SURFACE_ROTATION_FLOAT = "SDL.surface.rotation";
@@ -304,6 +309,13 @@ extern fn void     close_camera(Camera* c)                      @cname("SDL_Clos
 extern fn Surface* acquire_camera_frame(Camera* c, ulong* timestamp_ns) @cname("SDL_AcquireCameraFrame");
 extern fn void     release_camera_frame(Camera* c, Surface* frame) @cname("SDL_ReleaseCameraFrame");
 extern fn Surface* convert_surface(Surface* s, uint format)     @cname("SDL_ConvertSurface");
+extern fn Surface* render_read_pixels(Renderer* r, Rect* rect)  @cname("SDL_RenderReadPixels");
+struct Rect {
+	int x;
+	int y;
+	int w;
+	int h;
+}
 extern fn uint     get_surface_properties(Surface* s)           @cname("SDL_GetSurfaceProperties");
 extern fn float    get_float_property(uint props, ZString name, float default_value) @cname("SDL_GetFloatProperty");
 

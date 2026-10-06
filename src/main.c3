@@ -197,6 +197,7 @@ fn void save_settings(config::Config* cfg, Mode mode, int pal, int scale) {
 	cfg.set("palette", PALETTE_NAMES[pal]);
 	cfg.set("color", gameboy::COLOR_NAMES[gameboy::color_correction.ordinal]);
 	cfg.set("blend", display::BLEND_NAMES[blend.ordinal]);
+	cfg.set("filter", display::FILTER_NAMES[filter.ordinal]);
 	cfg.scale = scale;
 	if (catch cfg.save()) io::eprintfn("could not save %s", config::tpath());
 }
@@ -216,11 +217,25 @@ fn void Notice.show(&self, String s) {
 
 fn String Notice.current(&self) => clock::now() < self.until ? (String)self.text[:self.len] : "";
 
+// Screenshots: F12, or --screenshot=PATH after --frames=N (then quit).
+String shot_exit;
+ulong shot_after;
+
+fn String next_shot_path() {
+	String base = save_base.len ? save_base : "wer";
+	for (int n = 1; n < 10000; n++) {
+		String p = string::tformat("%s-shot-%d.png", base, n);
+		if (!file::is_file(p)) return p;
+	}
+	return string::tformat("%s-shot.png", base);
+}
+
 // The last stretch of play, to run backwards (R, the left shoulder, <<).
 gameboy::Rewind rewind;
 
 // Frame blending (display::Blend) and the frames run so far (its parity).
 display::Blend blend;
+display::Filter filter; // filter.c3
 ulong frames_run;
 
 // Where the loaded game's battery save and save states go (gameboy::save_base).
@@ -271,6 +286,7 @@ enum MenuItem : char {
 	PALETTE,
 	COLORS,
 	BLEND,
+	FILTER,
 	SCALE,
 	CONTROLS,
 	CHEATS,
@@ -452,6 +468,7 @@ fn bool frame() {
 		if (mode.model().is_sgb()) items[count++] = PALETTE;
 		if (mode.model() == CGB || mode.model().is_sgb()) items[count++] = COLORS;
 		items[count++] = BLEND;
+		items[count++] = FILTER;
 		// (On a phone the picture fills the screen; in a browser the page sizes it.)
 		if (!env::ANDROID && !env::EMSCRIPTEN) items[count++] = SCALE;
 		items[count++] = CONTROLS;
@@ -498,6 +515,12 @@ fn bool frame() {
 		if (item == BLEND && step != 0) {
 			blend = (display::Blend)(((int)blend.ordinal + 3 + step) % 3);
 			screen.blend = blend;
+			save_settings(&cfg, mode, pal, scale);
+		}
+		if (item == FILTER && (step != 0 || enter)) {
+			int n = (int)display::FILTER_NAMES.len;
+			filter = (display::Filter)(((int)filter.ordinal + n + (step < 0 ? -1 : 1)) % n);
+			screen.set_filter(filter);
 			save_settings(&cfg, mode, pal, scale);
 		}
 		if (item == COLORS && step != 0) {
@@ -548,6 +571,7 @@ fn bool frame() {
 				case PALETTE: break;
 				case COLORS:  break;
 				case BLEND:   break;
+				case FILTER:  break;
 				case MODE:   break;
 				case SCALE:  break;
 			}
@@ -573,6 +597,7 @@ fn bool frame() {
 				case PALETTE: lines[i] = string::tformat("Palette: < %s >", PALETTE_NAMES[pal]);
 				case COLORS:  lines[i] = string::tformat("Colors:  < %s >", gameboy::COLOR_LABELS[gameboy::color_correction.ordinal]);
 				case BLEND:   lines[i] = string::tformat("Blending: < %s >", display::BLEND_LABELS[blend.ordinal]);
+				case FILTER:  lines[i] = string::tformat("Filter:  < %s >", display::FILTER_LABELS[filter.ordinal]);
 				case CONTROLS: lines[i] = "Controls...";
 				case CHEATS:  lines[i] = cheats.count ? string::tformat("Cheats... (%d)", cheats.count) : "Cheats...";
 				case LINK:    lines[i] = link_line();
@@ -639,7 +664,23 @@ fn bool frame() {
 		gameboy::FrameSize size = link_picture(&picture);
 		screen.odd_frame = (frames_run & 1) != 0;
 		screen.blend_simple = gb.mmu.sgb != null;
+		// F12: the picture as shown, next to the game (game-shot-N.png).
+		String shot;
+		if (in.pressed & display::KEY_SHOT) shot = next_shot_path();
+		if (shot_exit.len && frames_run >= shot_after) shot = shot_exit;
+		screen.shot_path = shot;
 		screen.present(picture, size.w, size.h, lines[:count], selected, message);
+		if (shot.len) {
+			if (shot_exit.len) {
+				io::printfn(screen.shot_ok ? "wrote %s" : "could not write %s", shot);
+				return false;
+			}
+			sz slash = shot.rindex_of_char('/') ?? -1;
+			notice.show(screen.shot_ok ? string::tformat("Saved %s", shot[slash + 1..]) : "Could not save the screenshot");
+			$if env::EMSCRIPTEN:
+				if (screen.shot_ok) display::run_script(string::tformat("werDownload('%s')", shot).zstr_tcopy());
+			$endif
+		}
 	}
 
 	next += frame_period(gb.mmu.model);
@@ -678,6 +719,7 @@ fn int main(String[] args) @winmain
 	if (pal < 0) pal = 0; // 1-A
 	gameboy::color_correction = (gameboy::ColorCorrection)config::color_index(cfg.color);
 	blend = (display::Blend)config::blend_index(cfg.blend);
+	filter = (display::Filter)display::filter_index(cfg.filter);
 
 	foreach (a : args[1..]) {
 		switch {
@@ -697,6 +739,14 @@ fn int main(String[] args) @winmain
 					return 1;
 				}
 				gameboy::color_correction = (gameboy::ColorCorrection)c;
+			case a.starts_with("--screenshot="): shot_exit = a[13..];
+			case a.starts_with("--filter="):
+				int fl = display::filter_index(a[9..]);
+				if (fl < 0) {
+					io::eprintfn("unknown filter '%s': use off, sharp, smooth, lcd or scanlines", a[9..]);
+					return 1;
+				}
+				filter = (display::Filter)fl;
 			case a.starts_with("--blend="):
 				int b = config::blend_index(a[8..]);
 				if (b < 0) {
@@ -782,6 +832,7 @@ fn int main(String[] args) @winmain
 	display::background_ctx = &gb;
 	screen.bindings = display::bindings_from(&cfg);
 	screen.blend = blend;
+	screen.set_filter(filter);
 
 	rom_path = has_rom ? rom.copy(mem) : "";
 	defer if (rom_path.len) free(rom_path.ptr);
@@ -789,6 +840,7 @@ fn int main(String[] args) @winmain
 
 	// Without a ROM there is nothing to run: start in the menu.
 	menu = !has_rom;
+	shot_after = (ulong)frames;
 
 	// The link cable from the command line.
 	if (link_rom.len && has_rom) link_second_chosen(link_rom);
