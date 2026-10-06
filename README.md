@@ -146,7 +146,7 @@ wer --mode=cgb game.gbc
 | `--blend=off\|simple\|accurate` | frame blending, like the LCD's slow response (games that flicker objects for transparency look right): `simple` mixes each frame half and half with the last, `accurate` is SameBoy's model of the LCD |
 | `--colors=balanced` | CGB/SGB colour correction, as the real screens looked: `off` (raw colours), `balanced` (the default), `accurate`, `boost`, `reduce`, `low` (SameBoy's modes) |
 | `--filter=off\|sharp\|smooth\|lcd\|scanlines` | how the pixels are drawn: `sharp` keeps them crisp and even at any size (full screen, a phone), `smooth` blurs them, `lcd` shows the dot grid of a Game Boy's screen, `scanlines` dark lines between rows (the last two from 3x up) |
-| `--screenshot=FILE` | with `--frames=N`: save the picture as a PNG after N frames, then quit |
+| `--screenshot=FILE` | with `--frames=N`: save the window (menu included) as a PNG after N frames, then quit |
 | `--scale=1..4` | window size, multiples of 160x144 |
 | `--no-boot` | skip the boot ROM |
 | `--link-rom=ROM` | a second Game Boy in the window, running ROM, joined by the link cable |
@@ -179,7 +179,8 @@ Options given on the command line override `~/.wer/wer.conf` for that run.
 | Tilt (MBC7 games) | I / J / K / L | left stick |
 | Link cable, 2 players here: the other Game Boy | ` | second gamepad |
 
-Every Game Boy button can be rebound, to a key or a gamepad button, in
+Every Game Boy button, and fast forward, rewind, pause, frame advance and
+the screenshot key, can be rebound to a key or a gamepad button in
 **Menu → Controls**; a hotkey whose key is bound to a Game Boy button gives
 way to it. The menu also switches the model, SGB palette and scale; changes
 are saved to `~/.wer/wer.conf`.

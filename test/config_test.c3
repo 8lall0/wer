@@ -64,3 +64,22 @@ fn void save_creates_directory_and_loads_back() @test
 	defer missing.free();
 	test::eq("dmg", missing.mode);  // no file: defaults
 }
+
+fn void hotkeys_and_filter_round_trip() @test
+{
+	config::Config a = config::defaults();
+	defer a.free();
+	test::eq("Tab", a.hot_keys[config::Hotkey.FAST.ordinal]);
+	test::eq("leftshoulder", a.hot_pads[config::Hotkey.REWIND.ordinal]);
+	test::eq("none", a.hot_pads[config::Hotkey.PAUSE.ordinal]);
+	assert(a.set("key.rewind", "Backspace"));
+	assert(a.set("pad.pause", "start"));
+	assert(a.set("filter", "lcd"));
+	assert(!a.set("filter", "fuzzy"));
+	config::Config b = config::defaults();
+	defer b.free();
+	b.parse(a.to_text(tmem), "round trip");
+	test::eq("Backspace", b.hot_keys[config::Hotkey.REWIND.ordinal]);
+	test::eq("start", b.hot_pads[config::Hotkey.PAUSE.ordinal]);
+	test::eq("lcd", b.filter);
+}

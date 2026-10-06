@@ -219,7 +219,8 @@ fn String Notice.current(&self) => clock::now() < self.until ? (String)self.text
 
 // Screenshots: F12, or --screenshot=PATH after --frames=N (then quit).
 String shot_exit;
-ulong shot_after;
+ulong shot_after;   // frames shown (the game running or not)
+ulong frames_shown;
 
 fn String next_shot_path() {
 	String base = save_base.len ? save_base : "wer";
@@ -298,10 +299,14 @@ enum MenuItem : char {
 // Labels of the Game Boy buttons in the Controls menu (config::Button order).
 const String[8] BUTTON_LABELS = { "A", "B", "Select", "Start", "Up", "Down", "Left", "Right" };
 
-// Controls menu lines after the 8 buttons.
-const int CONTROLS_DEFAULTS = 8;
-const int CONTROLS_BACK     = 9;
-const int CONTROLS_COUNT    = 10;
+// Controls menu: the 8 buttons, the hotkeys, then these.
+const String[5] HOTKEY_LABELS = { "Fast fw", "Rewind", "Pause", "Advance", "Shot" };
+const int CONTROLS_DEFAULTS = 13;
+const int CONTROLS_BACK     = 14;
+const int CONTROLS_COUNT    = 15;
+
+// The config name of Controls line `i` (a button or a hotkey).
+fn String control_name(int i) => i < 8 ? config::BUTTON_NAMES[i] : config::HOTKEY_NAMES[i - 8];
 
 // The main loop's state, shared by main() and frame().
 config::Config cfg;
@@ -365,9 +370,9 @@ fn bool frame() {
 		if (display::is_escape(in.key)) {
 			// cancelled
 		} else if (in.key >= 0) {
-			cfg.set(string::tformat("key.%s", config::BUTTON_NAMES[binding]), display::key_name(in.key));
+			cfg.set(string::tformat("key.%s", control_name(binding)), display::key_name(in.key));
 		} else {
-			cfg.set(string::tformat("pad.%s", config::BUTTON_NAMES[binding]), display::pad_button_name(in.pad_button));
+			cfg.set(string::tformat("pad.%s", control_name(binding)), display::pad_button_name(in.pad_button));
 		}
 		screen.bindings = display::bindings_from(&cfg);
 		save_settings(&cfg, mode, pal, scale);
@@ -434,6 +439,10 @@ fn bool frame() {
 							cfg.set(string::tformat("key.%s", config::BUTTON_NAMES[i]), config::DEFAULT_KEYS[i]);
 							cfg.set(string::tformat("pad.%s", config::BUTTON_NAMES[i]), config::DEFAULT_PADS[i]);
 						}
+						for (int i = 0; i < 5; i++) {
+							cfg.set(string::tformat("key.%s", config::HOTKEY_NAMES[i]), config::DEFAULT_HOT_KEYS[i]);
+							cfg.set(string::tformat("pad.%s", config::HOTKEY_NAMES[i]), config::DEFAULT_HOT_PADS[i]);
+						}
 						screen.bindings = display::bindings_from(&cfg);
 						save_settings(&cfg, mode, pal, scale);
 					default:
@@ -442,12 +451,14 @@ fn bool frame() {
 			}
 		}
 		if (controls) {
-			for (int i = 0; i < 8; i++) {
+			for (int i = 0; i < CONTROLS_DEFAULTS; i++) {
+				String label = i < 8 ? BUTTON_LABELS[i] : HOTKEY_LABELS[i - 8];
 				if (i == binding) {
-					lines[i] = string::tformat("%-7spress key/button", BUTTON_LABELS[i]);
+					lines[i] = string::tformat("%-8spress key/button", label);
 				} else {
-					lines[i] = string::tformat("%-7s%s | %s", BUTTON_LABELS[i],
-						display::key_name(screen.bindings.keys[i]), display::pad_button_name(screen.bindings.pads[i]));
+					int key = i < 8 ? screen.bindings.keys[i] : screen.bindings.hot_keys[i - 8];
+					int pad = i < 8 ? screen.bindings.pads[i] : screen.bindings.hot_pads[i - 8];
+					lines[i] = string::tformat("%-8s%s | %s", label, display::key_name(key), display::pad_button_name(pad));
 				}
 			}
 			lines[CONTROLS_DEFAULTS] = "Reset to defaults";
@@ -667,8 +678,12 @@ fn bool frame() {
 		// F12: the picture as shown, next to the game (game-shot-N.png).
 		String shot;
 		if (in.pressed & display::KEY_SHOT) shot = next_shot_path();
-		if (shot_exit.len && frames_run >= shot_after) shot = shot_exit;
-		screen.shot_path = shot;
+		if (shot_exit.len && ++frames_shown >= shot_after) {
+			shot = shot_exit;
+			screen.shot_full = shot;
+		} else {
+			screen.shot_path = shot;
+		}
 		screen.present(picture, size.w, size.h, lines[:count], selected, message);
 		if (shot.len) {
 			if (shot_exit.len) {

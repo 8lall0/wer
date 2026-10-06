@@ -89,6 +89,7 @@ struct Display {
 	Filter            filter;    // filter.c3
 	String            shot_path; // a screenshot to save at the next present (temp memory)
 	bool              shot_ok;   // ... and whether it was
+	String            shot_full; // a screenshot with the menu and messages on it
 	char[]            prev;      // RGB, sized for MAX_W x MAX_H
 	char[]            mixed;     // the blended frame, the same size
 	int               prev_w;
@@ -133,6 +134,8 @@ const short STICK_DEADZONE = 16000;
 struct Bindings {
 	int[8] keys;
 	int[8] pads;
+	int[5] hot_keys; // config::Hotkey order
+	int[5] hot_pads; // GAMEPAD_BUTTON_INVALID: none
 }
 
 // Key presses (not held keys) for the menu and hotkeys, as bits in
@@ -191,6 +194,14 @@ fn Bindings bindings_from(config::Config* c) {
 			b.pads[i] = sdl::get_gamepad_button_from_string(config::DEFAULT_PADS[i].zstr_tcopy());
 		}
 	}
+	for (int i = 0; i < 5; i++) {
+		b.hot_keys[i] = sdl::get_scancode_from_name(c.hot_keys[i].zstr_tcopy());
+		if (b.hot_keys[i] == 0) {
+			io::eprintfn("unknown key '%s' for %s, using %s", c.hot_keys[i], config::HOTKEY_NAMES[i], config::DEFAULT_HOT_KEYS[i]);
+			b.hot_keys[i] = sdl::get_scancode_from_name(config::DEFAULT_HOT_KEYS[i].zstr_tcopy());
+		}
+		b.hot_pads[i] = c.hot_pads[i] == "none" ? sdl::GAMEPAD_BUTTON_INVALID : sdl::get_gamepad_button_from_string(c.hot_pads[i].zstr_tcopy());
+	}
 	return b;
 }
 
@@ -220,6 +231,7 @@ fn String pref_path() {
 
 fn String key_name(int scancode) => sdl::get_scancode_name(scancode).str_view();
 fn String pad_button_name(int button) {
+	if (button == sdl::GAMEPAD_BUTTON_INVALID) return "none";
 	ZString n = sdl::get_gamepad_string_for_button(button);
 	return n ? n.str_view() : "?";
 }
@@ -390,6 +402,13 @@ fn void Display.present(&self, char[] rgb, int w, int h, String[] menu = {}, int
 	if (self.touch_ui) self.draw_touch(&l);
 	if (menu.len) self.draw_menu(menu, selected, l.screen);
 	if (message.len && !menu.len) self.draw_message(message, l.screen);
+	if (self.shot_full.len) {
+		String keep = self.shot_path;
+		self.shot_path = self.shot_full;
+		self.save_shot(l.screen);
+		self.shot_path = keep;
+		self.shot_full = "";
+	}
 	sdl::render_present(self.renderer);
 }
 
@@ -434,16 +453,38 @@ fn void Display.draw_menu(&self, String[] lines, int selected, sdl::FRect area) 
 	float line_h = MENU_LINE * scale / font;
 	if (line_h < 10) line_h = 10;           // never closer than the 8 px font
 	sdl::set_render_scale(self.renderer, font, font);
-	foreach (i, line : lines) {
-		bool sel = (int)i == selected;
+	// More lines than fit: a window that keeps the selection in the middle,
+	// with ^ / v at the right where lines are hidden above / below. Lines
+	// too long for the width end in "..".
+	int len = (int)lines.len;
+	int visible = (int)((area.h / font - 2 * margin) / line_h);
+	if (visible < 1) visible = 1;
+	int first = 0;
+	if (len > visible) {
+		first = selected - visible / 2;
+		if (first > len - visible) first = len - visible;
+		if (first < 0) first = 0;
+	}
+	int cols = (int)((area.w / font - 2 * margin) / 8) - 3; // "> " and room for ^ / v
+	if (cols < 4) cols = 4;
+	float x = area.x / font + margin;
+	float top = area.y / font + margin;
+	for (int i = first; i < len && i < first + visible; i++) {
+		bool sel = i == selected;
 		if (sel) {
 			sdl::set_render_draw_color(self.renderer, 0xE0, 0xF8, 0xD0, 0xFF);
 		} else {
 			sdl::set_render_draw_color(self.renderer, 0x88, 0xC0, 0x70, 0xFF);
 		}
+		String line = lines[i];
+		if (line.len > cols) line = string::tformat("%s..", line[:cols - 2]);
 		String text = string::tformat("%s%s", sel ? "> " : "  ", line);
-		sdl::render_debug_text(self.renderer, area.x / font + margin, area.y / font + margin + (float)i * line_h, text.zstr_tcopy());
+		sdl::render_debug_text(self.renderer, x, top + (float)(i - first) * line_h, text.zstr_tcopy());
 	}
+	sdl::set_render_draw_color(self.renderer, 0xE0, 0xF8, 0xD0, 0xFF);
+	float right = (area.x + area.w) / font - margin / 2 - 8;
+	if (first > 0) sdl::render_debug_text(self.renderer, right, top, "^");
+	if (first + visible < len) sdl::render_debug_text(self.renderer, right, top + (float)(visible - 1) * line_h, "v");
 	sdl::set_render_scale(self.renderer, 1, 1);
 	sdl::set_render_draw_color(self.renderer, 0, 0, 0, 0xFF);
 }
@@ -517,10 +558,12 @@ fn Input Display.poll(&self) {
 				sdl::KeyboardEvent* k = (sdl::KeyboardEvent*)&e;
 				if (!k.repeat && in.key < 0) in.key = (int)k.scancode;
 				// Hotkeys give way to a Game Boy button bound to the same key.
-				if (!k.repeat && !self.is_bound((int)k.scancode)) {
+				if (!k.repeat && !self.is_bound((int)k.scancode) && !self.typing) {
+					int sc = (int)k.scancode;
+					if (sc == self.bindings.hot_keys[config::Hotkey.PAUSE.ordinal]) in.pressed |= KEY_PAUSE;
+					if (sc == self.bindings.hot_keys[config::Hotkey.ADVANCE.ordinal]) in.pressed |= KEY_ADVANCE;
+					if (sc == self.bindings.hot_keys[config::Hotkey.SCREENSHOT.ordinal]) in.pressed |= KEY_SHOT;
 					switch (k.scancode) {
-						case sdl::SC_P: in.pressed |= KEY_PAUSE;
-						case sdl::SC_N: in.pressed |= KEY_ADVANCE;
 						case sdl::SC_F1..sdl::SC_F9:
 							in.state_slot = (int)k.scancode - sdl::SC_F1 + 1;
 							in.state_save = (k.mod & sdl::KMOD_SHIFT) != 0;
@@ -535,7 +578,6 @@ fn Input Display.poll(&self) {
 					case sdl::SC_RIGHT:  in.pressed |= KEY_RIGHT;
 					case sdl::SC_RETURN: if (!k.repeat) in.pressed |= KEY_ENTER;
 					case sdl::SC_O:      if (!k.repeat && (k.mod & sdl::KMOD_CTRL) != 0) in.pressed |= KEY_OPEN;
-					case sdl::SC_F12:    if (!k.repeat) in.pressed |= KEY_SHOT;
 					case sdl::SC_GRAVE:  if (!k.repeat && !self.is_bound(sdl::SC_GRAVE)) in.pressed |= KEY_SWAP;
 					case sdl::SC_BACKSPACE: in.pressed |= KEY_BACKSPACE;
 				}
@@ -561,6 +603,9 @@ fn Input Display.poll(&self) {
 				int button = ((sdl::GamepadButtonEvent*)&e).button;
 				if (in.pad_button < 0) in.pad_button = button;
 				in.pressed |= self.pad_menu_key(button);
+				if (button == self.bindings.hot_pads[config::Hotkey.PAUSE.ordinal]) in.pressed |= KEY_PAUSE;
+				if (button == self.bindings.hot_pads[config::Hotkey.ADVANCE.ordinal]) in.pressed |= KEY_ADVANCE;
+				if (button == self.bindings.hot_pads[config::Hotkey.SCREENSHOT.ordinal]) in.pressed |= KEY_SHOT;
 		}
 	}
 
@@ -571,13 +616,8 @@ fn Input Display.poll(&self) {
 
 	int n;
 	char* ks = sdl::get_keyboard_state(&n);
-	in.fast = !self.is_bound(sdl::SC_TAB) && sdl::SC_TAB < n && ks[sdl::SC_TAB] != 0;
-	in.rewind = !self.typing && !self.is_bound(sdl::SC_R) && sdl::SC_R < n && ks[sdl::SC_R] != 0;
-	foreach (p : self.pads) {
-		if (!p) continue;
-		if (sdl::get_gamepad_button(p, sdl::GAMEPAD_BUTTON_LEFT_SHOULDER)) in.rewind = true;
-		if (sdl::get_gamepad_button(p, sdl::GAMEPAD_BUTTON_RIGHT_SHOULDER)) in.fast = true;
-	}
+	in.fast = self.hotkey_held(ks, n, config::Hotkey.FAST);
+	in.rewind = self.hotkey_held(ks, n, config::Hotkey.REWIND);
 	for (int i = 0; i < 8; i++) {
 		bool held = !self.typing && self.bindings.keys[i] < n && ks[self.bindings.keys[i]] != 0;
 		bool held2;
@@ -619,6 +659,19 @@ fn void Display.start_text(&self) {
 fn void Display.stop_text(&self) {
 	self.typing = false;
 	sdl::stop_text_input(self.window);
+}
+
+// A held hotkey (fast forward, rewind): its key, unless that plays a Game
+// Boy button, or its gamepad button.
+fn bool Display.hotkey_held(&self, char* ks, int n, config::Hotkey h) {
+	int key = self.bindings.hot_keys[h.ordinal];
+	if (!self.typing && !self.is_bound(key) && key < n && ks[key] != 0) return true;
+	int button = self.bindings.hot_pads[h.ordinal];
+	if (button == sdl::GAMEPAD_BUTTON_INVALID) return false;
+	foreach (p : self.pads) {
+		if (p && sdl::get_gamepad_button(p, button)) return true;
+	}
+	return false;
 }
 
 fn bool Display.is_bound(&self, int scancode) {

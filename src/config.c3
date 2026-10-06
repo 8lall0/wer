@@ -40,6 +40,20 @@ const String[8] BUTTON_NAMES = { "a", "b", "select", "start", "up", "down", "lef
 const String[8] DEFAULT_KEYS = { "Z", "X", "Right Shift", "Return", "Up", "Down", "Left", "Right" };
 const String[8] DEFAULT_PADS = { "b", "a", "back", "start", "dpup", "dpdown", "dpleft", "dpright" };
 
+// Hotkeys, also rebindable (key.fast, pad.rewind, ...); "none": no gamepad
+// button.
+enum Hotkey : char {
+	FAST,       // held: fast forward
+	REWIND,     // held: back in time
+	PAUSE,
+	ADVANCE,    // one frame while paused
+	SCREENSHOT,
+}
+
+const String[5] HOTKEY_NAMES     = { "fast", "rewind", "pause", "advance", "screenshot" };
+const String[5] DEFAULT_HOT_KEYS = { "Tab", "R", "P", "N", "F12" };
+const String[5] DEFAULT_HOT_PADS = { "rightshoulder", "leftshoulder", "none", "none", "none" };
+
 struct Config {
 	String    mode;     // "dmg", "dmg-0", "mgb", "sgb", "sgb2", "cgb" (= "cgb-c"), "cgb-0" ... "cgb-e"
 	String    palette;  // SGB palette "1-A" .. "4-H"
@@ -50,6 +64,8 @@ struct Config {
 	String    link;     // the address the link cable last joined ("host" or "host:port")
 	String[8] keys;
 	String[8] pads;
+	String[5] hot_keys;
+	String[5] hot_pads;
 }
 
 // Every String in a Config is a heap copy owned by it (see set / free).
@@ -64,6 +80,8 @@ fn Config defaults() {
 	c.link = "".copy(mem);
 	foreach (i, k : DEFAULT_KEYS) c.keys[i] = k.copy(mem);
 	foreach (i, p : DEFAULT_PADS) c.pads[i] = p.copy(mem);
+	foreach (i, k : DEFAULT_HOT_KEYS) c.hot_keys[i] = k.copy(mem);
+	foreach (i, p : DEFAULT_HOT_PADS) c.hot_pads[i] = p.copy(mem);
 	return c;
 }
 
@@ -76,6 +94,8 @@ fn void Config.free(&self) {
 	free(self.link.ptr);
 	foreach (k : self.keys) free(k.ptr);
 	foreach (p : self.pads) free(p.ptr);
+	foreach (k : self.hot_keys) free(k.ptr);
+	foreach (p : self.hot_pads) free(p.ptr);
 	*self = {};
 }
 
@@ -115,13 +135,27 @@ fn bool Config.set(&self, String name, String value) {
 			if (n < 1 || n > 4) return false;
 			self.scale = n;
 		case name.starts_with("key."):
+			if (value.len == 0) return false;
 			int b = button_index(name[4..]);
-			if (b < 0 || value.len == 0) return false;
-			replace(&self.keys[b], value);
+			int h = hotkey_index(name[4..]);
+			if (b >= 0) {
+				replace(&self.keys[b], value);
+			} else if (h >= 0) {
+				replace(&self.hot_keys[h], value);
+			} else {
+				return false;
+			}
 		case name.starts_with("pad."):
+			if (value.len == 0) return false;
 			int b = button_index(name[4..]);
-			if (b < 0 || value.len == 0) return false;
-			replace(&self.pads[b], value);
+			int h = hotkey_index(name[4..]);
+			if (b >= 0) {
+				replace(&self.pads[b], value);
+			} else if (h >= 0) {
+				replace(&self.hot_pads[h], value);
+			} else {
+				return false;
+			}
 		default:
 			return false;
 	}
@@ -142,6 +176,13 @@ fn int blend_index(String name) {
 		case "accurate": return 2;
 		default:         return -1;
 	}
+}
+
+fn int hotkey_index(String name) {
+	foreach (i, n : HOTKEY_NAMES) {
+		if (n == name) return (int)i;
+	}
+	return -1;
 }
 
 fn int button_index(String name) {
@@ -183,6 +224,8 @@ fn String Config.to_text(&self, Allocator allocator) {
 	if (self.link.len) out.appendf("link = %s\n", self.link);
 	foreach (i, n : BUTTON_NAMES) out.appendf("key.%s = %s\n", n, self.keys[i]);
 	foreach (i, n : BUTTON_NAMES) out.appendf("pad.%s = %s\n", n, self.pads[i]);
+	foreach (i, n : HOTKEY_NAMES) out.appendf("key.%s = %s\n", n, self.hot_keys[i]);
+	foreach (i, n : HOTKEY_NAMES) out.appendf("pad.%s = %s\n", n, self.hot_pads[i]);
 	return out.str_view();
 }
 
