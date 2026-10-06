@@ -76,7 +76,7 @@ fn void network_cable_swaps_bytes() @test {
 	b.load_rom(program(0x99, 0x80));
 	netlink::NetLink host;
 	netlink::NetLink guest;
-	if (catch host.host(28765)) {
+	if (catch host.host(28765, &a.mmu)) {
 		io::printn("link_test: can't listen on port 28765, skipped");
 		return;
 	}
