@@ -433,6 +433,7 @@ fn FrameSize GameBoy.frame_rgb(&self, char[] rgb, char[12] colors) {
 fn char expand5(int c) => (char)((c << 3) | (c >> 2));
 
 fn void GameBoy.run_frame(&self) {
+	self.mmu.apply_gameshark();
 	// A frame is 17556 M-cycles, twice as many in CGB double speed.
 	ulong frame = self.mmu.double_speed ? 35112 : 17556;
 	if ((self.mmu.ppu.lcdc & ppu::LCDC_ENABLE) == 0) {
@@ -451,6 +452,7 @@ fn void GameBoy.run_frame(&self) {
 alias Between = fn void(void* ctx);
 
 fn void GameBoy.run_frame_polled(&self, Between between, void* ctx, int slices) {
+	self.mmu.apply_gameshark();
 	ulong frame = self.mmu.double_speed ? 35112 : 17556;
 	bool lcd = (self.mmu.ppu.lcdc & ppu::LCDC_ENABLE) != 0;
 	self.mmu.ppu.frame_ready = false;
@@ -471,6 +473,7 @@ fn void GameBoy.run_frame_polled(&self, Between between, void* ctx, int slices) 
 // `a` at a time, `b` kept level with it instruction by instruction so the
 // cable sees them at the same moment. `b` shows whatever frame it finished.
 fn void run_linked_frame(GameBoy* a, GameBoy* b) {
+	a.mmu.apply_gameshark();
 	ulong frame = a.mmu.double_speed ? 35112 : 17556;
 	bool lcd = (a.mmu.ppu.lcdc & ppu::LCDC_ENABLE) != 0;
 	a.mmu.ppu.frame_ready = false;

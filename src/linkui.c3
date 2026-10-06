@@ -123,12 +123,20 @@ fn void link_apply() {
 fn bool link_typing(display::Input* in) {
 	if (!typing) return false;
 	for (int i = 0; i < in.text_len && typed_len < typed.len; i++) {
-		if (in.text[i] > ' ') typed[typed_len++] = in.text[i];
+		// A cheat's description may have spaces; an address can't.
+		if (in.text[i] > ' ' || (typing_cheat && in.text[i] == ' ')) typed[typed_len++] = in.text[i];
 	}
 	if ((in.pressed & display::KEY_BACKSPACE) && typed_len > 0) typed_len--;
 	if (in.pressed & display::KEY_MENU) {
 		typing = false;
+		typing_cheat = false;
 		screen.stop_text();
+	} else if (in.pressed & display::KEY_ENTER && typing_cheat) {
+		typing = false;
+		typing_cheat = false;
+		screen.stop_text();
+		String code = (String)typed[:typed_len];
+		if (code.len && @catch(cheat_add(code))) notice.show("Not a Game Genie or GameShark code");
 	} else if (in.pressed & display::KEY_ENTER) {
 		typing = false;
 		screen.stop_text();

@@ -423,6 +423,7 @@ fn void GameBoy.restore_host_side(&self, HostSide* k) {
 	self.mmu.sgb = k.mmu.sgb;
 	self.mmu.serial_echo = k.mmu.serial_echo;
 	self.mmu.link = k.mmu.link;
+	self.mmu.cheats = k.mmu.cheats;
 	self.mmu.serial_waiting = false;
 	self.mmu.ppu.vram1 = k.mmu.ppu.vram1;
 	self.mmu.ppu.fb = k.mmu.ppu.fb;

@@ -179,6 +179,10 @@
     });
   }
   window.werLinkOpen = () => !!(netConn && netConn.open); // for testing
+  function werCheatPrompt() {
+    const code = prompt('Game Genie or GameShark code (and what it does):');
+    Module.ccall('wer_cheat_add', null, ['string'], [code || '']);
+  }
   function werNetAskJoin() {
     const code = prompt('Link code from the other player:');
     Module.ccall('wer_net_join_code', null, ['string'], [code || '']);

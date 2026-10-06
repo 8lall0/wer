@@ -1,5 +1,5 @@
 module wer;
-import std::io, std::io::file, std::time::clock, std::thread::os, std::math;
+import std::io, std::io::file, std::time::clock, std::thread::os, std::math, std::collections::list;
 import gameboy, ppu, display, mmu, config, netlink;
 
 // Real time per frame: 70224 T-cycles at the model's clock (59.73 fps on a
@@ -78,6 +78,7 @@ fn gameboy::Cartridge? load_game(gameboy::GameBoy* gb, String path, bool boot, M
 	gameboy::Cartridge cart = gb.load_rom_named(data, base);
 	cart.print();
 	rewind.reset();
+	cheats_load(gb);
 	link_replug();
 	return cart;
 }
@@ -272,6 +273,7 @@ enum MenuItem : char {
 	BLEND,
 	SCALE,
 	CONTROLS,
+	CHEATS,
 	LINK,
 	RESET,
 	QUIT,
@@ -359,8 +361,9 @@ fn bool frame() {
 
 	link_typing(&in);
 	if (in.pressed & display::KEY_OPEN) screen.open_rom_dialog();
-	if ((in.pressed & display::KEY_MENU) && controls) {
+	if ((in.pressed & display::KEY_MENU) && (controls || cheat_menu)) {
 		controls = false;               // back to the main menu
+		cheat_menu = false;
 		selected = 0;
 	} else if ((in.pressed & display::KEY_MENU) && has_rom) {
 		menu = !menu;
@@ -398,7 +401,7 @@ fn bool frame() {
 
 	// The menu: which items exist depends on whether a game is loaded.
 	MenuItem[16] items;
-	String[16] lines;
+	String[mmu::MAX_CHEATS + 2] lines;
 	int count = 0;
 	if (menu && controls) {
 		count = CONTROLS_COUNT;
@@ -436,6 +439,8 @@ fn bool frame() {
 		} else {
 			count = 0; // left the submenu: the main menu draws from the next frame
 		}
+	} else if (menu && cheat_menu) {
+		count = cheat_menu_lines(&in, &lines, &selected);
 	} else if (menu) {
 		if (has_rom) {
 			items[count++] = RESUME;
@@ -450,6 +455,7 @@ fn bool frame() {
 		// (On a phone the picture fills the screen; in a browser the page sizes it.)
 		if (!env::ANDROID && !env::EMSCRIPTEN) items[count++] = SCALE;
 		items[count++] = CONTROLS;
+		if (has_rom) items[count++] = CHEATS;
 		items[count++] = LINK;
 		if (has_rom) items[count++] = RESET;
 		items[count++] = QUIT;
@@ -525,6 +531,9 @@ fn bool frame() {
 				case CONTROLS:
 					controls = true;
 					selected = 0;
+				case CHEATS:
+					cheat_menu = true;
+					selected = 0;
 				case LINK:
 					link_apply();
 					if (link_mode == HOST) menu = false;
@@ -565,6 +574,7 @@ fn bool frame() {
 				case COLORS:  lines[i] = string::tformat("Colors:  < %s >", gameboy::COLOR_LABELS[gameboy::color_correction.ordinal]);
 				case BLEND:   lines[i] = string::tformat("Blending: < %s >", display::BLEND_LABELS[blend.ordinal]);
 				case CONTROLS: lines[i] = "Controls...";
+				case CHEATS:  lines[i] = cheats.count ? string::tformat("Cheats... (%d)", cheats.count) : "Cheats...";
 				case LINK:    lines[i] = link_line();
 				case RESET:   lines[i] = "Reset";
 				case QUIT:    lines[i] = "Quit";
@@ -656,6 +666,8 @@ fn int main(String[] args) @winmain
 	String palette;
 	String link_arg;     // --link=host or --link=ADDRESS
 	String link_rom;     // --link-rom=ROM: a second Game Boy here
+	List{String} cheat_args; // --cheat=CODE
+	cheat_args.init(tmem);
 
 	// Settings from ~/.wer/wer.conf; the command line overrides them.
 	cfg = config::load();
@@ -677,6 +689,7 @@ fn int main(String[] args) @winmain
 			case a == "--printer-log": mmu::printer_log = true;
 			case a.starts_with("--link="): link_arg = a[7..];
 			case a.starts_with("--link-rom="): link_rom = a[11..];
+			case a.starts_with("--cheat="): cheat_args.push(a[8..]);
 			case a.starts_with("--colors="):
 				int c = config::color_index(a[9..]);
 				if (c < 0) {
@@ -733,6 +746,10 @@ fn int main(String[] args) @winmain
 		if (catch loaded) return 1;
 		cart = loaded;
 		has_rom = true;
+		// Cheats from the command line, for this run.
+		foreach (c : cheat_args) {
+			if (catch cheat_add(c, true, false)) io::eprintfn("not a cheat code: %s", c);
+		}
 	}
 
 	if (headless) {

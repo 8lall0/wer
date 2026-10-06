@@ -45,6 +45,9 @@ ROMs: they never leave the browser; touch controls on phones).
 - **Save states** (9 slots per game), **rewind** (hold R, the left shoulder
   or the touch screen's << to run the game backwards), **pause**, **frame
   advance** and **fast forward**.
+- **Cheats**: Game Genie and GameShark codes, per game, in **Menu →
+  Cheats** (or `--cheat=CODE`); kept next to the game's saves in
+  `game.cht`, a code per line (a `#` in front switches it off).
 - **Gamepads** (any SDL3 gamepad), **key remapping**, **window scale** 1x-4x,
   a menu, a file dialog to open ROMs, and settings kept in `~/.wer/wer.conf`.
 
@@ -146,6 +149,7 @@ wer --mode=cgb game.gbc
 | `--no-boot` | skip the boot ROM |
 | `--link-rom=ROM` | a second Game Boy in the window, running ROM, joined by the link cable |
 | `--link=printer` | the Game Boy Printer on the link port |
+| `--cheat=CODE` | a Game Genie (`ABC-DEF-GHI`) or GameShark (`01VVAAAA`) code, for this run |
 | `--printer-log` | print every packet the printer gets and its answers |
 | `--link=host` | wait for another wer (or BGB) to join over the network, on port 8765 |
 | `--link=ADDRESS` | join one that waits there (`192.168.1.20`, or `host:port`) |

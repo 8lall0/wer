@@ -120,6 +120,7 @@ struct Mmu {
 	bool   serial_fast;   // CGB fast clock (SC bit 1)
 	bool   serial_echo;   // when true, print each transferred byte to stderr
 	Link*  link;          // the link cable's other end (link.c3), null: none
+	Cheats* cheats;       // cheat codes (cheats.c3), null: none
 	ulong  rt_clock;      // real time run, in T-cycles of normal speed
 	char   serial_out;    // the byte this side's transfer sends
 	bool   serial_waiting; // eight pulses done, the other side's byte not here yet
@@ -189,7 +190,11 @@ fn char Mmu.get(&self, ushort addr) {
 			return bootrom::DMG[addr];
 		}
 	}
-	if (addr < 0x8000) return self.cart ? self.cart.read(addr) : self.rom[addr];
+	if (addr < 0x8000) {
+		char v = self.cart ? self.cart.read(addr) : self.rom[addr];
+		if (self.cheats && self.cheats.genie_on) v = self.cheats.patch(addr, v);
+		return v;
+	}
 	if (addr < 0xA000) return *self.vram_at(addr - 0x8000);
 	if (addr < 0xC000) {
 		if (!self.cart) return self.has_extram ? self.extram[addr - 0xA000] : 0xFF;
