@@ -10,7 +10,7 @@
   // Authors, optionally with email.
   "authors": [ "Savino Liguori aka 8lall0" ],
   // Version using semantic versioning.
-  "version": "0.18.0",
+  "version": "0.19.0",
   // Sources compiled for all targets.
   "sources": [ "src/**" ],
   // Test sources compiled for all targets.
