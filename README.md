@@ -28,7 +28,12 @@ ROMs: they never leave the browser; touch controls on phones).
 - **Cartridges**: MBC1 (including multicarts), MBC2, MBC3 with the real-time
   clock, MBC5 (with rumble), MBC7 (Kirby Tilt 'n' Tumble's accelerometer and
   EEPROM), the Game Boy Camera, MBC6 (Net de Get, with its flash chip), MMM01 multicarts, M161 (Mani's 4 in 1), the Wisdom Tree games' mapper, Sachen's MMC1 and MMC2, TPP1 (homebrew, with clock and rumble), HuC1 and HuC3 (with HuC3's clock), TAMA5
-  (Tamagotchi 3, with its clock and the buzzer that calls you, approximated); battery saves (`.sav`, with the clocks in the formats other
+  (Tamagotchi 3, with its clock and the buzzer that calls you, approximated),
+  and the unlicensed and bootleg boards (BBD, Hitek, GGB-81, Li Cheng,
+  Sintax, SKOB LEE8, the NT boards, Pokemon Jade/Diamond's, Rocket Games, Vast Fame
+  VF001, Yong Yong, New Game Boy Color HK, Liebao, Chong Wu, La Sa Ma, the
+  SL, LB, GBCK003 and "GB HiCol" multi-game carts, Duz's Pokemon 2 in 1; known by their logo, header or, for the
+  163 dumps in MAME's lists, their CRC); battery saves (`.sav`, with the clocks in the formats other
   emulators use).
 - **Game Boy Camera**: the camera sees through your webcam, the phone's
   front camera or the browser's camera (the system asks first; without a
@@ -334,6 +339,17 @@ The sound (`src/apu/`) is a port of [SameBoy](https://github.com/LIJI32/SameBoy)
 APU and the pixel renderer follows SameBoy's; those parts also carry
 SameBoy's MIT licence ([LICENSE-sameboy](LICENSE-sameboy)).
 
-`src/cart/tama5.c3` and `src/cart/sachen.c3` follow [mGBA](https://mgba.io)'s TAMA5
-and Sachen mappers and are under the
+`src/cart/tama5.c3`, `src/cart/sachen.c3` and `src/cart/bootleg.c3` follow
+[mGBA](https://mgba.io)'s TAMA5, Sachen and bootleg mappers and are under the
 [Mozilla Public License 2.0](https://mozilla.org/MPL/2.0/) instead.
+
+`src/cart/unlicensed.c3` follows [MAME](https://www.mamedev.org)'s Game Boy
+cartridge boards and carries its BSD 3-Clause licence
+([LICENSE-mame](LICENSE-mame)); its table of known dumps comes from MAME's
+software lists (CC0).
+
+`src/cart/hhugboy.c3` (SKOB LEE8, Pokemon 2 in 1, more bootleg signatures)
+was written from a description of what [hhugboy](https://github.com/tzlion/hhugboy)
+(taizou, NewRisingSun and contributors) knows about those boards
+([docs/HHUGBOY-BOARDS.md](docs/HHUGBOY-BOARDS.md)); its SKOB LEE8 and LB
+multicart mappers are CC0.

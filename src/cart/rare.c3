@@ -4,10 +4,11 @@ module cart;
 // games' mapper, and TPP1 (homebrew: a big ROM, RAM, a clock and rumble).
 
 // A ROM that needs a cartridge mapper: the header names one, or it is one
-// of those the header doesn't name (TPP1, M161, Wisdom Tree, Sachen).
+// of those the header doesn't name (TPP1, M161, Wisdom Tree, Sachen, bootlegs).
 fn bool needs_mapper(char[] rom) {
 	if (rom.len > 0x147 && mbc_of(rom[0x147]) != NONE) return true;
 	if (is_tpp1(rom) || is_wisdom_tree(rom) || is_sachen_mmc1(rom) || is_sachen_mmc2(rom)) return true;
+	if (@ok(bootleg_mbc(rom)) || @ok(known_mbc(rom)) || @ok(hhugboy_mbc(rom))) return true;
 	return rom.len == 0x40000 && (String)rom[0x134 : 10] == "TETRIS SET";
 }
 

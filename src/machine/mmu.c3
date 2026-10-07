@@ -105,6 +105,7 @@ struct Mmu {
 	char[0x2000] extram;   // A000-BFFF fallback
 	bool         has_extram; // a cartridge without MBC but with RAM (types $08/$09); else $A000-$BFFF is open bus
 	cart::Cartridge* cart; // non-null once an MBC ROM is loaded; owns ROM+RAM
+	bool             cart_reset; // the cartridge reset the console (multicarts): GameBoy.step
 	Watches*         watch; // the debugger's watchpoints, while there are any (watch.c3)
 	char[0x2000] wram;   // C000-DFFF  (+ E000-FDFF echo)
 	char[0x80]   io;     // FF00-FF7F
@@ -261,7 +262,10 @@ fn void Mmu.set(&self, ushort addr, char value) {
 	// $0000-$7FFF is cartridge ROM: read-only. With an MBC these writes are
 	// bank-control registers; without one (plain 32 KiB ROM) they are ignored.
 	if (addr < 0x8000) {
-		if (self.cart) self.cart.write(addr, value);
+		if (self.cart) {
+			self.cart.write(addr, value);
+			if (self.cart.reset_request) self.cart_reset = true; // GameBoy.step
+		}
 		return;
 	}
 	if (addr < 0xA000) {
