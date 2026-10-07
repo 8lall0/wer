@@ -295,6 +295,14 @@ The test ROM suites run on all CPU cores (`WER_THREADS=n` to change that;
 build). The Gambatte suite runs only when asked (thousands of ROMs, under a
 minute optimized); its passing checks are recorded in `test/suites/gambatte_pass.txt`.
 
+`test/unit/fuzz_test.c3` throws random ROMs (every mapper, DMG, CGB and
+SGB) and damaged save states at the emulator; run it with bounds checks on,
+for as long as you like:
+
+```sh
+WER_FUZZ=5000 WER_FUZZ_LOG=1 c3c test -O1 --test-filter fuzz --test-nocapture
+```
+
 The test ROMs are not in the repository; each fetch script downloads its
 suite into `test/` (SameSuite is built from source and needs RGBDS). Without
 them, those tests pass with a note.

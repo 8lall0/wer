@@ -362,8 +362,23 @@ fn char[] GameBoy.save_state(&self, Allocator alloc) {
 	return w.out.str_view().copy(alloc);
 }
 
-// Checks everything first: a state that doesn't fit leaves the machine as it was.
+// Checks everything first: a state that doesn't fit leaves the machine as
+// it was. A state is a file, so it may be damaged or made up: what it holds
+// must also be within what this machine can have (GameBoy.state_sane), or
+// it is refused just the same.
 fn void? GameBoy.load_state(&self, char[] data) {
+	char[] before = self.save_state_raw(mem);
+	defer free(before.ptr);
+	self.load_state_file_data(data)!;
+	if (!self.state_sane()) {
+		StateHeader h;
+		mem::copy(&h, before.ptr, StateHeader::size);
+		(void)self.load_state_raw(before, &h);
+		return STATE_INVALID~;
+	}
+}
+
+fn void? GameBoy.load_state_file_data(&self, char[] data) {
 	if (data.len < StateHeader::size) return STATE_INVALID~;
 	StateHeader h;
 	mem::copy(&h, data.ptr, StateHeader::size);
@@ -391,7 +406,13 @@ fn void? GameBoy.load_state(&self, char[] data) {
 	load_blob(rec, "fb", self.mmu.ppu.fb.ptr, self.mmu.ppu.fb.len);
 	if (self.mmu.cart) {
 		if (try f = find_field(rec, "cart")) {
-			if (f.tag == TAG_STRUCT) read_struct(cart::Cartridge, f.value, self.mmu.cart);
+			if (f.tag == TAG_STRUCT) {
+				cart::Cartridge* was = mem::new(cart::Cartridge);
+				defer free(was);
+				*was = *self.mmu.cart;
+				read_struct(cart::Cartridge, f.value, self.mmu.cart);
+				self.mmu.cart.keep_hardware(was);
+			}
 		}
 		load_blob(rec, "cart_ram", self.mmu.cart.ram.ptr, self.mmu.cart.ram.len);
 	}
@@ -445,6 +466,84 @@ fn void GameBoy.restore_host_side(&self, HostSide* k) {
 	a.out_rate = k.mmu.apu.out_rate;
 	if (self.mmu.sgb) self.mmu.sgb.log = k.sgb_log;
 	if (self.mmu.cart) self.mmu.cart.rtc.cpu_hz = k.rtc_hz;
+	// What machine this is: this one (a state of another model doesn't
+	// load, but its fields could still say otherwise).
+	mmu::Mmu* m = &self.mmu;
+	m.model = k.mmu.model;
+	m.cgb_rev = k.mmu.cgb_rev;
+	m.dmg_rev = k.mmu.dmg_rev;
+	m.ppu.cgb_hw = k.mmu.ppu.cgb_hw;
+	m.ppu.sgb_hw = k.mmu.ppu.sgb_hw;
+	m.ppu.rev = k.mmu.ppu.rev;
+	m.ppu.mgb = k.mmu.ppu.mgb;
+	a.cgb = k.mmu.apu.cgb;
+	a.rev = k.mmu.apu.rev;
+	a.clock_hz = k.mmu.apu.clock_hz;
+	if (m.model != CGB) {
+		m.cgb_mode = false;
+		m.double_speed = false;
+		m.ppu.compat = false;
+		m.ppu.double_speed = false;
+		m.timer.double_speed = false;
+		a.double_speed = false;
+		a.clock_ds = false;
+	}
+	m.ppu.cgb = m.cgb_mode;
+	m.ppu.catching_up = false;
+	m.ppu.predicting = false;
+	self.cpu.tracing = false;
+}
+
+// A loaded state's values within what the machine can have: whatever
+// indexes an array, counts a loop or picks a bank.
+fn bool GameBoy.state_sane(&self) {
+	cpu::Cpu* c = &self.cpu;
+	mmu::Mmu* m = &self.mmu;
+	ppu::Ppu* p = &m.ppu;
+	apu::Apu* a = &m.apu;
+	timer::Timer* t = &m.timer;
+	if (c.trace_len > cpu::TRACE_MAX || !in(c.speed_switch_halt, 0, 0x10000)) return false;
+	if (!in(m.dma.index, 0, m.dma.active ? mmu::DMA_LEN - 1 : mmu::DMA_LEN) || !in(m.dma.pending, 0, 4)) return false;
+	if (!in(m.serial_bits, 0, 8) || !in(m.serial_left, 0, 0x100000) || m.serial_log_len > m.serial_log.len) return false;
+	if (!in(m.timer_hold, 0, 4) || !in(m.vdma_stall, 0, 0x1000) || !in(m.vdma_copying, 0, m.vdma_stall)
+		|| !in(m.vdma_feed_len, 0, 0x1000) || !in(m.vdma_feed_pos, 0, (long)m.vdma_feed_len + 2) || !in(m.vdma_feed_wait, 0, 0x100)
+		|| !in(m.ppu_freeze, 0, 16) || m.halt_hdma > 3 || m.ppu_lag != 0) return false;
+	// The PPU: where it is, its queue of register writes, the renderer.
+	if (!in(p.dot, 0, ppu::DOTS_PER_LINE - 1) || !in(p.line, 0, ppu::TOTAL_LINES - 1) || p.mode > 3
+		|| !in(p.n_writes, 0, (long)p.writes.len) || !in(p.pipe_end_dot, 0, 2 * ppu::DOTS_PER_LINE)
+		|| !in(p.m0_irq_pred, -64, 2 * ppu::DOTS_PER_LINE)) return false;
+	if (!renderer_sane(&p.r) || !renderer_sane(&p.win_save)) return false;
+	// The timer catches up with its interrupt a period at a time.
+	if (t.next_irq != timer::NEVER && t.next_irq + 0x1000000 < t.cc) return false;
+	if (t.tmatime != timer::NEVER && t.tmatime + 0x1000000 < t.cc) return false;
+	// The APU: its clock, what it put off, its channels' positions.
+	if (a.gcc < a.glu || a.gcc - a.glu > 64 || a.sample_acc >= a.hz() || !in(a.lazy_ticks, 0, 0x100000)
+		|| a.defer_steps > 16 || a.defer_rises > 16 || !in(a.clock_hold, 0, 4)
+		|| !in(a.sweep_calc_countdown, 0, 64) || !in(a.sweep_calc_reload_timer, 0, 64) || !in(a.ch1_restart_hold, 0, 64)
+		|| !in(a.sweep_grace, 0, 16)) return false;
+	foreach (g : a.env_grace) if (!in(g, 0, 16)) return false;
+	foreach (&q : a.sq) {
+		if (!in(q.current_sample_index, 0, 7) || !in(q.sample_countdown, 0, 0x10000) || !in(q.delay, 0, 64)) return false;
+	}
+	if (!in(a.wave.current_sample_index, 0, 31) || !in(a.wave.sample_countdown, 0, 0x10000) || !in(a.wave.shift, 0, 4)) return false;
+	if (!in(a.noise.counter_countdown, 0, 0x10000) || !in(a.noise.dmg_delayed_start, 0, 64)) return false;
+	if (m.cart && m.cart.tama5.reg >= cart::TAMA5_MAX) return false;
+	if (m.sgb) {
+		sgb::Sgb* g = m.sgb;
+		if (!in(g.bits, 0, 129) || !in(g.packets_expected, 0, sgb::MAX_PACKETS) || !in(g.packets_received, 0, sgb::MAX_PACKETS)
+			|| !in(g.players, 1, 4) || !in(g.player, 0, 3) || g.mask > 3 || g.chr_half > 1) return false;
+		foreach (v : g.attr) if (v > 3) return false;
+	}
+	return true;
+}
+
+fn bool in(long v, long lo, long hi) @inline => v >= lo && v <= hi;
+
+fn bool renderer_sane(ppu::Renderer* r) {
+	if (!in(r.pos, -16, 160) || !in(r.lcd_x, 0, ppu::WIDTH) || !in(r.n_obj, 0, 10) || !in(r.scan_tall_only, 0, 41)) return false;
+	if (!in(r.bg.head, 0, 7) || !in(r.bg.size, 0, 8) || !in(r.obj.head, 0, 7) || !in(r.obj.size, 0, 8)) return false;
+	foreach (i : r.obj_index) if (i >= 40) return false;
+	return r.state.ordinal <= ppu::Fetch.PUSH.ordinal && r.obj_step.ordinal <= ppu::ObjStep.OVERLAY.ordinal;
 }
 
 // --- Version 1: the structs byte for byte -----------------------------------
@@ -516,12 +615,11 @@ fn void? GameBoy.load_state_raw(&self, char[] data, StateHeader* h) {
 	r.get(self.mmu.ppu.fb.ptr, self.mmu.ppu.fb.len);
 	if (self.mmu.cart) {
 		cart::Cartridge* c = self.mmu.cart;
-		cart::Cartridge ck = *c;
+		cart::Cartridge* ck = mem::new(cart::Cartridge);
+		defer free(ck);
+		*ck = *c;
 		r.get(c, cart::Cartridge::size);
-		c.rom = ck.rom;
-		c.ram = ck.ram;
-		c.save_path = ck.save_path;
-		c.rtc.cpu_hz = ck.rtc.cpu_hz;
+		c.keep_hardware(ck);
 		if (c.ram.len) r.get(c.ram.ptr, c.ram.len);
 	}
 	if (self.mmu.sgb) {

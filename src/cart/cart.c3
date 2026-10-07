@@ -110,6 +110,22 @@ struct Cartridge {
 	Sachen sachen;
 }
 
+// After a save state is loaded: what this cartridge is, and where its ROM
+// and RAM are, stay as they were (the state is about its registers).
+fn void Cartridge.keep_hardware(&self, Cartridge* was) {
+	self.mbc = was.mbc;
+	self.rom = was.rom;
+	self.ram = was.ram;
+	self.save_path = was.save_path;
+	self.has_battery = was.has_battery;
+	self.has_rtc = was.has_rtc;
+	self.has_clock = was.has_clock;
+	self.has_rumble = was.has_rumble;
+	self.multicart = was.multicart;
+	self.rtc.cpu_hz = was.rtc.cpu_hz;
+	self.rom_mapped = false;
+}
+
 fn Mbc mbc_of(char type) {
 	switch (type) {
 		case 0x01: case 0x02: case 0x03:
