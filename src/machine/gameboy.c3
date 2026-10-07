@@ -410,8 +410,31 @@ fn void Cartridge.print(&self) {
 
 fn char GameBoy.step(&self) {
 	if (self.mmu.agb_inc_b) self.agb_inc_b();
+	if (self.mmu.cart_reset) self.cart_reset();
 	char cycles = self.cpu.step(&self.mmu);
 	return cycles;
+}
+
+// A multi-game cartridge reset the console to start the game picked: the
+// console starts again from its boot ROM (which also takes a CGB out of
+// colour mode for a DMG game), the same cartridge in it, its configuration
+// kept; what the host connected stays connected.
+fn void GameBoy.cart_reset(&self) {
+	self.mmu.cart_reset = false;
+	HostSide k = self.host_side();
+	GameBoy* fresh = mem::new(GameBoy);
+	defer free(fresh);
+	*fresh = new(true, self.mmu.model);
+	self.cpu = fresh.cpu;
+	self.mmu = fresh.mmu;
+	self.restore_host_side(&k);
+	self.mmu.has_extram = k.mmu.has_extram;
+	self.mmu.extram = k.mmu.extram;
+	// The fresh machine's own buffers (this one keeps its own).
+	fresh.mmu.cart = null;
+	fresh.destroy();
+	if (self.mmu.cart) self.mmu.cart.unl_reset();
+	self.mmu.ppu_touch();
 }
 
 fn char[] GameBoy.framebuffer(&self) {

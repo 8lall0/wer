@@ -357,3 +357,269 @@ fn void unnamed_mappers_load_as_cartridges() @test {
 	c.load_rom(sa);
 	assert(c.mmu.cart != null && c.mmu.cart.mbc == cart::Mbc.SACHEN && !c.mmu.cart.sachen.locked);
 }
+
+// --- bootlegs (bootleg.c3): known only by CRCs, so forced here ---------------
+
+fn cart::Cartridge* bootleg(char[] rom, cart::Mbc m) {
+	cart::Cartridge* c = cart::new(rom, "");
+	c.mbc = m;
+	c.rom_mapped = false;
+	if (m == SINTAX) c.bootleg.sintax_mode = 0xF;
+	c.unl = {};
+	c.unl_init();
+	return c;
+}
+
+fn void bootleg_crc32() @test {
+	test::eq(cart::crc32("123456789"), 0xCBF43926u);
+}
+
+fn void bbd_shuffles_banks_and_data() @test {
+	char[] rom = rom_of(0x19, 64);
+	rom[4 * 0x4000 + 0x100] = 0x02;
+	cart::Cartridge* c = bootleg(rom, BBD);
+	defer c.free();
+	c.write(0x2000, 0x05);
+	test::eq(bank_at(c, 0x4000), 5);          // mode 0: as written
+	c.write(0x2080, 0x03);                    // bank bits: Digimon/Garou order
+	c.write(0x2000, 0x01);                    // bit 0 goes to bit 3
+	test::eq(bank_at(c, 0x4000), 8);
+	c.write(0x2001, 0x04);                    // data bits: Garou order (also bank 4)
+	test::eq(c.read(0x4100), 0x04);           // bit 1 goes to bit 2
+	test::eq(c.read(0x0100), rom[0x100]);     // bank 0 is left alone
+}
+
+fn void sintax_shuffles_and_xors() @test {
+	cart::Cartridge* c = bootleg(rom_of(0x19, 64), SINTAX);
+	defer c.free();
+	c.write(0x7020, 0xAA);                    // XOR for banks ...0
+	c.write(0x7030, 0x55);                    // ... and ...1
+	c.write(0x5010, 0x05);                    // mode 5: bit 0 goes to bit 4
+	c.write(0x2000, 0x01);
+	test::eq(bank_at(c, 0x4000), 16 ^ 0x55);
+	c.write(0x5010, 0x0F);                    // no shuffle: the same bank again
+	test::eq(bank_at(c, 0x4000), 1 ^ 0x55);
+}
+
+fn void nt_old_base_count_and_swaps() @test {
+	cart::Cartridge* c = bootleg(rom_of(0x11, 128), NT_OLD1);
+	defer c.free();
+	c.write(0x5001, 0x04);                    // base: bank 8 at $0000
+	test::eq(bank_at(c, 0x0000), 8);
+	test::eq(bank_at(c, 0x4000), 9);
+	c.write(0x5002, 0x0E);                    // 4 banks
+	c.write(0x2000, 0x07);
+	test::eq(bank_at(c, 0x4000), 8 + 3);
+	c.write(0x5003, 0x10);                    // swapped bits: 1 and 2 trade places
+	c.write(0x2000, 0x02);
+	test::eq(bank_at(c, 0x4000), 8 + 0);      // 2 -> 4, & 3
+}
+
+fn void nt_new_splits_into_8k_banks() @test {
+	cart::Cartridge* c = bootleg(rom_of(0x19, 64), NT_NEW);
+	defer c.free();
+	c.write(0x2000, 0x03);
+	test::eq(bank_at(c, 0x4000), 3);
+	c.write(0x1400, 0x00);                    // split: what was there stays
+	test::eq(c.read(0x6000), 3);              // the second half of bank 3
+	c.write(0x2000, 0x09);                    // 8 KiB bank 9: the second half of bank 4
+	test::eq(c.read(0x4000), 4);
+	test::eq(c.read(0x6000), 3);
+}
+
+fn void pkjd_counters() @test {
+	cart::Cartridge* c = bootleg(rom_of(0x13, 8, 3), PKJD);
+	defer c.free();
+	c.write(0x0000, 0x0A);
+	c.write(0x4000, 0x0D); c.write(0xA000, 10);
+	c.write(0x4000, 0x0E); c.write(0xA000, 3);
+	c.write(0x4000, 0x0F); c.write(0xA000, 0x41); // first += second
+	c.write(0x4000, 0x0D);
+	test::eq(c.read(0xA000), 13);
+	c.write(0x4000, 0x0F); c.write(0xA000, 0x12); // second--
+	c.write(0x4000, 0x0E);
+	test::eq(c.read(0xA000), 2);
+	c.write(0x4000, 0x0F); c.write(0xA000, 0x52); // second++ (MAME)
+	c.write(0x4000, 0x0E);
+	test::eq(c.read(0xA000), 3);
+	c.write(0x4000, 0x00);                        // RAM again
+	c.write(0xA000, 0x77);
+	test::eq(c.read(0xA000), 0x77);
+}
+
+fn void li_cheng_ignores_some_writes() @test {
+	cart::Cartridge* c = bootleg(rom_of(0x19, 16), LI_CHENG);
+	defer c.free();
+	c.write(0x2000, 0x05);
+	c.write(0x2200, 0x07);
+	test::eq(bank_at(c, 0x4000), 5);
+	c.write(0x2100, 0x07);
+	test::eq(bank_at(c, 0x4000), 7);
+}
+
+// --- MAME's unlicensed boards (unlicensed.c3) ----------------------------------
+
+fn void rocket_and_lasama_banks() @test {
+	cart::Cartridge* c = bootleg(rom_of(0x19, 64), ROCKET);
+	defer c.free();
+	test::eq(bank_at(c, 0x4000), 1);
+	c.write(0x3FC0, 2);                       // coarse 2: banks 32-47
+	test::eq(bank_at(c, 0x0000), 32);
+	test::eq(bank_at(c, 0x4000), 33);
+	c.write(0x3F00, 5);
+	test::eq(bank_at(c, 0x4000), 37);
+	c.write(0x3F00, 0);                       // 0 is 1
+	test::eq(bank_at(c, 0x4000), 33);
+	c.write(0x2000, 9);                       // nothing else switches banks
+	test::eq(bank_at(c, 0x4000), 33);
+	cart::Cartridge* l = bootleg(rom_of(0x19, 8), LASAMA);
+	defer l.free();
+	l.write(0x6000, 0x02);                    // coarse 1: banks 4-7
+	l.write(0x2080, 0x03);
+	test::eq(bank_at(l, 0x0000), 4);
+	test::eq(bank_at(l, 0x4000), 7);
+	l.write(0x6000, 0x80);                    // bit 7: no change
+	test::eq(bank_at(l, 0x4000), 7);
+}
+
+fn void yong_yong_boards() @test {
+	char[] rom = rom_of(0xEA, 32);
+	cart::Cartridge* y = cart::new(rom, "");
+	defer y.free();
+	test::eq(y.mbc, cart::Mbc.YONG);         // its own header type
+	y.write(0x2000, 0x07);
+	test::eq(bank_at(y, 0x4000), 7);
+	cart::Cartridge* r = bootleg(rom_of(0x01, 32), ROCKMAN8);
+	defer r.free();
+	r.write(0x2000, 0x13);                    // above $0F: 8 less
+	test::eq(bank_at(r, 0x4000), 0x0B);
+	r.write(0x2000, 0x20);                    // 0 (5 bits) is 1
+	test::eq(bank_at(r, 0x4000), 1);
+	cart::Cartridge* m = bootleg(rom_of(0x01, 32), SM3SP);
+	defer m.free();
+	m.write(0x2000, 0x1B);                    // the table: $1B is bank 8
+	test::eq(bank_at(m, 0x4000), 8);
+	m.write(0x5000, 0x20);                    // remapped: 4 becomes 2
+	m.write(0x2000, 0x01);
+	test::eq(bank_at(m, 0x4000), 2);
+}
+
+fn void new_gbc_hk_banks_and_protection() @test {
+	cart::Cartridge* c = bootleg(rom_of(0x19, 512), NEWGBCHK);
+	defer c.free();
+	c.write(0x4000, 0x02);                    // coarse 2: 128-banks blocks
+	c.write(0x2000, 0x05);
+	test::eq(c.read(0x0000 + 0x2000) , (char)0); // (bank 256's mark is 0: 256 & $FF)
+	test::eq(bank_at(c, 0x4000), (char)(256 + 5));
+	c.write(0x2000, 0x85);                    // bit 7: protection reads
+	test::eq(c.read(0x4120), 0x12 ^ 0x55);    // $12 & 7 = 2: XOR $55
+	test::eq(c.read(0x4130), (char)(0x13 >> 1 | 0x13 << 7)); // 3: turned right
+	test::eq(c.read(0x5000), 0xFF);
+}
+
+fn void vf001_readback_and_split() @test {
+	char[] rom = rom_of(0x19, 16);
+	rom[0x0100] = 0x11;
+	rom[0x0200] = 0x22;
+	rom[3 * 0x4000 + 0x0200] = 0x33;
+	cart::Cartridge* c = bootleg(rom, VF001);
+	defer c.free();
+	// Commands: enable, then each value XORed onto the last one turned right.
+	c.write(0x7000, 0x96);                    // on, data 0 (no preload)
+	c.write(0x7001, 0x00);                    // readback address low: 0
+	c.write(0x7002, 0x01);                    // high: 0 >> 1 ... ^ 1 = 1 -> $0100
+	c.write(0x7003, 0x80);                    // bank: (1 turned right = $80) ^ $80 = 0
+	c.write(0x7004, 0xAB);                    // data 0: 0 ^ $AB
+	c.write(0x7000, 0xD1);                    // length: ($AB turned right = $D5) ^ $D1 = 4: 1 byte
+	test::eq(c.read(0x0100), 0xAB);           // the readback, at its address
+	test::eq(c.read(0x0101), 0x00);           // one byte long
+	c.write(0x700F, 0x96);                    // off
+	c.unl.vf_split = true;                    // (set directly: the split from $0200 up shows bank 3)
+	c.unl.vf_split_addr = 0x0200;
+	c.unl.vf_upper = 3;
+	test::eq(c.read(0x0200), 0x33);
+	test::eq(c.read(0x01FF), 0x00);           // below the split: bank 0
+	test::eq(c.peek_rom(0x0200), 0x22);       // a peek has no protection
+}
+
+fn void liebao_8k_pages() @test {
+	cart::Cartridge* c = bootleg(rom_of(0x19, 16), LIEBAO);
+	defer c.free();
+	c.write(0x2000, 0x03);                    // pages 6 and 7: bank 3
+	test::eq(c.read(0x6000), 3);              // (bank 3's second half: its mark)
+	c.write(0x70D2, 0x02);                    // the $6000 page alone: 5, bank 2's
+	test::eq(c.read(0x6000), 2);
+	c.write(0x2000, 0x04);                    // then $4000 only, once
+	test::eq(c.read(0x6000), 2);
+	c.write(0x2000, 0x04);
+	test::eq(c.read(0x6000), 4);
+}
+
+fn void chongwu_protection_once() @test {
+	cart::Cartridge* c = bootleg(rom_of(0x19, 4), CHONGWU);
+	defer c.free();
+	test::eq(c.peek_rom(0x41C3), 0);
+	test::eq(c.read(0x41C3), 0x5D);
+	test::eq(c.read(0x41C3), 0);
+}
+
+fn void multicarts_configure_then_reset() @test {
+	cart::Cartridge* s = bootleg(rom_of(0x19, 64, 3), SLMULTI);
+	defer s.free();
+	s.write(0x5000, 0xAA); s.write(0x7000, 0x08);  // base: page 16
+	s.write(0x5000, 0xBB); s.write(0x7000, 0x21);  // RAM allowed, page 1
+	s.write(0x5000, 0x55); s.write(0x7000, 0xE5);  // MBC1 game of 8 pages, reset
+	test::@check(s.reset_request, "a reset");
+	s.unl_reset();
+	test::eq(bank_at(s, 0x0000), 16);
+	test::eq(bank_at(s, 0x4000), 17);
+	s.write(0x2000, 0x03);
+	test::eq(bank_at(s, 0x4000), 19);
+	s.write(0x5000, 0xAA); s.write(0x7000, 0x00);  // not in configuration mode any more
+	test::eq(bank_at(s, 0x0000), 16);
+	cart::Cartridge* k = bootleg(rom_of(0x01, 64), GBCK003);
+	defer k.free();
+	k.write(0x7B00, 0x10);                    // outer: page 32
+	k.write(0x7B01, 0xF0);
+	k.write(0x7B02, 0xF0);
+	test::@check(k.reset_request, "a reset");
+	k.unl_reset();
+	test::eq(bank_at(k, 0x0000), 32);
+	k.write(0x2000, 0x05);
+	test::eq(bank_at(k, 0x4000), 32 | 5);
+	k.write(0x7B00, 0x00);                    // locked now
+	test::eq(bank_at(k, 0x0000), 32);
+}
+
+fn void mbc7_bigger_eeprom() @test {
+	cart::Cartridge* small = cart::new(rom_of(0x22, 64), "");
+	defer small.free();
+	test::eq(small.ram.len, 0x100);
+	cart::Cartridge* big = cart::new(rom_of(0x22, 128), "");
+	defer big.free();
+	test::eq(big.ram.len, 0x200);             // 2 MiB: Command Master's 93LC66
+}
+
+// A multicart's reset: the console starts again from the boot ROM, the
+// cartridge (and the game it was set to) kept.
+fn void multicart_resets_the_console() @test {
+	gameboy::GameBoy gb = gameboy::new(false);
+	defer gb.destroy();
+	gb.load_rom(rom_of(0x01, 64));
+	cart::Cartridge* c = gb.mmu.cart;
+	c.mbc = GBCK003;
+	c.unl = {};
+	c.unl_init();
+	c.rom_mapped = false;
+	// The menu's last steps run from WRAM (the ROM below them changes):
+	// outer bank $10, out of configuration mode.
+	char[11] code = { 0x3E, 0x10, 0xEA, 0x00, 0x7B, 0x3E, 0xF0, 0xEA, 0x02, 0x7B, 0x76 };
+	foreach (i, b : code) gb.mmu.set((ushort)(0xC000 + i), b);
+	gb.cpu.pc = 0xC000;
+	for (int i = 0; i < 6; i++) gb.step();
+	test::@check(gb.mmu.boot_active, "booting again");
+	test::@check(gb.mmu.cart == c, "the same cartridge");
+	test::eq(c.unl.ck_outer, 0x10);
+	test::@check(!c.unl.ck_config, "configured");
+	test::eq(bank_at(c, 0x0000), 32);
+}

@@ -33,6 +33,28 @@ enum Mbc : char {
 	WISDOM, // Wisdom Tree: one 32 KiB bank by address (rare.c3)
 	TPP1,   // homebrew: 16-bit banks, RAM, clock, rumble (rare.c3)
 	SACHEN, // Sachen MMC1/MMC2: base bank and mask, logo scrambling (sachen.c3)
+	// Unlicensed bootlegs, by a second logo or the header (bootleg.c3):
+	BBD,      // MBC5, ROM data and bank bits shuffled
+	HITEK,    // the same, other shuffles
+	GGB81,    // MBC5, ROM data shuffled
+	LI_CHENG, // MBC5 that ignores some bank writes
+	SINTAX,   // MBC5, banks shuffled and XORed
+	NT_OLD1,  // MBC3 multicarts, a base bank and a bank count
+	NT_OLD2,  // ... and rumble
+	NT_NEW,   // MBC5 with 8 KiB banks on request
+	PKJD,     // MBC3 whose RAM window holds two counters (Pokemon Jade/Diamond)
+	// More unlicensed boards, known by CRC (unlicensed.c3):
+	ROCKET,   // Rocket Games: coarse/fine 16 KiB banks
+	LASAMA,   // Story of Lasama
+	YONG,     // Yong Yong ($EA): one bank register
+	ROCKMAN8, // Yong Yong's MBC1 variant for Rockman 8
+	SM3SP,    // ... and for Super Mario 3 Special, banks through a table
+	NEWGBCHK, // New Game Boy Color HK0701/HK0819, with a protection window
+	VF001,    // Vast Fame VF001: MBC5 with protection commands
+	LIEBAO,   // Liebao: two 8 KiB windows
+	CHONGWU,  // MBC5 with a one-time protection read
+	SLMULTI,  // SL multi-game carts: a configuration mode, then a reset
+	GBCK003,  // GBCK003 multi-game board, likewise
 }
 
 // MBC7's own state (SameBoy's model, MIT: see LICENSE-sameboy). $A000-$AFFF
@@ -108,6 +130,9 @@ struct Cartridge {
 	Tpp1  tpp1;
 	bool  m161_locked;
 	Sachen sachen;
+	Bootleg bootleg;
+	Unlicensed unl;
+	bool reset_request; // the cartridge pulled the console's reset line (multicarts)
 }
 
 // After a save state is loaded: what this cartridge is, and where its ROM
@@ -196,6 +221,12 @@ fn Cartridge* new(char[] image, String path) {
 		c.mbc = M161;
 	} else if (is_wisdom_tree(c.rom)) {
 		c.mbc = WISDOM;
+	} else if (try Mbc k = known_mbc(image)) {
+		c.mbc = k;
+		if (k == SACHEN) c.sachen.locked = true;
+	} else if (try Mbc b = bootleg_mbc(c.rom)) {
+		c.mbc = b;
+		if (b == NT_OLD2) c.has_rumble = true;
 	} else if (is_sachen_mmc1(c.rom) || is_sachen_mmc2(c.rom)) {
 		c.mbc = SACHEN;
 		c.has_battery = false;
@@ -203,7 +234,7 @@ fn Cartridge* new(char[] image, String path) {
 	} else if (c.mbc == MBC6) {
 		c.has_battery = true; // the flash keeps what was written to it
 	}
-	c.has_rtc = type == 0x0F || type == 0x10;
+	c.has_rtc = (type == 0x0F || type == 0x10) && c.mbc == MBC3;
 
 	// MBC1M multicart: a 1 MB MBC1 whose bank $10 (the second game) has its own
 	// Nintendo logo. Nothing in the header says so.
@@ -213,7 +244,9 @@ fn Cartridge* new(char[] image, String path) {
 	if (c.mbc == MBC2) {
 		ram_len = 0x200; // built-in 512 x 4 bits
 	} else if (c.mbc == MBC7) {
-		ram_len = 0x100; // the 93LC56 EEPROM
+		// The 93LC56 EEPROM; the bigger game (Command Master) has a 93LC66
+		// (MAME: it goes by the ROM's size).
+		ram_len = c.rom.len > 0x100000 ? 0x200 : 0x100;
 	} else if (c.mbc == TAMA5) {
 		ram_len = 0x20;
 	} else if (c.mbc == MBC6) {
@@ -223,11 +256,12 @@ fn Cartridge* new(char[] image, String path) {
 		ram_len = n >= 1 && n <= 9 ? 0x2000u << (n - 1) : 0;
 	} else if (c.mbc == M161 || c.mbc == WISDOM || c.mbc == SACHEN) {
 		ram_len = 0;
+
 	} else {
 		ram_len = ram_code < 6 ? RAM_SIZE[ram_code] : 0;
 	}
 	if (ram_len > 0) c.ram = mem::new_array(char, (sz)ram_len);
-	c.has_rumble = (type >= 0x1C && type <= 0x1E) || (c.mbc == TPP1 && (c.rom[0x153] & 1));
+	c.has_rumble |= ((type >= 0x1C && type <= 0x1E) && c.mbc.mbc5_like()) || (c.mbc == TPP1 && (c.rom[0x153] & 1));
 	if (c.mbc == MBC6) c.flash()[..] = 0xFF; // an erased flash chip
 	if (c.mbc == MBC7) {
 		c.ram[..] = 0xFF; // a blank EEPROM
@@ -244,6 +278,11 @@ fn Cartridge* new(char[] image, String path) {
 	if (c.mbc == HUC3) c.huc3.unset();
 	if (c.mbc == TAMA5) c.tama5.init();
 	if (c.mbc == MMM01) c.mmm01.ram_mask = 3;
+	c.unl_init();
+	if (c.mbc == SINTAX) {
+		c.bootleg.sintax_mode = 0xF;
+		c.ram_enabled = c.ram.len > 0; // (mGBA: open until the game says otherwise)
+	}
 
 	if (c.has_battery && (c.ram.len > 0 || c.has_rtc || c.has_clock)) {
 		c.save_path = string::format(mem, "%s.sav", path);
@@ -333,6 +372,8 @@ fn usz Cartridge.rom_offset(&self, ushort addr) {
 	if (self.mbc == MMM01) return self.mmm01_rom_offset(addr);
 	if (self.mbc == M161 || self.mbc == WISDOM) return self.big_bank_offset(addr);
 	if (self.mbc == SACHEN) return self.sachen_rom_offset(addr);
+	if (self.mbc == NT_OLD1 || self.mbc == NT_OLD2 || self.mbc == NT_NEW) return self.nt_rom_offset(addr);
+	if (self.mbc.unlicensed()) return self.unl_rom_offset(addr);
 
 	if (addr < 0x4000) return addr;
 	uint bank = self.rom_bank;
@@ -362,12 +403,16 @@ fn char Cartridge.peek_rom(&self, ushort addr) {
 		usz off = (usz)wrap_bank(bank, self.rom.len, 0x4000) * 0x4000 + (usz)(a & 0x3FFF);
 		return off < self.rom.len ? self.rom[off] : 0xFF;
 	}
+	if (self.unl_reads()) {
+		usz off = self.unl_rom_offset(addr);
+		return off < self.rom.len ? self.rom[off] : 0xFF;
+	}
 	return self.read_rom(addr);
 }
 
 fn void Cartridge.map_rom(&self) {
 	self.rom_mapped = true;
-	self.rom_linear = self.mbc != MBC6 && self.mbc != SACHEN;
+	self.rom_linear = self.mbc != MBC6 && self.mbc != SACHEN && !self.bootleg_reads() && !self.unl_reads();
 	if (!self.rom_linear) return;
 	self.rom_lo = self.rom_offset(0x0000);
 	self.rom_hi = self.rom_offset(0x4000);
@@ -375,12 +420,15 @@ fn void Cartridge.map_rom(&self) {
 
 fn char Cartridge.read(&self, ushort addr) {
 	if (addr < 0x8000 && self.mbc == MBC6) return self.mbc6_read_rom(addr);
+	if (addr < 0x8000 && self.unl_reads()) return self.unl_read(addr);
 	if (addr < 0x8000) {
 		usz off = self.rom_offset(addr);
-		return off < self.rom.len ? self.rom[off] : 0xFF;
+		char v = off < self.rom.len ? self.rom[off] : 0xFF;
+		return addr >= 0x4000 ? self.bootleg_data(v) : v;
 	}
 	// $A000-$BFFF
 	switch (self.mbc) {
+		case PKJD:  return self.pkjd_read(addr);
 		case MBC7:  return self.mbc7_read(addr);
 		case TPP1:  return self.tpp1_read(addr);
 		case HUC1:  return self.huc1_read(addr);
@@ -437,7 +485,7 @@ fn usz Cartridge.ram_offset(&self, ushort addr) {
 	uint bank = (self.mbc == MBC1 && !self.mode1) ? 0 : self.ram_bank;
 	// MBC3 banks $08-$0C are the RTC registers, not RAM: keep them out of range
 	// (reads $FF, writes dropped) instead of wrapping onto real save RAM.
-	if (self.mbc == MBC3 && bank >= 0x08) return self.ram.len;
+	if ((self.mbc == MBC3 || self.mbc == PKJD) && bank >= 0x08) return self.ram.len;
 	bank = wrap_bank(bank, self.ram.len, 0x2000);
 	return (usz)bank * 0x2000 + local % (usz)self.ram.len; // 2 KiB RAM mirrors in its bank
 }
@@ -450,6 +498,7 @@ fn void Cartridge.write(&self, ushort addr, char value) {
 	}
 	// $A000-$BFFF
 	switch (self.mbc) {
+		case PKJD:  self.pkjd_write(addr, value); return;
 		case MBC7:  self.mbc7_write(addr, value); return;
 		case HUC1:  self.huc1_write(addr, value); return;
 		case HUC3:  self.huc3_write(addr, value); return;
@@ -499,32 +548,20 @@ fn void Cartridge.write_control(&self, ushort addr, char value) {
 					self.rom_bank = b == 0 ? 1 : b;
 				}
 			}
-		case MBC3:
-			switch {
-				case addr < 0x2000: self.ram_enabled = (value & 0x0F) == 0x0A;
-				case addr < 0x4000:
-					// 7 bits (2 MiB); MBC30, on bigger cartridges, has all 8.
-					uint b = value & (self.rom.len > 0x200000 ? 0xFF : 0x7F);
-					self.rom_bank = b == 0 ? 1 : b;
-				case addr < 0x6000: self.ram_bank = value; // 0-3 = RAM, 8-C = RTC
-				default: if (self.has_rtc) self.rtc.write_latch(value);
-			}
-		case MBC5:
-			switch {
-				case addr < 0x2000: self.ram_enabled = (value & 0x0F) == 0x0A;
-				case addr < 0x3000: self.rom_bank = (self.rom_bank & 0x100) | value;
-				case addr < 0x4000: self.rom_bank = (self.rom_bank & 0xFF) | ((value & 1) << 8);
-				case addr < 0x6000:
-					if (self.has_rumble) {
-						self.rumble = (value & 8) != 0; // the motor, not a RAM bank bit
-						self.rumble_writes++;
-						if (self.rumble) self.rumble_on++;
-						self.ram_bank = value & 7;
-					} else {
-						self.ram_bank = value & 0x0F;
-					}
-				default: break;
-			}
+		case MBC3:  self.mbc3_control(addr, value);
+		case MBC5:  self.mbc5_control(addr, value);
+		case BBD:
+		case HITEK:
+		case GGB81:
+		case LI_CHENG:
+		case SINTAX:
+		case NT_OLD1:
+		case NT_OLD2:
+		case NT_NEW:
+		case PKJD:  self.bootleg_control(addr, value);
+		case ROCKET: case LASAMA: case YONG: case ROCKMAN8: case SM3SP: case NEWGBCHK:
+		case VF001: case LIEBAO: case CHONGWU: case SLMULTI: case GBCK003:
+			self.unl_control(addr, value);
 		case MMM01: self.mmm01_control(addr, value);
 		case HUC1:  self.huc1_control(addr, value);
 		case HUC3:  self.huc3_control(addr, value);
@@ -542,6 +579,36 @@ fn void Cartridge.write_control(&self, ushort addr, char value) {
 				case addr < 0x6000: self.mbc7.ram_enabled2 = value == 0x40;
 				default: break;
 			}
+	}
+}
+
+fn void Cartridge.mbc3_control(&self, ushort addr, char value) {
+	switch {
+		case addr < 0x2000: self.ram_enabled = (value & 0x0F) == 0x0A;
+		case addr < 0x4000:
+			// 7 bits (2 MiB); MBC30, on bigger cartridges, has all 8.
+			uint b = value & (self.rom.len > 0x200000 ? 0xFF : 0x7F);
+			self.rom_bank = b == 0 ? 1 : b;
+		case addr < 0x6000: self.ram_bank = value; // 0-3 = RAM, 8-C = RTC
+		default: if (self.has_rtc) self.rtc.write_latch(value);
+	}
+}
+
+fn void Cartridge.mbc5_control(&self, ushort addr, char value) {
+	switch {
+		case addr < 0x2000: self.ram_enabled = (value & 0x0F) == 0x0A;
+		case addr < 0x3000: self.rom_bank = (self.rom_bank & 0x100) | value;
+		case addr < 0x4000: self.rom_bank = (self.rom_bank & 0xFF) | ((value & 1) << 8);
+		case addr < 0x6000:
+			if (self.has_rumble) {
+				self.rumble = (value & 8) != 0; // the motor, not a RAM bank bit
+				self.rumble_writes++;
+				if (self.rumble) self.rumble_on++;
+				self.ram_bank = value & 7;
+			} else {
+				self.ram_bank = value & 0x0F;
+			}
+		default: break;
 	}
 }
 
@@ -606,7 +673,7 @@ fn void Cartridge.eeprom_clock(&self) {
 		if (m.di && m.write_enabled) {
 			ushort bit = (ushort)(1 << m.argument_bits);
 			if (m.command & 0x100) {
-				int i = m.command & 0x7F;
+				int i = m.command & (int)(self.ram.len / 2 - 1);
 				self.set_eeprom_word(i, self.eeprom_word(i) | bit);
 			} else {
 				for (int i = 0; i < 0x80; i++) self.set_eeprom_word(i, self.eeprom_word(i) | bit);
@@ -620,7 +687,7 @@ fn void Cartridge.eeprom_clock(&self) {
 	}
 	m.command = (ushort)(m.command << 1 | (m.di ? 1 : 0));
 	if ((m.command & 0x400) == 0) return;
-	int word = m.command & 0x7F;
+	int word = m.command & (int)(self.ram.len / 2 - 1); // 93LC56: 128 words, 93LC66: 256
 	switch ((m.command >> 6) & 0xF) {
 		case 0x8: case 0x9: case 0xA: case 0xB: // READ
 			m.read_bits = self.eeprom_word(word);

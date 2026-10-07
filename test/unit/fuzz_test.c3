@@ -74,6 +74,16 @@ fn void fuzz_rom(Rng* r, int n) {
 	*g = gameboy::new(r.below(2) == 0, model);
 	defer { g.destroy(); free(g); }
 	g.load_rom(rom);
+	// The bootleg mappers are only known by CRCs: force one now and then.
+	if (g.mmu.cart && r.below(4) == 0) {
+		cart::Mbc[*] bootlegs = { BBD, HITEK, GGB81, LI_CHENG, SINTAX, NT_OLD1, NT_OLD2, NT_NEW, PKJD,
+			ROCKET, LASAMA, YONG, ROCKMAN8, SM3SP, NEWGBCHK, VF001, LIEBAO, CHONGWU, SLMULTI, GBCK003 };
+		g.mmu.cart.mbc = bootlegs[r.below(bootlegs.len)];
+		g.mmu.cart.unl = {};
+		g.mmu.cart.unl_init();
+		g.mmu.cart.rom_mapped = false;
+		if (log) io::eprintfn("  as %s", g.mmu.cart.mbc);
+	}
 	for (int f = 0; f < 10; f++) {
 		g.mmu.set_input((char)r.next(), (char)r.next());
 		g.run_frame();
