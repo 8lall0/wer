@@ -219,8 +219,7 @@ fn bool link_typing(display::Input* in) {
 // Player 2's game, chosen in the dialog. The same file as player 1's keeps
 // its battery save and states apart ("-2").
 fn void link_second_chosen(String path) {
-	char[]? data = file::load_temp(path);
-	if (catch data) data = display::load_file_temp(path);
+	char[]? data = read_rom(path);
 	if (catch data) {
 		notice.show("Could not load that ROM");
 		return;
@@ -281,8 +280,7 @@ fn void link_four() {
 		notice.show("Open the game first");
 		return;
 	}
-	char[]? data = file::load_temp(rom_path);
-	if (catch data) data = display::load_file_temp(rom_path);
+	char[]? data = read_rom(rom_path);
 	if (catch data) return;
 	link_stop();
 	gameboy::GameBoy*[3] others = { &gb2, &gb3, &gb4 };

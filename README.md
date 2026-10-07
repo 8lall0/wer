@@ -56,9 +56,18 @@ ROMs: they never leave the browser; touch controls on phones).
 - **Save states** (9 slots per game), **rewind** (hold R, the left shoulder
   or the touch screen's << to run the game backwards), **pause**, **frame
   advance** and **fast forward**.
+- **Patches**: translations and hacks in IPS, UPS or BPS, applied as the game
+  loads (the ROM file stays as it is): put `game.ips`, `game.ups` or
+  `game.bps` next to `game.gbc`, or name one with `--patch=FILE`. UPS and BPS
+  patches say which ROM they are for, so a patch for another version of the
+  game is refused instead of making a broken one.
 - **Cheats**: Game Genie and GameShark codes, per game, in **Menu →
   Cheats** (or `--cheat=CODE`); kept next to the game's saves in
   `game.cht`, a code per line (a `#` in front switches it off).
+- **Recording**: F11 starts and stops recording the game, its picture as an
+  animated GIF and its sound as a WAV, next to the game (`--record=NAME`
+  records a whole run, with `--headless` too). Every frame the game runs goes
+  in, fast forward included, so recordings play at the game's own speed.
 - **Debugger** (F10, desktop): registers, disassembly, breakpoints (with
   conditions) and watchpoints, stepping, memory, VRAM tiles, tile maps,
   objects and palettes, in a window of its own.
@@ -168,6 +177,8 @@ wer --mode=cgb game.gbc
 | `--link=four` | four Game Boys on the 4-Player Adapter, all running the game |
 | `--link=barcode` | the Barcode Boy (Menu → Swipe card) |
 | `--link=printer` | the Game Boy Printer on the link port |
+| `--record=NAME` | record the run: `NAME.gif` (the picture) and `NAME.wav` (the sound), until wer quits; with `--headless --frames=N --input=...` a recording made without a window |
+| `--patch=FILE` | apply an IPS, UPS or BPS patch to the game (instead of the one next to it, if any) |
 | `--cheat=CODE` | a Game Genie (`ABC-DEF-GHI`) or GameShark (`01VVAAAA`) code, for this run |
 | `--printer-log` | print every packet the printer gets and its answers |
 | `--link=host` | wait for another wer (or BGB) to join over the network, on port 8765 |
@@ -189,6 +200,7 @@ Options given on the command line override `~/.wer/wer.conf` for that run.
 | Save state 1-9 | Shift+F1 … Shift+F9 | Menu |
 | Load state 1-9 | F1 … F9 | Menu |
 | Screenshot | F12 (`game-shot-N.png` next to the game) | |
+| Record (start / stop) | F11 (`game-rec-N.gif` and `.wav` next to the game) | |
 | Pause | P | |
 | Frame advance | N | |
 | Debugger (desktop) | F10 | |

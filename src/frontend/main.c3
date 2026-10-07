@@ -1,6 +1,6 @@
 module wer;
 import std::io, std::io::file, std::time::clock, std::thread::os, std::math, std::collections::list;
-import gameboy, ppu, display, mmu, config, netlink, joypad;
+import gameboy, ppu, display, mmu, config, netlink, joypad, patch, record;
 
 // Real time per frame: 70224 T-cycles at the model's clock (59.73 fps on a
 // DMG, 61.17 fps on an original SGB).
@@ -44,6 +44,54 @@ fn void? write_ppm(gameboy::GameBoy* gb, String path, char[12] colors) {
 
 faultdef ROM_UNREADABLE;
 
+// --patch=FILE for the game on the command line; otherwise a patch next to
+// the ROM with its name (game.ips, game.ups or game.bps for game.gbc).
+String patch_arg;
+
+// A ROM file's contents, patched (patch.c3) when there is a patch for it.
+// A patch that doesn't fit leaves the game as it is, with a message; one
+// named on the command line stops wer instead.
+fn char[]? read_rom(String path, bool command_line = false) {
+	char[]? data = file::load_temp(path);
+	if (catch data) data = display::load_file_temp(path); // content:// URIs
+	if (catch data) return ROM_UNREADABLE~;
+	String found = command_line ? patch_arg : "";
+	if (!found.len) {
+		String base = gameboy::strip_rom_extension(path);
+		foreach (ext : (String[]){ ".ips", ".ups", ".bps" }) {
+			String p = string::tformat("%s%s", base, ext);
+			if (file::is_file(p)) {
+				found = p;
+				break;
+			}
+		}
+	}
+	if (!found.len) return data;
+	sz slash = found.rindex_of_char('/') ?? -1;
+	String name = found[slash + 1..];
+	String why;
+	if (try p = file::load_temp(found)) {
+		char[]? out = patch::apply(data, p, tmem);
+		if (catch e = out) {
+			switch (e) {
+				case patch::WRONG_ROM:   why = "is for another version of the game";
+				case patch::NOT_A_PATCH: why = "isn't an IPS, UPS or BPS patch";
+				default:                 why = "is damaged";
+			}
+		} else {
+			io::printfn("patched with %s", found);
+			notice.show(string::tformat("Patched with %s", name));
+			return out;
+		}
+	} else {
+		why = "can't be read";
+	}
+	io::eprintfn("the patch %s %s", found, why);
+	notice.show(string::tformat("%s %s: not applied", name, why));
+	if (command_line && patch_arg.len) return ROM_UNREADABLE~;
+	return data;
+}
+
 // --sgb-log: print every command an SGB game sends.
 bool sgb_log;
 
@@ -52,14 +100,14 @@ bool sgb_log;
 // game's battery save before it goes away.
 // `mode` is the player's choice; CGB-only games run on a CGB regardless
 // (gb.mmu.model is the model actually running).
-fn gameboy::Cartridge? load_game(gameboy::GameBoy* gb, String path, bool boot, Mode mode, int pal) {
+fn gameboy::Cartridge? load_game(gameboy::GameBoy* gb, String path, bool boot, Mode mode, int pal, bool command_line = false) {
 	mmu::Model model = mode.model();
-	char[]? data = file::load_temp(path);
-	if (catch data) data = display::load_file_temp(path); // content:// URIs
+	char[]? data = read_rom(path, command_line);
 	if (catch data) {
 		io::eprintfn("could not load ROM: %s", path);
 		return ROM_UNREADABLE~;
 	}
+	record_finish(); // a recording is of one game
 	if (model != CGB && gameboy::requires_cgb(data)) {
 		io::printfn("CGB-only game: running on a CGB instead of %s", model);
 		model = CGB;
@@ -219,6 +267,61 @@ fn void Notice.show(&self, String s) {
 
 fn String Notice.current(&self) => clock::now() < self.until ? (String)self.text[:self.len] : "";
 
+// Recording (F11, or --record=BASE for the whole run): the game's picture as
+// BASE.gif, its sound as BASE.wav (record.c3). Every frame the game runs goes
+// in, fast forward too, so the recording plays at the game's own speed.
+record::Recorder recorder;
+String record_arg;
+
+fn String next_record_base() {
+	String base = save_base.len ? save_base : "wer";
+	for (int n = 1; n < 10000; n++) {
+		String p = string::tformat("%s-rec-%d", base, n);
+		if (!file::is_file(string::tformat("%s.gif", p))) return p;
+	}
+	return string::tformat("%s-rec", base);
+}
+
+fn void record_start(String base) {
+	char[] picture;
+	gameboy::FrameSize size = link_picture(&picture);
+	double seconds = (double)(long)frame_period(gb.mmu.model) / 1e9;
+	if (catch recorder.start(base, size.w, size.h, seconds, display::AUDIO_RATE)) {
+		io::eprintfn("could not write %s.gif", base);
+		notice.show("Could not start recording");
+		return;
+	}
+	io::printfn("recording to %s.gif and %s.wav", base, base);
+	notice.show("Recording (F11 stops)");
+}
+
+// The recording's end: stopped (F11, another game, quitting) or cut short.
+fn void record_finish(String why = "") {
+	if (recorder.on) recorder.stop();
+	if (!recorder.gif_path.len) return;
+	sz slash = recorder.gif_path.rindex_of_char('/') ?? -1;
+	String name = recorder.gif_path[slash + 1..];
+	io::printfn("wrote %s and %s", recorder.gif_path, recorder.wav_path);
+	notice.show(why.len ? string::tformat("%s: saved %s", why, name) : string::tformat("Saved %s and .wav", name));
+	$if env::EMSCRIPTEN:
+		display::run_script(string::tformat("werDownload('%s')", recorder.gif_path).zstr_tcopy());
+		display::run_script(string::tformat("werDownload('%s')", recorder.wav_path).zstr_tcopy());
+	$endif
+	recorder.free_paths();
+}
+
+// A frame just run, and its sound.
+fn void record_frame(short[] sound) {
+	if (!recorder.on) return;
+	char[] picture;
+	gameboy::FrameSize size = link_picture(&picture);
+	if (!recorder.frame(picture, size.w, size.h)) {
+		record_finish("The picture changed size");
+		return;
+	}
+	recorder.audio(sound);
+}
+
 // --input=...: buttons pressed at given frames (joypad::Script).
 joypad::Script input_script;
 
@@ -306,10 +409,10 @@ enum MenuItem : char {
 const String[8] BUTTON_LABELS = { "A", "B", "Select", "Start", "Up", "Down", "Left", "Right" };
 
 // Controls menu: the 8 buttons, the hotkeys, then these.
-const String[6] HOTKEY_LABELS = { "Fast fw", "Rewind", "Pause", "Advance", "Shot", "Debugger" };
-const int CONTROLS_DEFAULTS = 14;
-const int CONTROLS_BACK     = 15;
-const int CONTROLS_COUNT    = 16;
+const String[7] HOTKEY_LABELS = { "Fast fw", "Rewind", "Pause", "Advance", "Shot", "Debugger", "Record" };
+const int CONTROLS_DEFAULTS = 8 + config::HOTKEY_NAMES.len;
+const int CONTROLS_BACK     = CONTROLS_DEFAULTS + 1;
+const int CONTROLS_COUNT    = CONTROLS_DEFAULTS + 2;
 
 // The config name of Controls line `i` (a button or a hotkey).
 fn String control_name(int i) => i < 8 ? config::BUTTON_NAMES[i] : config::HOTKEY_NAMES[i - 8];
@@ -422,6 +525,14 @@ fn bool frame() {
 		menu = !menu;
 		selected = 0;
 		screen.clear_audio();
+	}
+
+	if ((in.pressed & display::KEY_RECORD) && has_rom) {
+		if (recorder.on) {
+			record_finish();
+		} else {
+			record_start(next_record_base());
+		}
 	}
 
 	// The debugger (F10): its window's keys, and a step it asked for.
@@ -697,7 +808,8 @@ fn bool frame() {
 			if (paused) break; // a breakpoint
 			rewind.record(&gb);
 			frames_run++;
-			gb.audio(&audio);
+			uint got = gb.audio(&audio);
+			record_frame(audio[:got]);
 			n++;
 		} while (n < FAST_FORWARD_MAX && clock::now() - start < budget);
 		screen.clear_audio();
@@ -706,10 +818,12 @@ fn bool frame() {
 		rewind.record(&gb);
 		frames_run++;
 		if (paused) {
-			gb.audio(&audio); // a single frame's sound would only click
+			uint got = gb.audio(&audio); // a single frame's sound would only click
+			record_frame(audio[:got]);
 		} else {
 			uint got = gb.audio(&audio);
 			buzzer_mix(&audio, got, gb.mmu.apu.out_rate ? gb.mmu.apu.out_rate : display::AUDIO_RATE);
+			record_frame(audio[:got]);
 			screen.queue_audio(&audio, got);
 			int queued = screen.audio_queued();
 			avg += (queued - avg) / 32;
@@ -815,6 +929,8 @@ fn int main(String[] args) @winmain
 				}
 				gameboy::color_correction = (gameboy::ColorCorrection)c;
 			case a.starts_with("--screenshot="): shot_exit = a[13..];
+			case a.starts_with("--patch="): patch_arg = a[8..];
+			case a.starts_with("--record="): record_arg = a[9..];
 			case a.starts_with("--input="):
 				if (try s = joypad::parse_script(a[8..])) {
 					input_script = s;
@@ -874,7 +990,7 @@ fn int main(String[] args) @winmain
 
 	has_rom = false;
 	if (rom.len) {
-		gameboy::Cartridge? loaded = load_game(&gb, rom, boot, mode, pal);
+		gameboy::Cartridge? loaded = load_game(&gb, rom, boot, mode, pal, true);
 		if (catch loaded) return 1;
 		cart = loaded;
 		has_rom = true;
@@ -886,12 +1002,33 @@ fn int main(String[] args) @winmain
 
 	if (headless) {
 		if (!has_rom) setup_demo_scene(&gb);
+		char[] picture = mem::new_array(char, gameboy::MAX_FRAME_RGB);
+		defer free(picture.ptr);
+		if (record_arg.len) {
+			gameboy::FrameSize size = gb.frame_rgb(picture, colors);
+			double seconds = (double)(long)frame_period(gb.mmu.model) / 1e9;
+			if (catch recorder.start(record_arg, size.w, size.h, seconds, gb.mmu.apu.out_rate)) {
+				io::eprintfn("could not write %s.gif", record_arg);
+				return 1;
+			}
+		}
 		for (int f = 0; f < frames; f++) {
 			char buttons;
 			char dpad;
 			input_script.at((ulong)f, &buttons, &dpad);
 			gb.mmu.set_input(buttons, dpad);
 			gb.run_frame();
+			uint got = gb.audio(&audio);
+			if (recorder.on) {
+				gameboy::FrameSize size = gb.frame_rgb(picture, colors);
+				if (!recorder.frame(picture, size.w, size.h)) io::eprintn("the picture changed size: recording stopped");
+				recorder.audio(audio[:got]);
+			}
+		}
+		if (recorder.gif_path.len) {
+			recorder.stop();
+			io::printfn("wrote %s and %s", recorder.gif_path, recorder.wav_path);
+			recorder.free_paths();
 		}
 		if (catch write_ppm(&gb, "wer-frame.ppm", colors)) {
 			io::eprintn("could not write wer-frame.ppm");
@@ -960,6 +1097,7 @@ fn int main(String[] args) @winmain
 
 	rgb = mem::new_array(char, gameboy::MAX_FRAME_RGB);
 	defer free(rgb.ptr);
+	if (record_arg.len && has_rom) record_start(record_arg);
 	next = clock::now();
 	$if env::EMSCRIPTEN:
 		web_run(); // the browser calls frame() at each display refresh (web.c3)
@@ -968,6 +1106,7 @@ fn int main(String[] args) @winmain
 			NanoDuration remaining = next - clock::now();
 			(void)os::native_sleep_nano(remaining);
 		}
+		record_finish();
 	$endif
 	return 0;
 }

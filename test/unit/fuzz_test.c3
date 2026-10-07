@@ -1,9 +1,9 @@
 module fuzz_test;
-import gameboy, mmu, cart;
-import std::core::test, std::io, std::io::file, std::os::env;
+import gameboy, mmu, cart, patch;
+import std::core::test, std::io, std::io::file, std::os::env, std::hash::crc32;
 
 // Fuzzing what wer reads from outside: ROMs (random code and headers, every
-// mapper) and save states (a field at a time set to a random or extreme
+// mapper), ROM patches and save states (a field at a time set to a random or extreme
 // value). Nothing may read or write out of bounds: run it with the checks
 // on (c3c test -O1 --test-filter fuzz), where that stops with a backtrace.
 // A few iterations by default; WER_FUZZ=n for n, WER_FUZZ_SEED for another
@@ -104,6 +104,60 @@ fn void random_roms() @test {
 	Rng r = rng();
 	int n = iterations(20);
 	for (int i = 0; i < n; i++) fuzz_rom(&r, i);
+}
+
+// --- patches -------------------------------------------------------------------
+
+fn void put_number(DString* s, ulong v) {
+	while (true) {
+		char x = (char)(v & 0x7F);
+		v >>= 7;
+		if (!v) {
+			s.append_char(x | 0x80);
+			return;
+		}
+		s.append_char(x);
+		v--;
+	}
+}
+
+fn void put_le32(DString* s, uint v) {
+	for (int i = 0; i < 4; i++) s.append_char((char)(v >> (8 * i)));
+}
+
+// IPS, UPS and BPS patches of random bytes; the UPS/BPS ones mostly with the
+// right sizes and CRCs for the ROM, so that their commands get read.
+fn void random_patches() @test {
+	Rng r = rng();
+	int n = iterations(20) * 50;
+	String[3] magic = { "PATCH", "UPS1", "BPS1" };
+	for (int i = 0; i < n; i++) {
+		char[] rom = mem::temp_array(char, (sz)r.below(64));
+		foreach (&b : rom) *b = (char)r.next();
+		usz kind = (usz)r.below(3);
+		DString s;
+		s.tinit();
+		s.append(magic[kind]);
+		bool framed = kind > 0 && r.below(4) != 0;
+		if (framed) {
+			put_number(&s, rom.len);
+			put_number(&s, r.below(96));
+			if (kind == 2) put_number(&s, r.below(3));
+		}
+		ulong body = r.below(64);
+		for (ulong k = 0; k < body; k++) {
+			// Small numbers and command bytes more often than not.
+			s.append_char(r.below(2) ? (char)(0x80 | r.below(8)) : (char)r.next());
+		}
+		if (kind == 0 && r.below(2)) s.append("EOF");
+		if (framed) {
+			put_le32(&s, crc32::hash(rom));
+			put_le32(&s, (uint)r.next());
+			put_le32(&s, crc32::hash(s.str_view()));
+		}
+		if (log) io::eprintfn("patch %d: %s, %d bytes", i, magic[kind], s.len());
+		(void)patch::apply(rom, s.str_view(), tmem);
+	}
 }
 
 // --- save states ---------------------------------------------------------------

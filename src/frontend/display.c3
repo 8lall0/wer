@@ -140,8 +140,8 @@ const short STICK_DEADZONE = 16000;
 struct Bindings {
 	int[8] keys;
 	int[8] pads;
-	int[6] hot_keys; // config::Hotkey order
-	int[6] hot_pads; // GAMEPAD_BUTTON_INVALID: none
+	int[7] hot_keys; // config::Hotkey order
+	int[7] hot_pads; // GAMEPAD_BUTTON_INVALID: none
 }
 
 // Key presses (not held keys) for the menu and hotkeys, as bits in
@@ -159,6 +159,7 @@ const ushort KEY_SWAP    = 0x200; // `: the keyboard goes to the other Game Boy 
 const ushort KEY_BACKSPACE = 0x400; // text entry
 const ushort KEY_SHOT    = 0x800; // F12: a screenshot
 const ushort KEY_DEBUG   = 0x1000; // F10: the debugger
+const ushort KEY_RECORD  = 0x2000; // F11: start or stop recording
 
 struct Input {
 	bool quit;     // window closed
@@ -589,6 +590,7 @@ fn Input Display.poll(&self) {
 					if (sc == self.bindings.hot_keys[config::Hotkey.ADVANCE.ordinal]) in.pressed |= KEY_ADVANCE;
 					if (sc == self.bindings.hot_keys[config::Hotkey.SCREENSHOT.ordinal]) in.pressed |= KEY_SHOT;
 					if (sc == self.bindings.hot_keys[config::Hotkey.DEBUG.ordinal]) in.pressed |= KEY_DEBUG;
+					if (sc == self.bindings.hot_keys[config::Hotkey.RECORD.ordinal]) in.pressed |= KEY_RECORD;
 					switch (k.scancode) {
 						case sdl::SC_F1..sdl::SC_F9:
 							in.state_slot = (int)k.scancode - sdl::SC_F1 + 1;
@@ -632,6 +634,7 @@ fn Input Display.poll(&self) {
 				if (button == self.bindings.hot_pads[config::Hotkey.PAUSE.ordinal]) in.pressed |= KEY_PAUSE;
 				if (button == self.bindings.hot_pads[config::Hotkey.ADVANCE.ordinal]) in.pressed |= KEY_ADVANCE;
 				if (button == self.bindings.hot_pads[config::Hotkey.SCREENSHOT.ordinal]) in.pressed |= KEY_SHOT;
+				if (button == self.bindings.hot_pads[config::Hotkey.RECORD.ordinal]) in.pressed |= KEY_RECORD;
 		}
 	}
 

@@ -49,11 +49,12 @@ enum Hotkey : char {
 	ADVANCE,    // one frame while paused
 	SCREENSHOT,
 	DEBUG,      // the debugger's window (desktop)
+	RECORD,     // start or stop recording (record.c3)
 }
 
-const String[6] HOTKEY_NAMES     = { "fast", "rewind", "pause", "advance", "screenshot", "debug" };
-const String[6] DEFAULT_HOT_KEYS = { "Tab", "R", "P", "N", "F12", "F10" };
-const String[6] DEFAULT_HOT_PADS = { "rightshoulder", "leftshoulder", "none", "none", "none", "none" };
+const String[7] HOTKEY_NAMES     = { "fast", "rewind", "pause", "advance", "screenshot", "debug", "record" };
+const String[7] DEFAULT_HOT_KEYS = { "Tab", "R", "P", "N", "F12", "F10", "F11" };
+const String[7] DEFAULT_HOT_PADS = { "rightshoulder", "leftshoulder", "none", "none", "none", "none", "none" };
 
 struct Config {
 	String    mode;     // "dmg", "dmg-0", "mgb", "sgb", "sgb2", "cgb" (= "cgb-c"), "cgb-0" ... "cgb-e"
@@ -65,8 +66,8 @@ struct Config {
 	String    link;     // the address the link cable last joined ("host" or "host:port")
 	String[8] keys;
 	String[8] pads;
-	String[6] hot_keys;
-	String[6] hot_pads;
+	String[7] hot_keys;
+	String[7] hot_pads;
 }
 
 // Every String in a Config is a heap copy owned by it (see set / free).
