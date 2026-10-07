@@ -439,6 +439,36 @@ fn void pokemon_2_in_1_picks_a_game() @test {
 	test::eq(c.read(0xA100), 0x01);           // RAM again
 }
 
+fn void hicol_multicart_picks_a_game() @test {
+	cart::Cartridge* c = bootleg(rom_of(0x03, 128), HICOL);
+	defer c.free();
+	c.write(0x2000, 0x00);                    // the menu: MBC1
+	test::eq(bank_at(c, 0x4000), 1);
+	c.write(0x7000, 0x10);                    // base: 512 KiB in
+	c.write(0x7001, 0xF0);                    // 512 KiB long
+	test::eq(bank_at(c, 0x4000), 1);          // nothing moves before $7002
+	c.write(0x7002, 0xF0);                    // MBC1 game, RAM 0, reset
+	test::eq(c.reset_request, true);
+	test::eq(bank_at(c, 0x0000), 0x20);
+	test::eq(bank_at(c, 0x4000), 0x21);
+	c.write(0x3000, 0x02);                    // MBC1: $3000 is the bank too
+	test::eq(bank_at(c, 0x4000), 0x22);
+	c.write(0x2000, 0x45);                    // bits past the game's size: dropped
+	test::eq(bank_at(c, 0x4000), 0x25);
+	c.write(0x7000, 0x00);                    // the game's own now
+	test::eq(bank_at(c, 0x0000), 0x20);
+
+	cart::Cartridge* d = bootleg(rom_of(0x03, 128), HICOL);
+	defer d.free();
+	d.write(0x7000, 0x30);
+	d.write(0x7001, 0xF8);
+	d.write(0x7002, 0x91);                    // MBC5 game, second 32 KiB of RAM
+	d.write(0x2000, 0x00);
+	test::eq(bank_at(d, 0x4000), 0x60);       // MBC5: bank 0 is bank 0
+	d.write(0x4000, 0x02);
+	test::eq(d.ram_bank, 6u);
+}
+
 fn void hhugboy_signatures() @test {
 	char[] rom = mem::temp_array(char, 0x10000);
 	for (usz i = 0; i < 19; i++) rom[0x184 + i] = 0xFF;

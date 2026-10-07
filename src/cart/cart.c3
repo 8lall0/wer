@@ -58,6 +58,7 @@ enum Mbc : char {
 	// Known from hhugboy (hhugboy.c3):
 	SKOB,     // SKOB LEE8: MBC5, banks shuffled and XORed
 	POKE2IN1, // Duz's Pokemon 2 in 1: a menu, then the chosen game
+	HICOL,    // the "GB HiCol" multicart menu (hicol.c3)
 }
 
 // MBC7's own state (SameBoy's model, MIT: see LICENSE-sameboy). $A000-$AFFF
@@ -136,6 +137,7 @@ struct Cartridge {
 	Bootleg bootleg;
 	Lee8 lee8;
 	TwoInOne two_in_one;
+	HiCol hicol;
 	Unlicensed unl;
 	bool reset_request; // the cartridge pulled the console's reset line (multicarts)
 }
@@ -226,6 +228,9 @@ fn Cartridge* new(char[] image, String path) {
 		c.mbc = M161;
 	} else if (is_wisdom_tree(c.rom)) {
 		c.mbc = WISDOM;
+	} else if (is_hicol(c.rom)) {
+		c.mbc = HICOL;
+		c.has_battery = true;
 	} else if (try Mbc k = known_mbc(image)) {
 		c.mbc = k;
 		if (k == SACHEN) c.sachen.locked = true;
@@ -263,6 +268,8 @@ fn Cartridge* new(char[] image, String path) {
 		ram_len = n >= 1 && n <= 9 ? 0x2000u << (n - 1) : 0;
 	} else if (c.mbc == M161 || c.mbc == WISDOM || c.mbc == SACHEN) {
 		ram_len = 0;
+	} else if (c.mbc == HICOL) {
+		ram_len = 0x10000; // the header says none: 32 KiB for each of two games
 
 	} else {
 		ram_len = ram_code < 6 ? RAM_SIZE[ram_code] : 0;
@@ -383,6 +390,7 @@ fn usz Cartridge.rom_offset(&self, ushort addr) {
 	if (self.mbc == NT_OLD1 || self.mbc == NT_OLD2 || self.mbc == NT_NEW) return self.nt_rom_offset(addr);
 	if (self.mbc.unlicensed()) return self.unl_rom_offset(addr);
 	if (self.mbc == POKE2IN1) return self.two_in_one_offset(addr);
+	if (self.mbc == HICOL) return self.hicol_rom_offset(addr);
 
 	if (addr < 0x4000) return addr;
 	uint bank = self.rom_bank;
@@ -574,6 +582,7 @@ fn void Cartridge.write_control(&self, ushort addr, char value) {
 			self.unl_control(addr, value);
 		case SKOB:  self.lee8_control(addr, value);
 		case POKE2IN1: self.two_in_one_control(addr, value);
+		case HICOL: self.hicol_control(addr, value);
 		case MMM01: self.mmm01_control(addr, value);
 		case HUC1:  self.huc1_control(addr, value);
 		case HUC3:  self.huc3_control(addr, value);

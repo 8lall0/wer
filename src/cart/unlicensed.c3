@@ -116,6 +116,7 @@ const KnownDump[*] KNOWN_DUMPS = {
 	{ 0x114E1F1E, SACHEN },    // 4 in 1 (Europe, 4B-009)
 	{ 0x1219EEC6, SINTAX },    // 2003 Shuma Bao Long - Gedou Ban (China)
 	{ 0x14355371, NEWGBCHK },  // K?ud?i Gu?ish?u - D?ngzu? Pi?n (China)
+	{ 0x1517D27E, MBC5 },      // Chao Jinhua - Shuma Baobei D-3 (China, ripped from 10 in 1 multicart)
 	{ 0x154F885B, LI_CHENG },  // Luoke Ren DX6 (China)
 	{ 0x1823E24D, SINTAX },    // Sh?ngu? D?gu? zh? ?m? Ch?ng (China)
 	{ 0x1A369DD5, SINTAX },    // Donkey Kong 5 - The Journey of Over Time and Space (China)
@@ -329,6 +330,9 @@ fn void Cartridge.unl_reset(&self) {
 			self.sl_update_ram();
 		case GBCK003:
 			self.unl.ck_inner = 1;
+		case HICOL:
+			self.rom_bank = 1;
+			self.ram_enabled = false;
 		default:
 			break;
 	}

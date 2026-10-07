@@ -32,7 +32,7 @@ ROMs: they never leave the browser; touch controls on phones).
   and the unlicensed and bootleg boards (BBD, Hitek, GGB-81, Li Cheng,
   Sintax, SKOB LEE8, the NT boards, Pokemon Jade/Diamond's, Rocket Games, Vast Fame
   VF001, Yong Yong, New Game Boy Color HK, Liebao, Chong Wu, La Sa Ma, the
-  SL, LB and GBCK003 multi-game carts, Duz's Pokemon 2 in 1; known by their logo, header or, for the
+  SL, LB, GBCK003 and "GB HiCol" multi-game carts, Duz's Pokemon 2 in 1; known by their logo, header or, for the
   163 dumps in MAME's lists, their CRC); battery saves (`.sav`, with the clocks in the formats other
   emulators use).
 - **Game Boy Camera**: the camera sees through your webcam, the phone's
