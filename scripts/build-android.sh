@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Build wer for Android (arm64): build/wer-<version>-android-arm64.apk.
+# Build wer for Android (arm64): build/wer-<version>-android-arm64.apk, and
+# for a release also the App Bundle Google Play takes (.aab).
 #
 #   scripts/build-android.sh [debug|release]
 #
@@ -7,8 +8,8 @@
 # with platform 37, build-tools 37.0.0 and NDK 30.0.16248370, and a JDK 17 or
 # 21 for Gradle (JAVA_HOME, else the newest of those in /usr/lib/jvm).
 # A release build is signed with the key in android/keystore.properties if
-# there is one (storeFile, storePassword, keyAlias, keyPassword), else left
-# unsigned.
+# there is one (storeFile, storePassword, keyAlias, keyPassword: see
+# android/keystore.properties.example), else left unsigned.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TYPE="${1:-debug}"
@@ -39,13 +40,17 @@ cp -r "deps/sdl_src-$SDL_VERSION/android-project/app/src/main/java/org/libsdl" "
 
 cd "$ROOT/android"
 echo "sdk.dir=$SDK" > local.properties
-TASK=assembleDebug
-[ "$TYPE" = release ] && TASK=assembleRelease
-./gradlew -q "$TASK" -PwerVersion="$VERSION"
-OUT="$ROOT/build/wer-$VERSION-android-arm64.apk"
-if [ "$TYPE" = release ]; then
-	cp app/build/outputs/apk/release/app-release*.apk "$OUT"
-else
+if [ "$TYPE" != release ]; then
+	./gradlew -q assembleDebug -PwerVersion="$VERSION"
+	OUT="$ROOT/build/wer-$VERSION-android-arm64.apk"
 	cp app/build/outputs/apk/debug/app-debug.apk "$OUT"
+	echo "$OUT"
+	exit 0
 fi
-echo "$OUT"
+[ -f keystore.properties ] || echo "Note: no android/keystore.properties: the release is unsigned (Google Play won't take it)"
+./gradlew -q assembleRelease bundleRelease -PwerVersion="$VERSION"
+OUT="$ROOT/build/wer-$VERSION-android-arm64"
+cp app/build/outputs/apk/release/app-release*.apk "$OUT.apk"
+cp app/build/outputs/bundle/release/app-release.aab "$OUT.aab"
+echo "$OUT.apk"
+echo "$OUT.aab (for Google Play)"

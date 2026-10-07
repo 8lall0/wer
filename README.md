@@ -111,7 +111,7 @@ needs nothing else. It is signed ad hoc only: macOS asks to confirm the first
 start of a downloaded copy (right-click > Open, or
 `xattr -d com.apple.quarantine wer_macos`).
 
-Android (arm64, Android 5 or newer), with the Android SDK (platform 37,
+Android (arm64, Android 7 or newer), with the Android SDK (platform 37,
 build-tools 37.0.0, NDK 30.0.16248370) and a JDK 17 or 21 for Gradle:
 
 ```sh

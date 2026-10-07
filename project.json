@@ -83,7 +83,7 @@
       "type": "dynamic-lib",
       "target": "android-aarch64",
       "android-ndk": "/opt/android-sdk/ndk/30.0.16248370",
-      "android-api": 21,
+      "android-api": 24,
       "exec": [ "./scripts/build-sdl3.sh android" ],
       "linker-search-paths": [
         "deps/sdl3-android-arm64/lib"

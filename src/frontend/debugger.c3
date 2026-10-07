@@ -67,29 +67,29 @@ fn bool Debugger.is_open(&self) => self.window != null;
 fn void Debugger.open(&self, display::Display* screen) {
 	if (self.window) return;
 	// A browser and a phone have the one window (and no room for two).
-	if (env::EMSCRIPTEN || env::ANDROID) {
+	$if env::EMSCRIPTEN || env::ANDROID:
 		notice.show("The debugger needs a desktop");
-		return;
-	}
-	self.window = sdl::create_window("wer debugger", DBG_W, DBG_H, 0);
-	self.renderer = self.window ? sdl::create_renderer(self.window, null) : null;
-	if (!self.renderer) {
-		if (self.window) sdl::destroy_window(self.window);
-		self.window = null;
-		notice.show("Could not open the debugger's window");
-		return;
-	}
-	self.tiles = sdl::create_texture(self.renderer, sdl::PIXELFORMAT_ABGR8888, sdl::TEXTUREACCESS_STREAMING, TILES_W * 2, TILES_H);
-	if (self.tiles) sdl::set_texture_scale_mode(self.tiles, sdl::SCALEMODE_NEAREST);
-	if (!self.tile_px.len) self.tile_px = mem::new_array(char, TILES_W * 2 * TILES_H * 4);
-	self.maps = sdl::create_texture(self.renderer, sdl::PIXELFORMAT_ABGR8888, sdl::TEXTUREACCESS_STREAMING, MAP_W * 2, MAP_W);
-	if (self.maps) sdl::set_texture_scale_mode(self.maps, sdl::SCALEMODE_NEAREST);
-	if (!self.map_px.len) self.map_px = mem::new_array(char, MAP_W * 2 * MAP_W * 4);
-	if (self.breaks.temp == 0 && self.breaks.n == 0) self.breaks.init();
-	self.follow = true;
-	if (self.mem == 0) self.mem = 0xC000;
-	screen.debug_window = sdl::get_window_id(self.window);
-	screen.debug_closed = false;
+	$else
+		self.window = sdl::create_window("wer debugger", DBG_W, DBG_H, 0);
+		self.renderer = self.window ? sdl::create_renderer(self.window, null) : null;
+		if (!self.renderer) {
+			if (self.window) sdl::destroy_window(self.window);
+			self.window = null;
+			notice.show("Could not open the debugger's window");
+			return;
+		}
+		self.tiles = sdl::create_texture(self.renderer, sdl::PIXELFORMAT_ABGR8888, sdl::TEXTUREACCESS_STREAMING, TILES_W * 2, TILES_H);
+		if (self.tiles) sdl::set_texture_scale_mode(self.tiles, sdl::SCALEMODE_NEAREST);
+		if (!self.tile_px.len) self.tile_px = mem::new_array(char, TILES_W * 2 * TILES_H * 4);
+		self.maps = sdl::create_texture(self.renderer, sdl::PIXELFORMAT_ABGR8888, sdl::TEXTUREACCESS_STREAMING, MAP_W * 2, MAP_W);
+		if (self.maps) sdl::set_texture_scale_mode(self.maps, sdl::SCALEMODE_NEAREST);
+		if (!self.map_px.len) self.map_px = mem::new_array(char, MAP_W * 2 * MAP_W * 4);
+		if (self.breaks.temp == 0 && self.breaks.n == 0) self.breaks.init();
+		self.follow = true;
+		if (self.mem == 0) self.mem = 0xC000;
+		screen.debug_window = sdl::get_window_id(self.window);
+		screen.debug_closed = false;
+	$endif
 }
 
 fn void Debugger.close(&self, display::Display* screen) {

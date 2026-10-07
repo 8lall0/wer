@@ -19,3 +19,8 @@ test/age/
 test/gbmicrotest/
 test/wilbertpol/
 test/screens/
+
+# Google Play upload key and its passwords (android/keystore.properties.example)
+android/keystore.properties
+*.jks
+*.keystore

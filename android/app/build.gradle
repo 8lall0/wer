@@ -6,6 +6,14 @@ plugins {
 def werVersion = project.findProperty('werVersion') ?: '0.0.0'
 def werVersionCode = werVersion.tokenize('.').inject(0) { n, p -> n * 100 + (p as int) }
 
+// The upload key for Google Play, if android/keystore.properties is there
+// (storeFile, storePassword, keyAlias, keyPassword; see
+// keystore.properties.example). It never goes into git.
+def keystoreFile = rootProject.file('keystore.properties')
+def keystore = new Properties()
+if (keystoreFile.exists()) keystoreFile.withInputStream { keystore.load(it) }
+def keyPath = { String p -> p.startsWith('~/') ? System.getProperty('user.home') + p.substring(1) : p }
+
 android {
     namespace = "io.github.eightlall0.wer"
     // Android 17 (API 37.0).
@@ -18,7 +26,7 @@ android {
     ndkVersion = "30.0.16248370"
     defaultConfig {
         applicationId "io.github.eightlall0.wer"
-        minSdkVersion 21
+        minSdkVersion 24 // Android 7.0: what Google Play's automatic protection needs
         targetSdkVersion 37
         versionCode werVersionCode
         versionName werVersion
@@ -26,8 +34,19 @@ android {
             abiFilters 'arm64-v8a'
         }
     }
+    signingConfigs {
+        if (keystore['storeFile']) {
+            upload {
+                storeFile file(keyPath(keystore['storeFile']))
+                storePassword keystore['storePassword']
+                keyAlias keystore['keyAlias']
+                keyPassword keystore['keyPassword']
+            }
+        }
+    }
     buildTypes {
         release {
+            if (keystore['storeFile']) signingConfig signingConfigs.upload
             // SDL's Java side is called from native code by name: no shrinking.
             minifyEnabled false
         }
