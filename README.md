@@ -30,9 +30,9 @@ ROMs: they never leave the browser; touch controls on phones).
   EEPROM), the Game Boy Camera, MBC6 (Net de Get, with its flash chip), MMM01 multicarts, M161 (Mani's 4 in 1), the Wisdom Tree games' mapper, Sachen's MMC1 and MMC2, TPP1 (homebrew, with clock and rumble), HuC1 and HuC3 (with HuC3's clock), TAMA5
   (Tamagotchi 3, with its clock and the buzzer that calls you, approximated),
   and the unlicensed and bootleg boards (BBD, Hitek, GGB-81, Li Cheng,
-  Sintax, the NT boards, Pokemon Jade/Diamond's, Rocket Games, Vast Fame
+  Sintax, SKOB LEE8, the NT boards, Pokemon Jade/Diamond's, Rocket Games, Vast Fame
   VF001, Yong Yong, New Game Boy Color HK, Liebao, Chong Wu, La Sa Ma, the
-  SL and GBCK003 multi-game carts; known by their logo, header or, for the
+  SL, LB and GBCK003 multi-game carts, Duz's Pokemon 2 in 1; known by their logo, header or, for the
   163 dumps in MAME's lists, their CRC); battery saves (`.sav`, with the clocks in the formats other
   emulators use).
 - **Game Boy Camera**: the camera sees through your webcam, the phone's
@@ -347,3 +347,9 @@ SameBoy's MIT licence ([LICENSE-sameboy](LICENSE-sameboy)).
 cartridge boards and carries its BSD 3-Clause licence
 ([LICENSE-mame](LICENSE-mame)); its table of known dumps comes from MAME's
 software lists (CC0).
+
+`src/cart/hhugboy.c3` (SKOB LEE8, Pokemon 2 in 1, more bootleg signatures)
+was written from a description of what [hhugboy](https://github.com/tzlion/hhugboy)
+(taizou, NewRisingSun and contributors) knows about those boards
+([docs/HHUGBOY-BOARDS.md](docs/HHUGBOY-BOARDS.md)); its SKOB LEE8 and LB
+multicart mappers are CC0.

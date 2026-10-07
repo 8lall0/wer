@@ -98,7 +98,7 @@ fn Mbc? bootleg_mbc(char[] rom) {
 // The bootlegs that sit on MBC5 (its RAM banks, its rumble types $1C-$1E).
 fn bool Mbc.mbc5_like(self) {
 	switch (self) {
-		case MBC5: case BBD: case HITEK: case GGB81: case LI_CHENG: case SINTAX: case NT_NEW:
+		case MBC5: case BBD: case HITEK: case GGB81: case LI_CHENG: case SINTAX: case NT_NEW: case SKOB:
 			return true;
 		default:
 			return false;
@@ -170,7 +170,7 @@ const char[8] NT_OLD2_ORDER = { 1, 2, 0, 3, 4, 5, 6, 7 };
 // banks) rather than a plain 16 KiB mapping.
 fn bool Cartridge.bootleg_reads(&self) {
 	switch (self.mbc) {
-		case BBD: case HITEK: case GGB81: case SINTAX: case NT_NEW: return true;
+		case BBD: case HITEK: case GGB81: case SINTAX: case NT_NEW: case SKOB: return true;
 		default: return false;
 	}
 }
@@ -183,6 +183,7 @@ fn char Cartridge.bootleg_data(&self, char v) {
 		case HITEK:  return reorder_bits(v, &HITEK_DATA[b.data_swap & 7]);
 		case GGB81:  return reorder_bits(v, &GGB81_DATA[b.data_swap & 7]);
 		case SINTAX: return v ^ b.sintax_cur_xor;
+		case SKOB:   return self.lee8_data(v);
 		default:     return v;
 	}
 }

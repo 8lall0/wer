@@ -367,6 +367,7 @@ fn cart::Cartridge* bootleg(char[] rom, cart::Mbc m) {
 	if (m == SINTAX) c.bootleg.sintax_mode = 0xF;
 	c.unl = {};
 	c.unl_init();
+	c.hhugboy_init();
 	return c;
 }
 
@@ -399,6 +400,64 @@ fn void sintax_shuffles_and_xors() @test {
 	test::eq(bank_at(c, 0x4000), 16 ^ 0x55);
 	c.write(0x5010, 0x0F);                    // no shuffle: the same bank again
 	test::eq(bank_at(c, 0x4000), 1 ^ 0x55);
+}
+
+fn void skob_lee8_shuffles_and_xors() @test {
+	cart::Cartridge* c = bootleg(rom_of(0x19, 64), SKOB);
+	defer c.free();
+	test::eq(bank_at(c, 0x4000), 1);          // no XOR before the first bank write
+	c.write(0x2000, 0x01);                    // mode 7: bit 0 goes to bit 1
+	test::eq(bank_at(c, 0x4000), 2 ^ 0xF0);   // banks ...2: the third XOR
+	c.write(0x7002, 0x00);                    // at once
+	test::eq(bank_at(c, 0x4000), 2);
+	c.write(0x5001, 0x00);                    // mode 0: the bank again, unshuffled
+	test::eq(bank_at(c, 0x4000), 1 ^ 0xAA);
+	c.write(0x5005, 0x07);                    // $5001 mirrors every 4 bytes
+	test::eq(bank_at(c, 0x4000), 2);
+	test::eq(bank_at(c, 0x0000), 0);          // bank 0 is left alone
+}
+
+fn void pokemon_2_in_1_picks_a_game() @test {
+	cart::Cartridge* c = bootleg(rom_of(0x1B, 128, 3), POKE2IN1);
+	defer c.free();
+	c.write(0x2000, 0x05);
+	test::eq(bank_at(c, 0x4000), 5);
+	c.write(0xA100, 0x01);                    // not armed: plain RAM
+	test::eq(c.read(0xA100), 0x01);
+	test::eq(bank_at(c, 0x0000), 0);
+	c.write(0x0000, 0xC0);                    // armed
+	c.write(0xA100, 0x01);                    // game 1: from bank 2
+	test::eq(bank_at(c, 0x0000), 2);
+	test::eq(bank_at(c, 0x4000), 3);
+	c.write(0x2000, 0x04);
+	test::eq(bank_at(c, 0x4000), 6);
+	c.write(0xA100, 0x55);                    // another choice: from bank 66
+	test::eq(bank_at(c, 0x0000), 66);
+	c.write(0xA100, 0xC0);                    // locked
+	c.write(0xA100, 0x01);
+	test::eq(bank_at(c, 0x0000), 66);
+	test::eq(c.read(0xA100), 0x01);           // RAM again
+}
+
+fn void hhugboy_signatures() @test {
+	char[] rom = mem::temp_array(char, 0x10000);
+	for (usz i = 0; i < 19; i++) rom[0x184 + i] = 0xFF;
+	rom[0x184 + 19] = 87;                     // "Yiutoudz": 4932
+	test::eq(cart::hhugboy_mbc(rom)!!, cart::Mbc.SKOB);
+	rom[0x7FFF] = 1;
+	rom[0xBFFF] = 2;                          // a fixed dump: plain MBC5
+	test::eq(@ok(cart::hhugboy_mbc(rom)), false);
+	rom[0x184 + 19] = 0;
+	for (usz i = 0; i < 10; i++) rom[0x104 + i] = 0xFF;
+	rom[0x104 + 10] = 206;                    // Rocket Games: 2756
+	test::eq(cart::hhugboy_mbc(rom)!!, cart::Mbc.ROCKET);
+	rom[0x104 + 10] = 0;
+	foreach (i, ch : "SGBPACK") rom[0x134 + i] = ch;
+	test::eq(cart::hhugboy_mbc(rom)!!, cart::Mbc.POKE2IN1);
+	char[] big = mem::temp_array(char, 0x400000);
+	foreach (i, ch : "POKEMON_GLDAAUJ") big[0x134 + i] = ch;
+	test::eq(cart::hhugboy_mbc(big)!!, cart::Mbc.SLMULTI);
+	test::eq(@ok(cart::hhugboy_mbc(big[:0x200000])), false);
 }
 
 fn void nt_old_base_count_and_swaps() @test {

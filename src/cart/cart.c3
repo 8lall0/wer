@@ -55,6 +55,9 @@ enum Mbc : char {
 	CHONGWU,  // MBC5 with a one-time protection read
 	SLMULTI,  // SL multi-game carts: a configuration mode, then a reset
 	GBCK003,  // GBCK003 multi-game board, likewise
+	// Known from hhugboy (hhugboy.c3):
+	SKOB,     // SKOB LEE8: MBC5, banks shuffled and XORed
+	POKE2IN1, // Duz's Pokemon 2 in 1: a menu, then the chosen game
 }
 
 // MBC7's own state (SameBoy's model, MIT: see LICENSE-sameboy). $A000-$AFFF
@@ -131,6 +134,8 @@ struct Cartridge {
 	bool  m161_locked;
 	Sachen sachen;
 	Bootleg bootleg;
+	Lee8 lee8;
+	TwoInOne two_in_one;
 	Unlicensed unl;
 	bool reset_request; // the cartridge pulled the console's reset line (multicarts)
 }
@@ -231,6 +236,8 @@ fn Cartridge* new(char[] image, String path) {
 		c.mbc = SACHEN;
 		c.has_battery = false;
 		c.sachen.locked = true; // until the boot ROM hands over (Mmu)
+	} else if (try Mbc h = hhugboy_mbc(c.rom)) {
+		c.mbc = h;
 	} else if (c.mbc == MBC6) {
 		c.has_battery = true; // the flash keeps what was written to it
 	}
@@ -279,6 +286,7 @@ fn Cartridge* new(char[] image, String path) {
 	if (c.mbc == TAMA5) c.tama5.init();
 	if (c.mbc == MMM01) c.mmm01.ram_mask = 3;
 	c.unl_init();
+	c.hhugboy_init();
 	if (c.mbc == SINTAX) {
 		c.bootleg.sintax_mode = 0xF;
 		c.ram_enabled = c.ram.len > 0; // (mGBA: open until the game says otherwise)
@@ -374,6 +382,7 @@ fn usz Cartridge.rom_offset(&self, ushort addr) {
 	if (self.mbc == SACHEN) return self.sachen_rom_offset(addr);
 	if (self.mbc == NT_OLD1 || self.mbc == NT_OLD2 || self.mbc == NT_NEW) return self.nt_rom_offset(addr);
 	if (self.mbc.unlicensed()) return self.unl_rom_offset(addr);
+	if (self.mbc == POKE2IN1) return self.two_in_one_offset(addr);
 
 	if (addr < 0x4000) return addr;
 	uint bank = self.rom_bank;
@@ -499,6 +508,7 @@ fn void Cartridge.write(&self, ushort addr, char value) {
 	// $A000-$BFFF
 	switch (self.mbc) {
 		case PKJD:  self.pkjd_write(addr, value); return;
+		case POKE2IN1: if (!self.two_in_one_write(addr, value)) return;
 		case MBC7:  self.mbc7_write(addr, value); return;
 		case HUC1:  self.huc1_write(addr, value); return;
 		case HUC3:  self.huc3_write(addr, value); return;
@@ -562,6 +572,8 @@ fn void Cartridge.write_control(&self, ushort addr, char value) {
 		case ROCKET: case LASAMA: case YONG: case ROCKMAN8: case SM3SP: case NEWGBCHK:
 		case VF001: case LIEBAO: case CHONGWU: case SLMULTI: case GBCK003:
 			self.unl_control(addr, value);
+		case SKOB:  self.lee8_control(addr, value);
+		case POKE2IN1: self.two_in_one_control(addr, value);
 		case MMM01: self.mmm01_control(addr, value);
 		case HUC1:  self.huc1_control(addr, value);
 		case HUC3:  self.huc3_control(addr, value);
