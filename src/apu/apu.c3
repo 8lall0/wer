@@ -621,7 +621,8 @@ fn bool Apu.can_defer(&self) {
 		// Mid-stretch, these act at a given tick (a sweep overflow stops
 		// channel 1, a start delay ends).
 		&& self.sweep_calc_reload_timer == 0 && self.sweep_calc_countdown == 0 && self.ch1_restart_hold == 0
-		&& self.sq[0].delay == 0 && self.sq[1].delay == 0;
+		// (A stopped channel's delay stands still: Apu.run.)
+		&& (self.sq[0].delay == 0 || !self.active[0]) && (self.sq[1].delay == 0 || !self.active[1]);
 }
 
 // Run the ticks Apu.tick put off, as one stretch: Apu.run gives the same

@@ -360,7 +360,8 @@ fn uint Ppu.catch_up_line(&self, uint left) {
 	Renderer* r = &self.r;
 	ulong spd = self.spd();
 	uint n = 0;
-	if (!r.active) {
+	bool drawing = r.active;
+	if (!drawing) {
 		// The OAM scan, up to the dot drawing starts (Ppu.tick).
 		while (n < left && self.dot < render_start_dot) {
 			if (self.line == 0 && self.dot <= 2) self.window_line_checks();
@@ -381,9 +382,14 @@ fn uint Ppu.catch_up_line(&self, uint left) {
 		}
 	} else if (self.plain_line()) {
 		// Only background: no object to fetch, no window that could start.
-		// (Where drawing ends is predicted while it's on: Ppu.update_mode.)
-		self.pipe_end();
 		while (n < left && r.active) {
+			// The steady part of the line: 8 dots, 8 pixels, a tile fetched.
+			if (n + 8 <= left && r.state == TILE_T1 && r.bg.size == 8 && r.pos >= 0 && r.pos <= WIDTH - 8
+				&& !r.insert_bg_pixel && r.obj.size == 0) {
+				self.plain_tile_dots();
+				n += 8;
+				continue;
+			}
 			self.render_pixel();
 			self.advance_fetcher();
 			if (r.pos == 160) self.render_end();
@@ -392,7 +398,6 @@ fn uint Ppu.catch_up_line(&self, uint left) {
 			n++;
 		}
 	} else {
-		self.pipe_end();
 		while (n < left && r.active) {
 			if (self.cgb_hw && r.scan_tall_only > 0) self.oam_scan_second();
 			self.render_dot();
@@ -401,8 +406,67 @@ fn uint Ppu.catch_up_line(&self, uint left) {
 			n++;
 		}
 	}
+	// Drawing over, where it ended is known rather than predicted (what
+	// Ppu.predict_mode3 would have found: nothing lands meanwhile).
+	if (drawing && n && !r.active && self.repredict) {
+		self.repredict = false;
+		self.pipe_end_dot = self.dot;
+		self.m0_irq_pred = r.x158_dot >= 0 ? r.x158_dot + 2 - M0_IRQ_BEFORE_END : self.dot - M0_IRQ_BEFORE_END;
+	}
 	if (n) self.update_mode();
 	return n;
+}
+
+// Eight dots of a plain line from a full FIFO and the fetcher at its start,
+// as render_pixel and advance_fetcher would run them: the FIFO's 8 pixels
+// out, the next tile fetched and pushed in the last dot.
+fn void Ppu.plain_tile_dots(&self) {
+	Renderer* r = &self.r;
+	ulong spd = self.spd();
+	int dot0 = self.dot;
+	int pos0 = r.pos;
+	// The fetch (TILE_T1 sees the position after this dot's pixel).
+	ushort map = (self.r_lcdc & LCDC_BG_MAP) ? 0x1C00 : 0x1800;
+	char y = self.fetcher_y();
+	r.fetch_y = y;
+	int cgb_adj = self.cgb_hw ? 1 : 0;
+	char x = (char)(((int)self.scx + pos0 + 1 + 8 - cgb_adj) / 8) & 0x1F;
+	r.cgb_wx_glitch = false;
+	r.addr = (ushort)(map + x + (y / 8) * 32);
+	r.tile = self.vram_read(r.addr);
+	r.attr = self.cgb ? self.vram_read(r.addr | 0x2000) : 0;
+	r.addr = self.tile_data_address();
+	r.last_read = r.lo = self.vram_read(r.addr);
+	r.addr = self.tile_data_address() + 1;
+	r.last_read = r.hi = self.vram_read(r.addr);
+	// The pixels.
+	bool bg_off = (self.r_lcdc & LCDC_BG_ENABLE) == 0;
+	int at = self.line * WIDTH + r.lcd_x;
+	for (int j = 0; j < 8; j++) {
+		Pixel bg = r.bg.px[(r.bg.head + j) & 7];
+		char color = bg_off && !self.cgb ? 0 : bg.color;
+		if (r.lcd_x + j < WIDTH) {
+			if (self.cgb) {
+				if (self.cfb.len) self.cfb[at + j] = pal_color(&self.bg_pal, bg.palette, color);
+			} else {
+				char sh = shade(self.bgp, color);
+				if (self.fb.len) self.fb[at + j] = sh;
+				if (self.compat && self.cfb.len) self.cfb[at + j] = pal_color(&self.bg_pal, 0, sh);
+			}
+		}
+		if (pos0 + j == WIDTH - 2) r.x158_dot = dot0 + j;
+	}
+	r.window_fetching = false;
+	r.pos = pos0 + 8;
+	r.lcd_x += 8;
+	// The last dot pushes the new tile.
+	r.bg.size = 0;
+	r.bg.head = (r.bg.head + 8) & 7;
+	r.state = PUSH;
+	self.fetcher_push();
+	self.dot = dot0 + 8;
+	self.cc += 8 * spd;
+	if (r.pos == WIDTH) self.render_end();
 }
 
 fn bool Ppu.plain_line(&self) {

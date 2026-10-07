@@ -404,6 +404,8 @@ fn void? GameBoy.load_state(&self, char[] data) {
 	// Saved in step with the PPU (Mmu.ppu_touch).
 	self.mmu.ppu_lag = 0;
 	self.mmu.ppu_room = 0;
+	self.mmu.quiet = 0;
+	if (self.mmu.cart) self.mmu.cart.rom_mapped = false;
 }
 
 // What belongs to this run rather than to the machine: kept across a load.
@@ -529,6 +531,8 @@ fn void? GameBoy.load_state_raw(&self, char[] data, StateHeader* h) {
 	}
 	self.mmu.ppu_lag = 0;
 	self.mmu.ppu_room = 0;
+	self.mmu.quiet = 0;
+	if (self.mmu.cart) self.mmu.cart.rom_mapped = false;
 }
 
 fn void? GameBoy.save_state_file(&self, String path) {

@@ -69,7 +69,13 @@ struct Cartridge {
 	String save_path;
 
 	// banking state
-	uint rom_bank;   // MBC2/3/5: selected $4000-$7FFF bank
+	uint rom_bank;
+	// Where $0000-$3FFF and $4000-$7FFF are in the ROM, worked out again
+	// after a write to the cartridge (Cartridge.read_rom).
+	bool rom_mapped;
+	bool rom_linear;   // ... each a plain 16 KiB stretch (not Sachen's, not MBC6's)
+	usz  rom_lo;
+	usz  rom_hi;   // MBC2/3/5: selected $4000-$7FFF bank
 	uint ram_bank;
 	bool ram_enabled;
 	uint bank1;      // MBC1 $2000 register: 5 bits, 0 reads as 1
@@ -324,6 +330,22 @@ fn bool Cartridge.rtc_selected(&self) {
 	return self.has_rtc && self.ram_bank >= 0x08 && self.ram_bank <= 0x0C;
 }
 
+// A ROM read ($0000-$7FFF), through the mapping worked out last.
+fn char Cartridge.read_rom(&self, ushort addr) @inline {
+	if (!self.rom_mapped) self.map_rom();
+	if (!self.rom_linear) return self.read(addr);
+	usz off = (addr < 0x4000 ? self.rom_lo : self.rom_hi) + (usz)(addr & 0x3FFF);
+	return off < self.rom.len ? self.rom[off] : 0xFF;
+}
+
+fn void Cartridge.map_rom(&self) {
+	self.rom_mapped = true;
+	self.rom_linear = self.mbc != MBC6 && self.mbc != SACHEN;
+	if (!self.rom_linear) return;
+	self.rom_lo = self.rom_offset(0x0000);
+	self.rom_hi = self.rom_offset(0x4000);
+}
+
 fn char Cartridge.read(&self, ushort addr) {
 	if (addr < 0x8000 && self.mbc == MBC6) return self.mbc6_read_rom(addr);
 	if (addr < 0x8000) {
@@ -394,6 +416,7 @@ fn usz Cartridge.ram_offset(&self, ushort addr) {
 }
 
 fn void Cartridge.write(&self, ushort addr, char value) {
+	self.rom_mapped = false;
 	if (addr < 0x8000) {
 		self.write_control(addr, value);
 		return;

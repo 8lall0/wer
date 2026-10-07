@@ -183,6 +183,9 @@ struct Mmu {
 	// M-cycle short of its next possible interrupt).
 	uint  ppu_lag;
 	ulong ppu_room;
+	// M-cycles to come that only count time (Mmu.quiet_cycles); any IO or
+	// cartridge write, or a timer register read, ends them.
+	int   quiet;
 }
 
 fn char Mmu.get(&self, ushort addr) {
@@ -199,7 +202,7 @@ fn char Mmu.get(&self, ushort addr) {
 		}
 	}
 	if (addr < 0x8000) {
-		char v = self.cart ? self.cart.read(addr) : self.rom[addr];
+		char v = self.cart ? self.cart.read_rom(addr) : self.rom[addr];
 		if (self.cheats && self.cheats.genie_on) v = self.cheats.patch(addr, v);
 		return v;
 	}
@@ -225,6 +228,7 @@ fn char Mmu.get(&self, ushort addr) {
 	if (addr >= 0xFF10 && addr <= 0xFF3F) return self.apu.read(addr);
 	if (addr < 0xFF80) {
 		if (addr >= 0xFF40) self.ppu_touch();
+		if (addr >= 0xFF04 && addr <= 0xFF07) self.quiet = 0;
 		return self.io_get(addr);
 	}
 	if (addr < 0xFFFF) return self.hram[addr - 0xFF80];
@@ -233,6 +237,7 @@ fn char Mmu.get(&self, ushort addr) {
 
 fn void Mmu.set(&self, ushort addr, char value) {
 	if (self.flat) { self.flat[addr] = value; return; }
+	if (addr < 0xC000 || (addr >= 0xFF00 && addr < 0xFF80) || addr == 0xFFFF) self.quiet = 0;
 	// $0000-$7FFF is cartridge ROM: read-only. With an MBC these writes are
 	// bank-control registers; without one (plain 32 KiB ROM) they are ignored.
 	if (addr < 0x8000) {
@@ -786,7 +791,8 @@ fn bool Mmu.dma_cgb_open(&self, ushort addr) {
 // CPU reads and writes to OAM/VRAM are locked at slightly different moments
 // (see Ppu.oam_locked, vram_locked, oam_write_locked; Mooneye lcdon_*_timing).
 fn bool Mmu.ppu_blocks(&self, ushort addr, bool write) {
-	if (addr >= 0x8000 && addr < 0xA000 || addr >= 0xFE00 && addr < 0xFF00) self.ppu_touch();
+	if (addr < 0x8000 || (addr >= 0xA000 && addr < 0xFE00) || addr >= 0xFF00) return false;
+	self.ppu_touch();
 	if ((self.ppu.lcdc & ppu::LCDC_ENABLE) == 0) return false;
 	if (addr >= 0xFE00 && addr < 0xFF00) {
 		return write ? self.ppu.oam_write_locked() : self.ppu.oam_read_locked();
@@ -985,6 +991,25 @@ fn void Mmu.set_double_speed(&self, bool on) {
 // similar short freeze).
 const int[2] SWITCH_PPU_FREEZE = { 0, 1 }; // to double, to normal
 fn void Mmu.tick(&self, char mcycles) {
+	// An M-cycle where nothing happens but time passing: the counters move
+	// on as the full version below would move them.
+	if (self.quiet > 0 && mcycles == 1 && !self.if_written && self.ack_bit == 0 && lazy_ppu) {
+		uint rt = self.double_speed ? 2 : 4;
+		if (self.ppu_may_lag(rt)) {
+			self.quiet--;
+			self.rt_clock += rt;
+			self.dma_vbk = self.vbk;
+			self.dma_svbk = self.svbk;
+			self.timer.div += 4;
+			self.timer.cc += 4;
+			self.ppu_lag += rt;
+			self.irq_early = false;
+			self.apu.lazy_ticks += self.apu.clock(1);
+			self.apu.sample_acc += (ulong)rt * self.apu.out_rate;
+			if (self.cart && (self.cart.has_rtc || self.cart.has_clock)) self.cart.tick(rt);
+			return;
+		}
+	}
 	uint t = (uint)mcycles * 4;
 	// In double speed an M-cycle is half as long: the timer, serial port and
 	// OAM DMA follow the CPU clock, the PPU, APU and cartridge clock keep
@@ -992,7 +1017,9 @@ fn void Mmu.tick(&self, char mcycles) {
 	uint rt = self.double_speed ? t / 2 : t;
 	self.rt_clock += rt;
 
-	for (char i = 0; i < mcycles; i++) self.dma_step();
+	if (self.dma.active || self.dma.pending || self.vdma_feed_len) {
+		for (char i = 0; i < mcycles; i++) self.dma_step();
+	}
 	self.dma_vbk = self.vbk;
 	self.dma_svbk = self.svbk;
 
@@ -1049,9 +1076,41 @@ fn void Mmu.tick(&self, char mcycles) {
 	if (self.cart && (self.cart.has_rtc || self.cart.has_clock)) self.cart.tick(rt);
 	// The camera runs on the CPU's clock pin, which stops in HALT.
 	if (self.cart && self.cart.camera.countdown && !self.cpu_halted) self.cart.camera_tick(rt);
+	self.quiet = self.quiet_cycles();
 }
 
-// Off: the PPU runs in step all the time (debug traces show its position).
+// How many M-cycles from now Mmu.tick can only count: no DMA, serial
+// transfer, link cable or speed switch pause; no timer interrupt and no
+// frame sequencer edge of DIV; the APU putting its ticks off and no sound
+// sample due. (Whether the PPU may lag is checked each M-cycle.)
+fn int Mmu.quiet_cycles(&self) {
+	if (self.dma.active || self.dma.pending || self.vdma_feed_len || self.timer_hold || self.serial_left
+		|| self.ppu_freeze || self.link || self.apu.clock_hold || (self.cart && self.cart.camera.countdown)) return 0;
+	timer::Timer* tm = &self.timer;
+	if (!tm.init || tm.irq_now || tm.pending_apu_write) return 0;
+	ulong k = 1 << 20;
+	if (tm.next_irq != timer::NEVER) {
+		if (tm.next_irq <= tm.cc + 4) return 0;
+		ulong m = (tm.next_irq - tm.cc - 1) / 4;
+		if (m < k) k = m;
+	}
+	uint half = 1u << tm.apu_bit();
+	uint div = tm.div;
+	ulong m = (ulong)(((div | (half - 1)) + 1) - 1 - div) / 4;
+	if (m < k) k = m;
+	if (!self.apu.can_defer()) return 0;
+	ulong per = (ulong)(self.double_speed ? 2 : 4) * self.apu.out_rate;
+	if (per) {
+		ulong hz = self.apu.hz();
+		if (self.apu.sample_acc + per >= hz) return 0;
+		m = (hz - 1 - self.apu.sample_acc) / per;
+		if (m < k) k = m;
+	}
+	return (int)k;
+}
+
+// Off: the PPU runs in step all the time (debug traces show its position),
+// and so does everything else (Mmu.quiet).
 bool lazy_ppu = true;
 
 // The PPU's dots of an M-cycle can wait: they'd only count and draw, with

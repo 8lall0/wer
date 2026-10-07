@@ -53,6 +53,7 @@ fn void Cpu.stop(&self, mmu::Mmu *mmu) {
 	bool to_double = switching && !mmu.double_speed;
 	mmu.timer.write_div(switching && mmu.cgb_rev > C); // side effect of STOP, not a CPU bus access
 	mmu.apu.clock_div_reset();
+	mmu.quiet = 0;
 	if (!switching) return;
 	// Going back to normal speed the clock changes at once (Gambatte): the
 	// timer and the APU's clock don't see the M-cycle the PPU still runs
@@ -69,6 +70,7 @@ fn void Cpu.stop(&self, mmu::Mmu *mmu) {
 		// (AGE spsw-interrupts-cgbBC).
 		mmu.timer_hold = 1;
 	}
+	mmu.quiet = 0;
 	if (pending) {
 		self.pc--; // with an interrupt pending the byte after STOP runs as an instruction
 	} else {
@@ -96,6 +98,7 @@ fn void Cpu.stop(&self, mmu::Mmu *mmu) {
 	if (to_double) mmu.apu.clock_switch(true);
 	mmu.set_double_speed(to_double);
 	mmu.ppu_freeze = mmu::SWITCH_PPU_FREEZE[mmu.double_speed ? 0 : 1];
+	mmu.quiet = 0;
 	if (!pending) {
 		self.halted = true;
 		self.just_halted = true;
