@@ -15,5 +15,5 @@ fi
 cd "$ROOT"
 c3c build web -O3
 mkdir -p build/web
-cp build/wer.js build/wer.wasm web/index.html build/web/
+cp build/wer.js build/wer.wasm web/index.html web/privacy.html build/web/
 echo "$ROOT/build/web"
