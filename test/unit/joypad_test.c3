@@ -46,3 +46,31 @@ fn void routes_through_mmu_and_raises_interrupt() @test
 	// Start = bit 3 -> low nibble 0b0111
 	test::eq((char)0x7, (char)(m.get(0xFF00) & 0x0F));
 }
+
+fn void input_script_presses() @test {
+	joypad::Script s = joypad::parse_script("400:down, 460:a,600:start*30,900:a+b+up")!!;
+	test::eq(s.len, (usz)4);
+	char b;
+	char d;
+	s.at(399, &b, &d);
+	test::eq(d, 0);
+	s.at(400, &b, &d);
+	test::eq(d, joypad::PAD_DOWN);
+	d = 0;
+	s.at(406, &b, &d);                        // held 6 frames: 400-405
+	test::eq(d, 0);
+	s.at(629, &b, &d);
+	test::eq(b, joypad::BTN_START);
+	b = 0;
+	s.at(900, &b, &d);
+	test::eq(b, joypad::BTN_A | joypad::BTN_B);
+	test::eq(d, joypad::PAD_UP);
+}
+
+fn void input_script_rejects_mistakes() @test {
+	test::eq(@ok(joypad::parse_script("400")), false);
+	test::eq(@ok(joypad::parse_script("x:a")), false);
+	test::eq(@ok(joypad::parse_script("400:jump")), false);
+	test::eq(@ok(joypad::parse_script("400:a*0")), false);
+	test::eq(@ok(joypad::parse_script("")), true);
+}

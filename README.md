@@ -161,6 +161,7 @@ wer --mode=cgb game.gbc
 | `--colors=balanced` | CGB/SGB colour correction, as the real screens looked: `off` (raw colours), `balanced` (the default), `accurate`, `boost`, `reduce`, `low` (SameBoy's modes) |
 | `--filter=off\|sharp\|smooth\|lcd\|scanlines` | how the pixels are drawn: `sharp` keeps them crisp and even at any size (full screen, a phone), `smooth` blurs them, `lcd` shows the dot grid of a Game Boy's screen, `scanlines` dark lines between rows (the last two from 3x up) |
 | `--screenshot=FILE` | with `--frames=N`: save the window (menu included) as a PNG after N frames, then quit |
+| `--input=400:down,460:a` | press buttons at given frames (counted from the game's start): `a`, `b`, `start`, `select`, `up`, `down`, `left`, `right`, joined by `+` (`900:a+b`), held 6 frames or `*N` (`600:right*30`); with `--frames` and `--screenshot` or `--headless`, a game played the same way every time |
 | `--scale=1..4` | window size, multiples of 160x144 |
 | `--no-boot` | skip the boot ROM |
 | `--link-rom=ROM` | a second Game Boy in the window, running ROM, joined by the link cable |

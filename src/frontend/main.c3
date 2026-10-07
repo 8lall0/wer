@@ -1,6 +1,6 @@
 module wer;
 import std::io, std::io::file, std::time::clock, std::thread::os, std::math, std::collections::list;
-import gameboy, ppu, display, mmu, config, netlink;
+import gameboy, ppu, display, mmu, config, netlink, joypad;
 
 // Real time per frame: 70224 T-cycles at the model's clock (59.73 fps on a
 // DMG, 61.17 fps on an original SGB).
@@ -219,6 +219,9 @@ fn void Notice.show(&self, String s) {
 
 fn String Notice.current(&self) => clock::now() < self.until ? (String)self.text[:self.len] : "";
 
+// --input=...: buttons pressed at given frames (joypad::Script).
+joypad::Script input_script;
+
 // Screenshots: F12, or --screenshot=PATH after --frames=N (then quit).
 String shot_exit;
 ulong shot_after;   // frames shown (the game running or not)
@@ -369,6 +372,7 @@ fn void run_game_frame(display::Input* in) {
 fn bool frame() {
 	display::Input in = screen.poll();
 	if (in.quit) return false;
+	input_script.at(frames_run, &in.buttons, &in.dpad);
 
 	// A ROM chosen in the file dialog (menu or Ctrl+O) replaces the game.
 	String chosen = screen.take_dialog_result();
@@ -811,6 +815,13 @@ fn int main(String[] args) @winmain
 				}
 				gameboy::color_correction = (gameboy::ColorCorrection)c;
 			case a.starts_with("--screenshot="): shot_exit = a[13..];
+			case a.starts_with("--input="):
+				if (try s = joypad::parse_script(a[8..])) {
+					input_script = s;
+				} else {
+					io::eprintfn("not an input script: '%s' (e.g. 400:down,460:a,600:start*30,900:a+b)", a[8..]);
+					return 1;
+				}
 			case a.starts_with("--filter="):
 				int fl = display::filter_index(a[9..]);
 				if (fl < 0) {
@@ -875,7 +886,13 @@ fn int main(String[] args) @winmain
 
 	if (headless) {
 		if (!has_rom) setup_demo_scene(&gb);
-		for (int f = 0; f < frames; f++) gb.run_frame();
+		for (int f = 0; f < frames; f++) {
+			char buttons;
+			char dpad;
+			input_script.at((ulong)f, &buttons, &dpad);
+			gb.mmu.set_input(buttons, dpad);
+			gb.run_frame();
+		}
 		if (catch write_ppm(&gb, "wer-frame.ppm", colors)) {
 			io::eprintn("could not write wer-frame.ppm");
 			return 1;
