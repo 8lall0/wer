@@ -72,7 +72,9 @@ fn void hotkeys_and_filter_round_trip() @test
 	test::eq("Tab", a.hot_keys[config::Hotkey.FAST.ordinal]);
 	test::eq("leftshoulder", a.hot_pads[config::Hotkey.REWIND.ordinal]);
 	test::eq("none", a.hot_pads[config::Hotkey.PAUSE.ordinal]);
+	test::eq("F10", a.hot_keys[config::Hotkey.DEBUG.ordinal]);
 	assert(a.set("key.rewind", "Backspace"));
+	assert(a.set("key.debug", "F11"));
 	assert(a.set("pad.pause", "start"));
 	assert(a.set("filter", "lcd"));
 	assert(!a.set("filter", "fuzzy"));
@@ -80,6 +82,7 @@ fn void hotkeys_and_filter_round_trip() @test
 	defer b.free();
 	b.parse(a.to_text(tmem), "round trip");
 	test::eq("Backspace", b.hot_keys[config::Hotkey.REWIND.ordinal]);
+	test::eq("F11", b.hot_keys[config::Hotkey.DEBUG.ordinal]);
 	test::eq("start", b.hot_pads[config::Hotkey.PAUSE.ordinal]);
 	test::eq("lcd", b.filter);
 }

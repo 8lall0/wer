@@ -93,7 +93,22 @@ const int SC_BACKSPACE = 42;
 const int SC_AC_BACK = 282; // Android's Back
 const int SC_F1     = 58; // F1-F9 are consecutive
 const int SC_F9     = 66;
+const int SC_F10    = 67;
 const int SC_F12    = 69;
+const int SC_B      = 5;
+const int SC_C      = 6;
+const int SC_G      = 10;
+const int SC_J      = 13;
+const int SC_1      = 30; // 1-9 are consecutive, then 0
+const int SC_0      = 39;
+const int SC_SPACE  = 44;
+const int SC_HOME   = 74;
+const int SC_PAGEUP = 75;
+const int SC_PAGEDOWN = 78;
+const int SC_F5     = 62;
+const int SC_F7     = 64;
+const int SC_F8     = 65;
+const uint EVENT_WINDOW_CLOSE_REQUESTED = 0x210;
 
 // SDL_Keymod: either Ctrl / either Shift key
 const ushort KMOD_CTRL  = 0x00C0;
@@ -118,6 +133,15 @@ struct KeyboardEvent {
 	ushort raw;
 	bool   down;
 	bool   repeat;
+}
+
+struct WindowEvent {
+	uint  type;
+	uint  reserved;
+	ulong timestamp;
+	uint  window_id;
+	int   data1;
+	int   data2;
 }
 
 struct TextInputEvent {
@@ -203,6 +227,9 @@ extern fn ZString  get_pref_path(ZString org, ZString app) @cname("SDL_GetPrefPa
 extern fn Window*   create_window(ZString title, int w, int h, ulong flags) @cname("SDL_CreateWindow");
 extern fn void      destroy_window(Window* window)                          @cname("SDL_DestroyWindow");
 extern fn bool      set_window_title(Window* window, ZString title)         @cname("SDL_SetWindowTitle");
+extern fn uint      get_window_id(Window* window)                           @cname("SDL_GetWindowID");
+extern fn Window*   get_keyboard_focus()                                    @cname("SDL_GetKeyboardFocus");
+extern fn bool      raise_window(Window* window)                            @cname("SDL_RaiseWindow");
 extern fn bool      set_window_size(Window* window, int w, int h)           @cname("SDL_SetWindowSize");
 extern fn bool      set_window_icon(Window* window, Surface* icon)          @cname("SDL_SetWindowIcon");
 extern fn Surface*  create_surface_from(int w, int h, uint format, void* pixels, int pitch) @cname("SDL_CreateSurfaceFrom");

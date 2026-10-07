@@ -235,6 +235,25 @@ fn char Mmu.get(&self, ushort addr) {
 	return self.ie;
 }
 
+// What a CPU read of `addr` would see, without a read's effects (the
+// debugger): no PPU or DMA lock, nothing a mapper counts.
+fn char Mmu.peek(&self, ushort addr) {
+	if (self.flat) return self.flat[addr];
+	if (addr < 0x8000) {
+		if (self.boot_active && (addr < 0x100 || (self.model == CGB && addr >= 0x200 && addr < 0x900))) return self.get(addr);
+		return self.cart ? self.cart.peek_rom(addr) : self.rom[addr];
+	}
+	if (addr < 0xA000) {
+		self.ppu_touch();
+		return *self.vram_at(addr - 0x8000);
+	}
+	if (addr < 0xC000) {
+		if (!self.cart) return self.has_extram ? self.extram[addr - 0xA000] : 0xFF;
+		return self.cart.ram_byte(addr);
+	}
+	return self.get(addr);
+}
+
 fn void Mmu.set(&self, ushort addr, char value) {
 	if (self.flat) { self.flat[addr] = value; return; }
 	if (addr < 0xC000 || (addr >= 0xFF00 && addr < 0xFF80) || addr == 0xFFFF) self.quiet = 0;

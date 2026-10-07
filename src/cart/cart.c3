@@ -338,6 +338,17 @@ fn char Cartridge.read_rom(&self, ushort addr) @inline {
 	return off < self.rom.len ? self.rom[off] : 0xFF;
 }
 
+// The ROM byte at `addr` without a read's effects (Sachen counts reads).
+fn char Cartridge.peek_rom(&self, ushort addr) {
+	if (self.mbc == SACHEN) {
+		ushort a = (addr & 0xFF00) == 0x0100 ? sachen_unscramble(addr) : addr;
+		uint bank = a < 0x4000 ? (uint)(self.sachen.base_bank & self.sachen.mask) : self.rom_bank;
+		usz off = (usz)wrap_bank(bank, self.rom.len, 0x4000) * 0x4000 + (usz)(a & 0x3FFF);
+		return off < self.rom.len ? self.rom[off] : 0xFF;
+	}
+	return self.read_rom(addr);
+}
+
 fn void Cartridge.map_rom(&self) {
 	self.rom_mapped = true;
 	self.rom_linear = self.mbc != MBC6 && self.mbc != SACHEN;

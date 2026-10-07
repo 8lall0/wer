@@ -54,6 +54,8 @@ ROMs: they never leave the browser; touch controls on phones).
 - **Cheats**: Game Genie and GameShark codes, per game, in **Menu →
   Cheats** (or `--cheat=CODE`); kept next to the game's saves in
   `game.cht`, a code per line (a `#` in front switches it off).
+- **Debugger** (F10, desktop): registers, disassembly, breakpoints and
+  stepping, memory, VRAM tiles, objects and palettes, in a window of its own.
 - **Gamepads** (any SDL3 gamepad), **key remapping**, **window scale** 1x-4x,
   a menu, a file dialog to open ROMs, and settings kept in `~/.wer/wer.conf`.
 
@@ -182,16 +184,39 @@ Options given on the command line override `~/.wer/wer.conf` for that run.
 | Screenshot | F12 (`game-shot-N.png` next to the game) | |
 | Pause | P | |
 | Frame advance | N | |
+| Debugger (desktop) | F10 | |
 | Fast forward | hold Tab | hold right shoulder |
 | Rewind | hold R | hold left shoulder |
 | Tilt (MBC7 games) | I / J / K / L | left stick |
 | Link cable, 2 players here: the other Game Boy | ` | second gamepad |
 
-Every Game Boy button, and fast forward, rewind, pause, frame advance and
-the screenshot key, can be rebound to a key or a gamepad button in
+Every Game Boy button, and fast forward, rewind, pause, frame advance, the
+screenshot key and the debugger's, can be rebound to a key or a gamepad button in
 **Menu → Controls**; a hotkey whose key is bound to a Game Boy button gives
 way to it. The menu also switches the model, SGB palette and scale; changes
 are saved to `~/.wer/wer.conf`.
+
+### Debugger
+
+F10 opens the debugger in a second window (on a desktop): the CPU's
+registers and flags, the code around PC, memory and the stack, the tiles in
+VRAM (both banks on a Game Boy Color), the 40 objects and the palettes.
+With its window in front:
+
+| | |
+|---|---|
+| Space or F5 | pause / go on |
+| S or F7 | run one instruction |
+| O or F8 | step over a CALL or RST |
+| C | run to the cursor |
+| B or F9 | breakpoint at the cursor (it stops before that instruction runs) |
+| Up / Down, Home | move the cursor; back to PC |
+| PgUp / PgDn | scroll memory (with Shift by $1000) |
+| G, J | type an address (hex, Enter) to show in memory, in the code |
+| Tab | memory, tiles, objects and palettes |
+| Esc or F10 | close it |
+
+Breakpoints work with one Game Boy (not with two or four on the cable).
 
 ### Link cable
 

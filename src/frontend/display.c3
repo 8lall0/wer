@@ -103,6 +103,12 @@ struct Display {
 	ushort            touch_held; // T_* held at the last poll
 	ushort            touch_tap;  // T_* touched since the last poll (a tap may end before it)
 
+	// The debugger's window (debugger.c3): its keys go there, not to the game.
+	uint              debug_window;
+	int[32]           debug_keys;  // scancode | KMOD_* << 16, since the last poll
+	int               debug_n;
+	bool              debug_closed; // its close button
+
 	bool              two_players; // link cable here: gamepads after the first play the other Game Boy
 	bool              typing;      // text entry on (Display.start_text)
 
@@ -134,8 +140,8 @@ const short STICK_DEADZONE = 16000;
 struct Bindings {
 	int[8] keys;
 	int[8] pads;
-	int[5] hot_keys; // config::Hotkey order
-	int[5] hot_pads; // GAMEPAD_BUTTON_INVALID: none
+	int[6] hot_keys; // config::Hotkey order
+	int[6] hot_pads; // GAMEPAD_BUTTON_INVALID: none
 }
 
 // Key presses (not held keys) for the menu and hotkeys, as bits in
@@ -152,6 +158,7 @@ const ushort KEY_ADVANCE = 0x100; // N: one frame while paused
 const ushort KEY_SWAP    = 0x200; // `: the keyboard goes to the other Game Boy (link cable)
 const ushort KEY_BACKSPACE = 0x400; // text entry
 const ushort KEY_SHOT    = 0x800; // F12: a screenshot
+const ushort KEY_DEBUG   = 0x1000; // F10: the debugger
 
 struct Input {
 	bool quit;     // window closed
@@ -200,7 +207,7 @@ fn Bindings bindings_from(config::Config* c) {
 			b.pads[i] = sdl::get_gamepad_button_from_string(config::DEFAULT_PADS[i].zstr_tcopy());
 		}
 	}
-	for (int i = 0; i < 5; i++) {
+	for (int i = 0; i < config::HOTKEY_NAMES.len; i++) {
 		b.hot_keys[i] = sdl::get_scancode_from_name(c.hot_keys[i].zstr_tcopy());
 		if (b.hot_keys[i] == 0) {
 			io::eprintfn("unknown key '%s' for %s, using %s", c.hot_keys[i], config::HOTKEY_NAMES[i], config::DEFAULT_HOT_KEYS[i]);
@@ -554,14 +561,26 @@ fn String Display.take_dialog_result(&self) {
 
 fn Input Display.poll(&self) {
 	Input in = { .key = -1, .pad_button = -1 };
+	self.debug_n = 0;
 
 	sdl::Event e;
 	while (sdl::poll_event(&e)) {
 		switch (e.type) {
 			case sdl::EVENT_QUIT:
 				in.quit = true;
+			case sdl::EVENT_WINDOW_CLOSE_REQUESTED:
+				// Two windows: closing the game's ends wer, the debugger's only itself.
+				if (((sdl::WindowEvent*)&e).window_id == self.debug_window) {
+					self.debug_closed = true;
+				} else {
+					in.quit = true;
+				}
 			case sdl::EVENT_KEY_DOWN:
 				sdl::KeyboardEvent* k = (sdl::KeyboardEvent*)&e;
+				if (self.debug_window && k.window_id == self.debug_window) {
+					if (self.debug_n < self.debug_keys.len) self.debug_keys[self.debug_n++] = (int)k.scancode | (int)(k.mod & (sdl::KMOD_SHIFT | sdl::KMOD_CTRL)) << 16;
+					break;
+				}
 				if (!k.repeat && in.key < 0) in.key = (int)k.scancode;
 				// Hotkeys give way to a Game Boy button bound to the same key.
 				if (!k.repeat && !self.is_bound((int)k.scancode) && !self.typing) {
@@ -569,6 +588,7 @@ fn Input Display.poll(&self) {
 					if (sc == self.bindings.hot_keys[config::Hotkey.PAUSE.ordinal]) in.pressed |= KEY_PAUSE;
 					if (sc == self.bindings.hot_keys[config::Hotkey.ADVANCE.ordinal]) in.pressed |= KEY_ADVANCE;
 					if (sc == self.bindings.hot_keys[config::Hotkey.SCREENSHOT.ordinal]) in.pressed |= KEY_SHOT;
+					if (sc == self.bindings.hot_keys[config::Hotkey.DEBUG.ordinal]) in.pressed |= KEY_DEBUG;
 					switch (k.scancode) {
 						case sdl::SC_F1..sdl::SC_F9:
 							in.state_slot = (int)k.scancode - sdl::SC_F1 + 1;
@@ -622,6 +642,8 @@ fn Input Display.poll(&self) {
 
 	int n;
 	char* ks = sdl::get_keyboard_state(&n);
+	// Keys held in the debugger's window don't play the game.
+	if (self.debug_window && sdl::get_keyboard_focus() != self.window) n = 0;
 	in.fast = self.hotkey_held(ks, n, config::Hotkey.FAST);
 	in.rewind = self.hotkey_held(ks, n, config::Hotkey.REWIND);
 	for (int i = 0; i < 8; i++) {

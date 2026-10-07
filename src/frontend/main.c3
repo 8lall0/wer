@@ -303,10 +303,10 @@ enum MenuItem : char {
 const String[8] BUTTON_LABELS = { "A", "B", "Select", "Start", "Up", "Down", "Left", "Right" };
 
 // Controls menu: the 8 buttons, the hotkeys, then these.
-const String[5] HOTKEY_LABELS = { "Fast fw", "Rewind", "Pause", "Advance", "Shot" };
-const int CONTROLS_DEFAULTS = 13;
-const int CONTROLS_BACK     = 14;
-const int CONTROLS_COUNT    = 15;
+const String[6] HOTKEY_LABELS = { "Fast fw", "Rewind", "Pause", "Advance", "Shot", "Debugger" };
+const int CONTROLS_DEFAULTS = 14;
+const int CONTROLS_BACK     = 15;
+const int CONTROLS_COUNT    = 16;
 
 // The config name of Controls line `i` (a button or a hotkey).
 fn String control_name(int i) => i < 8 ? config::BUTTON_NAMES[i] : config::HOTKEY_NAMES[i - 8];
@@ -338,6 +338,26 @@ Clock next;             // when the next frame is due
 float avg = AUDIO_TARGET_BYTES; // audio queue level, smoothed (rate control)
 float integ;
 bool skip_picture;      // catching up (web.c3): emulate, don't draw
+
+// A frame of the game. With the debugger's breakpoints set (one Game Boy
+// only) it may stop at one: paused there, the next frame goes on from it.
+fn void run_game_frame(display::Input* in) {
+	if (dbg.is_open() && dbg.breaks.active() && link_mode == OFF) {
+		gb.mmu.set_input(in.buttons, in.dpad);
+		bool hit = gb.run_frame_breaking(&dbg.breaks, dbg.resume);
+		dbg.resume = hit;
+		if (hit) {
+			paused = true;
+			dbg.breaks.temp = -1;
+			dbg.follow = true;
+			screen.clear_audio();
+			notice.show(string::tformat("Break at $%04X", gb.cpu.pc));
+		}
+		return;
+	}
+	dbg.resume = false;
+	link_run_frame(in);
+}
 
 // One pass of the main loop: input, the menu, a frame of emulation, the
 // picture. False when wer should quit. The caller paces it (until `next`).
@@ -395,6 +415,25 @@ fn bool frame() {
 		screen.clear_audio();
 	}
 
+	// The debugger (F10): its window's keys, and a step it asked for.
+	if (in.pressed & display::KEY_DEBUG) {
+		if (dbg.is_open()) {
+			dbg.close(&screen);
+		} else {
+			dbg.open(&screen);
+		}
+	}
+	if (dbg.is_open()) dbg.handle(&screen, &gb);
+	if (dbg.step) {
+		dbg.step = false;
+		if (has_rom && !menu) {
+			if (!paused) screen.clear_audio();
+			paused = true;
+			gb.step_instruction();
+			dbg.follow = true;
+		}
+	}
+
 	// Hotkeys while a game is showing: pause, frame advance, save states.
 	bool advance = false;
 	if (has_rom && !menu) {
@@ -442,7 +481,7 @@ fn bool frame() {
 							cfg.set(string::tformat("key.%s", config::BUTTON_NAMES[i]), config::DEFAULT_KEYS[i]);
 							cfg.set(string::tformat("pad.%s", config::BUTTON_NAMES[i]), config::DEFAULT_PADS[i]);
 						}
-						for (int i = 0; i < 5; i++) {
+						for (int i = 0; i < config::HOTKEY_NAMES.len; i++) {
 							cfg.set(string::tformat("key.%s", config::HOTKEY_NAMES[i]), config::DEFAULT_HOT_KEYS[i]);
 							cfg.set(string::tformat("pad.%s", config::HOTKEY_NAMES[i]), config::DEFAULT_HOT_PADS[i]);
 						}
@@ -645,7 +684,8 @@ fn bool frame() {
 		NanoDuration budget = frame_period(gb.mmu.model) * 3 / 4;
 		int n = 0;
 		do {
-			link_run_frame(&in);
+			run_game_frame(&in);
+			if (paused) break; // a breakpoint
 			rewind.record(&gb);
 			frames_run++;
 			gb.audio(&audio);
@@ -653,7 +693,7 @@ fn bool frame() {
 		} while (n < FAST_FORWARD_MAX && clock::now() - start < budget);
 		screen.clear_audio();
 	} else if (running) {
-		link_run_frame(&in);
+		run_game_frame(&in);
 		rewind.record(&gb);
 		frames_run++;
 		if (paused) {
@@ -695,6 +735,7 @@ fn bool frame() {
 			screen.shot_path = shot;
 		}
 		screen.present(picture, size.w, size.h, lines[:count], selected, message);
+		dbg.draw(&gb);
 		if (shot.len) {
 			if (shot_exit.len) {
 				io::printfn(screen.shot_ok ? "wrote %s" : "could not write %s", shot);
