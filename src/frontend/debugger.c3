@@ -4,16 +4,19 @@ import std::io;
 
 // The debugger: a second window (desktop) next to the game's, F10. On the
 // left the CPU and the code around PC, on the right memory and the stack,
-// the tiles in VRAM, or the objects and palettes (Tab). Its keys:
+// the tiles in VRAM, the tile maps, or the objects and palettes (Tab). Its
+// keys:
 //   Space, F5    pause / go on
 //   S, F7        one instruction
 //   O, F8        step over a CALL or RST
 //   C            run to the cursor
-//   B, F9        breakpoint at the cursor
+//   B, F9        breakpoint at the cursor; Shift+B: one with a condition
+//                ("A=05", "HL=C000", "BANK=3")
+//   W            watch an address for writes; Shift+W: reads and writes
 //   Up/Down      move the cursor; Home: back to PC
 //   PgUp/PgDn    scroll memory (Shift: by $1000)
 //   G / J        go to an address in memory / the code (hex, Enter)
-//   Tab          memory, tiles, objects
+//   Tab          memory, tiles, maps, objects
 //   Esc, F10     close
 
 const int DBG_W = 1296;
@@ -25,10 +28,12 @@ const int CODE_LINES = 28;
 const int MEM_LINES = 24;
 const int TILES_W = 128;            // 16 tiles across
 const int TILES_H = 192;            // 24 rows: $8000-$97FF
+const int MAP_W = 256;              // a 32x32 tile map
 
 enum DebugPanel : char {
 	MEMORY,
 	TILES,
+	MAPS,
 	OBJECTS,
 }
 
@@ -37,14 +42,19 @@ struct Debugger {
 	sdl::Renderer* renderer;
 	sdl::Texture*  tiles;
 	char[]         tile_px;       // RGBA, two banks side by side
+	sdl::Texture*  maps;
+	char[]         map_px;        // RGBA, the two maps side by side
 	gameboy::Breakpoints breaks;
 	ushort         top;           // first line of the code view
 	ushort         cursor;        // its highlighted line
 	bool           follow;        // the code view follows PC
 	ushort         mem;           // first address of the memory view
 	DebugPanel     panel;
-	char           entering;      // 'G' or 'J' while an address is typed, else 0
-	char[4]        entry;
+	// While something is typed: what it's for ('G', 'J' an address for
+	// memory, code; 'W', 'R' one to watch for writes, reads and writes; 'B' a
+	// breakpoint's condition), else 0.
+	char           entering;
+	char[16]       entry;
 	int            entry_len;
 	bool           resume;        // the next frame goes on from a break
 	bool           step;          // run one instruction now (main loop)
@@ -72,6 +82,9 @@ fn void Debugger.open(&self, display::Display* screen) {
 	self.tiles = sdl::create_texture(self.renderer, sdl::PIXELFORMAT_ABGR8888, sdl::TEXTUREACCESS_STREAMING, TILES_W * 2, TILES_H);
 	if (self.tiles) sdl::set_texture_scale_mode(self.tiles, sdl::SCALEMODE_NEAREST);
 	if (!self.tile_px.len) self.tile_px = mem::new_array(char, TILES_W * 2 * TILES_H * 4);
+	self.maps = sdl::create_texture(self.renderer, sdl::PIXELFORMAT_ABGR8888, sdl::TEXTUREACCESS_STREAMING, MAP_W * 2, MAP_W);
+	if (self.maps) sdl::set_texture_scale_mode(self.maps, sdl::SCALEMODE_NEAREST);
+	if (!self.map_px.len) self.map_px = mem::new_array(char, MAP_W * 2 * MAP_W * 4);
 	if (self.breaks.temp == 0 && self.breaks.n == 0) self.breaks.init();
 	self.follow = true;
 	if (self.mem == 0) self.mem = 0xC000;
@@ -82,6 +95,8 @@ fn void Debugger.open(&self, display::Display* screen) {
 fn void Debugger.close(&self, display::Display* screen) {
 	if (!self.window) return;
 	if (self.tiles) sdl::destroy_texture(self.tiles);
+	if (self.maps) sdl::destroy_texture(self.maps);
+	self.maps = null;
 	sdl::destroy_renderer(self.renderer);
 	sdl::destroy_window(self.window);
 	self.window = null;
@@ -103,7 +118,7 @@ fn void Debugger.handle(&self, display::Display* screen, gameboy::GameBoy* gb) {
 		int sc = screen.debug_keys[i] & 0xFFFF;
 		bool shift = (screen.debug_keys[i] >> 16 & sdl::KMOD_SHIFT) != 0;
 		if (self.entering) {
-			self.type_key(sc);
+			self.type_key(sc, shift);
 			continue;
 		}
 		switch (sc) {
@@ -133,8 +148,18 @@ fn void Debugger.handle(&self, display::Display* screen, gameboy::GameBoy* gb) {
 			case sdl::SC_C:
 				self.run_to(self.cursor);
 			case sdl::SC_B:
+				if (shift) {
+					self.start_entry('B');
+					String c = self.breaks.condition(self.cursor).text();
+					self.entry[:c.len] = c[..];
+					self.entry_len = (int)c.len;
+				} else {
+					self.breaks.toggle(self.cursor);
+				}
 			case sdl::SC_F9:
 				self.breaks.toggle(self.cursor);
+			case sdl::SC_W:
+				self.start_entry(shift ? 'R' : 'W');
 			case sdl::SC_UP:
 				self.follow = false;
 				self.move_cursor(gb, -1);
@@ -148,13 +173,11 @@ fn void Debugger.handle(&self, display::Display* screen, gameboy::GameBoy* gb) {
 			case sdl::SC_PAGEDOWN:
 				self.mem += shift ? 0x1000 : (ushort)(MEM_LINES * 8);
 			case sdl::SC_G:
-				self.entering = 'G';
-				self.entry_len = 0;
+				self.start_entry('G');
 			case sdl::SC_J:
-				self.entering = 'J';
-				self.entry_len = 0;
+				self.start_entry('J');
 			case sdl::SC_TAB:
-				self.panel = (DebugPanel)((self.panel.ordinal + 1) % 3);
+				self.panel = (DebugPanel)(((int)self.panel.ordinal + 1) % (int)DebugPanel::values.len);
 		}
 	}
 }
@@ -167,32 +190,53 @@ fn void Debugger.run_to(&self, ushort at) {
 	screen.clear_audio();
 }
 
-// Typing an address: hex digits, Backspace, Enter, Esc.
-fn void Debugger.type_key(&self, int sc) {
-	char digit = 0xFF;
-	if (sc >= sdl::SC_1 && sc < sdl::SC_0) digit = (char)(sc - sdl::SC_1 + 1);
-	if (sc == sdl::SC_0) digit = 0;
-	if (sc >= sdl::SC_A && sc <= sdl::SC_A + 5) digit = (char)(sc - sdl::SC_A + 10);
-	if (digit != 0xFF && self.entry_len < 4) {
-		self.entry[self.entry_len++] = digit;
+fn void Debugger.start_entry(&self, char what) {
+	self.entering = what;
+	self.entry_len = 0;
+}
+
+// Typing: an address in hex, or a condition (letters, digits, =);
+// Backspace, Enter, Esc.
+fn void Debugger.type_key(&self, int sc, bool shift) {
+	char ch = 0;
+	if (sc >= sdl::SC_1 && sc < sdl::SC_0) ch = (char)('1' + sc - sdl::SC_1);
+	if (sc == sdl::SC_0) ch = '0';
+	if (sc >= sdl::SC_A && sc <= sdl::SC_Z) ch = (char)('A' + sc - sdl::SC_A);
+	if (sc == sdl::SC_EQUALS) ch = '=';
+	bool hex = (ch >= '0' && ch <= '9') || (ch >= 'A' && ch <= 'F');
+	if (ch && (self.entering == 'B' || hex) && self.entry_len < self.entry.len) {
+		self.entry[self.entry_len++] = ch;
 		return;
 	}
 	if (sc == sdl::SC_BACKSPACE && self.entry_len > 0) self.entry_len--;
 	if (sc == sdl::SC_ESCAPE) self.entering = 0;
-	if (sc == sdl::SC_RETURN) {
-		if (self.entry_len > 0) {
-			ushort a;
-			for (int i = 0; i < self.entry_len; i++) a = (ushort)(a << 4 | self.entry[i]);
-			if (self.entering == 'G') {
-				self.mem = a & 0xFFF8;
-				self.panel = MEMORY;
-			} else {
-				self.top = a;
-				self.cursor = a;
-				self.follow = false;
-			}
+	if (sc != sdl::SC_RETURN) return;
+	String text = (String)self.entry[:self.entry_len];
+	char what = self.entering;
+	self.entering = 0;
+	if (what == 'B') {
+		if (try c = gameboy::parse_condition(text)) {
+			self.breaks.set_condition(self.cursor, c);
+		} else {
+			notice.show("A condition is REG=HEX: A, F, B ... L, AF ... HL, SP, BANK");
 		}
-		self.entering = 0;
+		return;
+	}
+	if (!text.len || text.len > 4) return;
+	ushort a;
+	foreach (c : text) a = (ushort)(a << 4 | (c <= '9' ? c - '0' : c - 'A' + 10));
+	switch (what) {
+		case 'G':
+			self.mem = a & 0xFFF8;
+			self.panel = MEMORY;
+		case 'J':
+			self.top = a;
+			self.cursor = a;
+			self.follow = false;
+		case 'W':
+			self.breaks.watches.toggle(a, mmu::WATCH_WRITE);
+		case 'R':
+			self.breaks.watches.toggle(a, mmu::WATCH_READ | mmu::WATCH_WRITE);
 	}
 }
 
@@ -265,11 +309,13 @@ fn void Debugger.draw(&self, gameboy::GameBoy* gb) {
 	switch (self.panel) {
 		case MEMORY:  self.draw_memory(gb);
 		case TILES:   break; // drawn below, at full scale
+		case MAPS:    break;
 		case OBJECTS: self.draw_objects(gb);
 	}
 	self.draw_help();
 	sdl::set_render_scale(self.renderer, 1, 1);
 	if (self.panel == TILES) self.draw_tiles(gb);
+	if (self.panel == MAPS) self.draw_maps(gb);
 	if (self.panel == OBJECTS) self.draw_palettes(gb);
 	sdl::render_present(self.renderer);
 }
@@ -286,6 +332,15 @@ fn void Debugger.draw_cpu(&self, gameboy::GameBoy* gb) {
 	self.text(0, 3, string::tformat("LCDC %02X STAT %02X LY %02X  dot %d", m.peek(0xFF40), m.peek(0xFF41), m.peek(0xFF44), m.ppu.dot));
 	uint bank = m.cart ? m.cart.rom_bank : 1;
 	self.text(0, 4, string::tformat("DIV %02X TIMA %02X  ROM bank %d%s", m.peek(0xFF04), m.peek(0xFF05), bank, m.double_speed ? "  2x" : ""));
+	mmu::Watches* w = &self.breaks.watches;
+	if (w.n) {
+		DString list;
+		list.init(tmem);
+		for (int i = 0; i < w.n; i++) {
+			list.appendf(" %04X%s", w.list[i].at, w.list[i].mode == mmu::WATCH_WRITE ? "w" : "rw");
+		}
+		self.text(0, 5, string::tformat("Watch%s", list.str_view()), 0xF0, 0xC0, 0x70);
+	}
 }
 
 fn void Debugger.draw_code(&self, gameboy::GameBoy* gb) {
@@ -304,7 +359,9 @@ fn void Debugger.draw_code(&self, gameboy::GameBoy* gb) {
 			sdl::FRect hl = { 2, (float)(row * DBG_ROW + 2), 37 * 8, DBG_ROW };
 			sdl::render_fill_rect(self.renderer, &hl);
 		}
-		String line = string::tformat("%c%c%04X %-6s %s", pc ? '>' : ' ', bp ? '*' : ' ', a, bytes.str_view(), s);
+		String cond = bp ? self.breaks.condition(a).text() : "";
+		String line = string::tformat("%c%c%04X %-6s %s%s%s", pc ? '>' : ' ', bp ? '*' : ' ', a, bytes.str_view(), s,
+			cond.len ? "  if " : "", cond);
 		if (bp) {
 			self.text(0, row, line, 0xF0, 0x70, 0x60);
 		} else if (pc) {
@@ -315,10 +372,15 @@ fn void Debugger.draw_code(&self, gameboy::GameBoy* gb) {
 		a += (ushort)len;
 	}
 	if (self.entering) {
-		DString e;
-		e.init(tmem);
-		for (int i = 0; i < self.entry_len; i++) e.appendf("%X", self.entry[i]);
-		self.text(0, 6 + CODE_LINES + 1, string::tformat("%s address: %s_", self.entering == 'G' ? "Memory" : "Code", e.str_view()), 0xF0, 0xF8, 0xA0);
+		String what;
+		switch (self.entering) {
+			case 'G': what = "Memory address:";
+			case 'J': what = "Code address:";
+			case 'W': what = "Watch writes to:";
+			case 'R': what = "Watch reads and writes of:";
+			default:  what = string::tformat("Break at %04X if (REG=HEX, empty: always):", self.cursor);
+		}
+		self.text(0, 6 + CODE_LINES + 1, string::tformat("%s %s_", what, (String)self.entry[:self.entry_len]), 0xF0, 0xF8, 0xA0);
 	}
 }
 
@@ -383,6 +445,95 @@ fn void Debugger.draw_tiles(&self, gameboy::GameBoy* gb) {
 	}
 }
 
+// The two 32x32 tile maps ($9800, $9C00) as the background would draw them
+// (tile data and colours as they are now), with the part the screen shows
+// outlined on the background's map and the window's on its own.
+fn void Debugger.draw_maps(&self, gameboy::GameBoy* gb) {
+	ppu::Ppu* p = &gb.mmu.ppu;
+	char lcdc = p.lcdc;
+	self.text_scaled(RIGHT, 0, string::tformat("Tile maps  $9800%s      $9C00%s", lcdc & ppu::LCDC_BG_MAP ? "" : " (BG)",
+		lcdc & ppu::LCDC_BG_MAP ? " (BG)" : ""));
+	if (!self.maps) return;
+	const char[4] GREY = { 0xFF, 0xAA, 0x55, 0x00 };
+	for (int map = 0; map < 2; map++) {
+		int base = map ? 0x1C00 : 0x1800;
+		for (int ty = 0; ty < 32; ty++) {
+			for (int tx = 0; tx < 32; tx++) {
+				char tile = p.vram[base + ty * 32 + tx];
+				char attr = p.cgb && p.vram1 ? p.vram1[base + ty * 32 + tx] : 0;
+				int data = (lcdc & ppu::LCDC_TILE_DATA) ? (int)tile * 16 : 0x1000 + (int)(ichar)tile * 16;
+				char* bank = (attr & ppu::ATTR_BANK) && p.vram1 ? p.vram1 : &p.vram;
+				for (int y = 0; y < 8; y++) {
+					int row = (attr & ppu::ATTR_YFLIP) ? 7 - y : y;
+					char lo = bank[data + row * 2];
+					char hi = bank[data + row * 2 + 1];
+					for (int x = 0; x < 8; x++) {
+						int bit = (attr & ppu::ATTR_XFLIP) ? x : 7 - x;
+						int c = ((hi >> bit) & 1) << 1 | ((lo >> bit) & 1);
+						char r;
+						char g;
+						char b;
+						if (p.cgb || p.compat) {
+							int pal = p.cgb ? attr & ppu::ATTR_PALETTE : 0;
+							int idx = p.cgb ? c : (p.bgp >> (c * 2)) & 3;
+							ushort rgb = ppu::pal_color(&p.bg_pal, pal, idx);
+							r = (char)((rgb & 0x1F) << 3);
+							g = (char)(((rgb >> 5) & 0x1F) << 3);
+							b = (char)(((rgb >> 10) & 0x1F) << 3);
+						} else {
+							r = g = b = GREY[(p.bgp >> (c * 2)) & 3];
+						}
+						int at = ((ty * 8 + y) * MAP_W * 2 + map * MAP_W + tx * 8 + x) * 4;
+						self.map_px[at] = r;
+						self.map_px[at + 1] = g;
+						self.map_px[at + 2] = b;
+						self.map_px[at + 3] = 0xFF;
+					}
+				}
+			}
+		}
+	}
+	sdl::update_texture(self.maps, null, self.map_px.ptr, MAP_W * 2 * 4);
+	float x0 = (float)(RIGHT * DBG_CELL + 8);
+	float y0 = DBG_ROW * DBG_FONT * 2;
+	for (int map = 0; map < 2; map++) {
+		sdl::FRect src = { (float)(map * MAP_W), 0, MAP_W, MAP_W };
+		sdl::FRect dst = { x0 + (float)map * (MAP_W + 32), y0, MAP_W, MAP_W };
+		sdl::render_texture(self.renderer, self.maps, &src, &dst);
+	}
+	// The screen on the background's map (wrapping round), and the window.
+	sdl::set_render_draw_color(self.renderer, 0xF0, 0x40, 0x40, 0xFF);
+	float bx = x0 + ((lcdc & ppu::LCDC_BG_MAP) ? MAP_W + 32 : 0);
+	for (int dy = -MAP_W; dy <= 0; dy += MAP_W) {
+		for (int dx = -MAP_W; dx <= 0; dx += MAP_W) {
+			self.map_rect(bx, y0, (float)(p.scx + dx), (float)(p.scy + dy), ppu::WIDTH, ppu::HEIGHT);
+		}
+	}
+	if ((lcdc & ppu::LCDC_WIN_ENABLE) && p.wx <= 166 && p.wy < ppu::HEIGHT) {
+		sdl::set_render_draw_color(self.renderer, 0x40, 0xA0, 0xF0, 0xFF);
+		float wx = x0 + ((lcdc & ppu::LCDC_WIN_MAP) ? MAP_W + 32 : 0);
+		float w = (float)(ppu::WIDTH - ((int)p.wx - 7 > 0 ? (int)p.wx - 7 : 0));
+		self.map_rect(wx, y0, 0, 0, w, (float)(ppu::HEIGHT - (int)p.wy));
+	}
+	sdl::set_render_scale(self.renderer, DBG_FONT, DBG_FONT);
+	int below = (int)((y0 + MAP_W) / (DBG_ROW * DBG_FONT)) + 1;
+	self.text(RIGHT, below, string::tformat("SCX %02X SCY %02X  WX %02X WY %02X  tiles at %s", p.scx, p.scy, p.wx, p.wy,
+		lcdc & ppu::LCDC_TILE_DATA ? "$8000" : "$8800"));
+	self.text(RIGHT, below + 1, "red: the screen; blue: the window", 0x80, 0x98, 0x88);
+	sdl::set_render_scale(self.renderer, 1, 1);
+}
+
+// A rectangle in map pixels, clipped to the 256x256 map at (ox, oy).
+fn void Debugger.map_rect(&self, float ox, float oy, float x, float y, float w, float h) {
+	float x1 = x < 0 ? 0 : x;
+	float y1 = y < 0 ? 0 : y;
+	float x2 = x + w > MAP_W ? MAP_W : x + w;
+	float y2 = y + h > MAP_W ? MAP_W : y + h;
+	if (x2 <= x1 || y2 <= y1) return;
+	sdl::FRect r = { ox + x1, oy + y1, x2 - x1, y2 - y1 };
+	sdl::render_rect(self.renderer, &r);
+}
+
 // Text at the debugger's font size while the render scale is 1.
 fn void Debugger.text_scaled(&self, int col, int row, String s) {
 	sdl::set_render_scale(self.renderer, DBG_FONT, DBG_FONT);
@@ -439,7 +590,7 @@ fn void Debugger.draw_palettes(&self, gameboy::GameBoy* gb) {
 fn void Debugger.draw_help(&self) {
 	int row = (int)(DBG_H / DBG_FONT) / DBG_ROW - 4;
 	self.text(0, row, "Space pause/go on  S step  O step over  C run to cursor  B breakpoint", 0x80, 0x98, 0x88);
-	self.text(0, row + 1, "Up/Down cursor  Home PC  G/J go to (memory/code)  Tab memory/tiles/objects", 0x80, 0x98, 0x88);
-	self.text(0, row + 2, "Esc close", 0x80, 0x98, 0x88);
+	self.text(0, row + 1, "Shift+B breakpoint if  W watch writes (Shift: reads too)  Home PC  Up/Down", 0x80, 0x98, 0x88);
+	self.text(0, row + 2, "G/J go to memory/code  Tab memory/tiles/maps/objects  Esc close", 0x80, 0x98, 0x88);
 }
 

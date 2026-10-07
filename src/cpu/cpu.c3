@@ -283,6 +283,7 @@ fn char Cpu.read(&self, mmu::Mmu* mmu, ushort addr) {
 		output = mmu.get(addr);
 	}
 	self.record(READ, addr, output);
+	if (mmu.watch) mmu.watch.check(addr, false, output);
 	if (io_trace && addr >= 0xFF00 && addr < 0xFF80) io::eprintfn("R %02X=%02X ly %d lc %d", addr & 0xFF, output, mmu.ppu.line, mmu.ppu.dot);
 	mmu.tick(1);
 	return output;
@@ -298,6 +299,7 @@ fn void Cpu.write(&self, mmu::Mmu* mmu, ushort addr, char value) {
 		if (addr >= 0xFE00 && addr < 0xFEA0 && mmu.ppu.oam_row0_window()) mmu.ppu.oam_row0_glitch(addr);
 	}
 	self.record(WRITE, addr, value);
+	if (mmu.watch) mmu.watch.check(addr, true, value);
 	if (io_trace && addr >= 0xFF00 && addr < 0xFF80) io::eprintfn("W %02X=%02X ly %d lc %d", addr & 0xFF, value, mmu.ppu.line, mmu.ppu.dot);
 	mmu.tick(1);
 }

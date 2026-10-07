@@ -105,6 +105,7 @@ struct Mmu {
 	char[0x2000] extram;   // A000-BFFF fallback
 	bool         has_extram; // a cartridge without MBC but with RAM (types $08/$09); else $A000-$BFFF is open bus
 	cart::Cartridge* cart; // non-null once an MBC ROM is loaded; owns ROM+RAM
+	Watches*         watch; // the debugger's watchpoints, while there are any (watch.c3)
 	char[0x2000] wram;   // C000-DFFF  (+ E000-FDFF echo)
 	char[0x80]   io;     // FF00-FF7F
 	char[0x7F]   hram;   // FF80-FFFE

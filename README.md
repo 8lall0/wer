@@ -54,8 +54,9 @@ ROMs: they never leave the browser; touch controls on phones).
 - **Cheats**: Game Genie and GameShark codes, per game, in **Menu →
   Cheats** (or `--cheat=CODE`); kept next to the game's saves in
   `game.cht`, a code per line (a `#` in front switches it off).
-- **Debugger** (F10, desktop): registers, disassembly, breakpoints and
-  stepping, memory, VRAM tiles, objects and palettes, in a window of its own.
+- **Debugger** (F10, desktop): registers, disassembly, breakpoints (with
+  conditions) and watchpoints, stepping, memory, VRAM tiles, tile maps,
+  objects and palettes, in a window of its own.
 - **Gamepads** (any SDL3 gamepad), **key remapping**, **window scale** 1x-4x,
   a menu, a file dialog to open ROMs, and settings kept in `~/.wer/wer.conf`.
 
@@ -200,7 +201,8 @@ are saved to `~/.wer/wer.conf`.
 
 F10 opens the debugger in a second window (on a desktop): the CPU's
 registers and flags, the code around PC, memory and the stack, the tiles in
-VRAM (both banks on a Game Boy Color), the 40 objects and the palettes.
+VRAM (both banks on a Game Boy Color), the two tile maps (the screen and
+the window outlined), the 40 objects and the palettes.
 With its window in front:
 
 | | |
@@ -210,10 +212,12 @@ With its window in front:
 | O or F8 | step over a CALL or RST |
 | C | run to the cursor |
 | B or F9 | breakpoint at the cursor (it stops before that instruction runs) |
+| Shift+B | breakpoint with a condition: `A=05`, `HL=C000`, `BANK=3` (a register, or the ROM bank) |
+| W | watch an address for writes (it stops after the instruction); Shift+W: reads and writes |
 | Up / Down, Home | move the cursor; back to PC |
 | PgUp / PgDn | scroll memory (with Shift by $1000) |
 | G, J | type an address (hex, Enter) to show in memory, in the code |
-| Tab | memory, tiles, objects and palettes |
+| Tab | memory, tiles, tile maps, objects and palettes |
 | Esc or F10 | close it |
 
 Breakpoints work with one Game Boy (not with two or four on the cable).

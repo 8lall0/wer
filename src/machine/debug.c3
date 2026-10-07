@@ -1,5 +1,5 @@
 module gameboy;
-import mmu, ppu;
+import mmu, ppu, cpu;
 
 // The debugger's view of the machine (frontend/debugger.c3): SM83
 // disassembly, breakpoints, stepping.
@@ -133,10 +133,74 @@ fn bool is_call(char op) => op == 0xCD || (op & 0xE7) == 0xC4 || (op & 0xC7) == 
 
 const int MAX_BREAKPOINTS = 32;
 
+// A breakpoint may only count when a register (or the ROM bank) holds a
+// value: "A=05", "HL=C000", "BANK=3".
+enum CondReg : char {
+	NONE, A, F, B, C, D, E, H, L, AF, BC, DE, HL, SP, BANK,
+}
+
+const String[*] COND_NAMES = { "", "A", "F", "B", "C", "D", "E", "H", "L", "AF", "BC", "DE", "HL", "SP", "BANK" };
+
+struct Condition {
+	CondReg reg;
+	ushort  value;
+}
+
+fn ushort Condition.current(&self, GameBoy* gb) {
+	cpu::Cpu* c = &gb.cpu;
+	switch (self.reg) {
+		case NONE: return 0;
+		case A:    return c.af.hi;
+		case F:    return c.af.lo;
+		case B:    return c.bc.hi;
+		case C:    return c.bc.lo;
+		case D:    return c.de.hi;
+		case E:    return c.de.lo;
+		case H:    return c.hl.hi;
+		case L:    return c.hl.lo;
+		case AF:   return c.af.reg;
+		case BC:   return c.bc.reg;
+		case DE:   return c.de.reg;
+		case HL:   return c.hl.reg;
+		case SP:   return c.sp;
+		case BANK: return gb.mmu.cart ? (ushort)gb.mmu.cart.rom_bank : 1;
+	}
+}
+
+fn bool Condition.holds(&self, GameBoy* gb) => self.reg == NONE || self.current(gb) == self.value;
+
+fn String Condition.text(&self) => self.reg == NONE ? "" : string::tformat("%s=%X", COND_NAMES[self.reg.ordinal], self.value);
+
+faultdef BAD_CONDITION;
+
+// "REG=HEX" (or "" for none).
+fn Condition? parse_condition(String s) {
+	s = s.trim();
+	if (!s.len) return {};
+	sz? eq = s.index_of_char('=');
+	if (catch eq) return BAD_CONDITION~;
+	String name = s[:eq].trim();
+	String hex = s[eq + 1..].trim();
+	if (!hex.len || hex.len > 4) return BAD_CONDITION~;
+	ushort v;
+	foreach (ch : hex) {
+		int d = ch >= '0' && ch <= '9' ? ch - '0' : ch >= 'A' && ch <= 'F' ? ch - 'A' + 10 : ch >= 'a' && ch <= 'f' ? ch - 'a' + 10 : -1;
+		if (d < 0) return BAD_CONDITION~;
+		v = (ushort)(v << 4 | d);
+	}
+	String upper = name.to_upper_tcopy();
+	foreach (i, n : COND_NAMES) {
+		if (i > 0 && n == upper) return { (CondReg)i, v };
+	}
+	return BAD_CONDITION~;
+}
+
 struct Breakpoints {
 	ushort[MAX_BREAKPOINTS] at;
+	Condition[MAX_BREAKPOINTS] cond;
 	int  n;
 	int  temp;    // a one-shot breakpoint (step over, run to the cursor), or -1
+	mmu::Watches watches;
 }
 
 fn void Breakpoints.init(&self) {
@@ -148,23 +212,57 @@ fn bool Breakpoints.has(&self, ushort a) {
 	return false;
 }
 
-fn bool Breakpoints.hit(&self, ushort a) => (self.temp >= 0 && a == (ushort)self.temp) || self.has(a);
+// Whether the CPU stops before the instruction at PC.
+fn bool Breakpoints.hit(&self, GameBoy* gb) {
+	ushort pc = gb.cpu.pc;
+	if (self.temp >= 0 && pc == (ushort)self.temp) return true;
+	for (int i = 0; i < self.n; i++) {
+		if (self.at[i] == pc && self.cond[i].holds(gb)) return true;
+	}
+	return false;
+}
 
-fn bool Breakpoints.active(&self) => self.n > 0 || self.temp >= 0;
+fn bool Breakpoints.active(&self) => self.n > 0 || self.temp >= 0 || self.watches.n > 0;
+
+// The condition of the breakpoint at `a` (none if there's no breakpoint).
+fn Condition Breakpoints.condition(&self, ushort a) {
+	for (int i = 0; i < self.n; i++) if (self.at[i] == a) return self.cond[i];
+	return {};
+}
+
+// A breakpoint at `a` that only counts when `c` holds (set, or changed).
+fn void Breakpoints.set_condition(&self, ushort a, Condition c) {
+	for (int i = 0; i < self.n; i++) {
+		if (self.at[i] == a) {
+			self.cond[i] = c;
+			return;
+		}
+	}
+	if (self.n < MAX_BREAKPOINTS) {
+		self.at[self.n] = a;
+		self.cond[self.n++] = c;
+	}
+}
 
 // Set one at `a`, or clear the one there.
 fn void Breakpoints.toggle(&self, ushort a) {
 	for (int i = 0; i < self.n; i++) {
 		if (self.at[i] == a) {
-			self.at[i] = self.at[--self.n];
+			self.n--;
+			self.at[i] = self.at[self.n];
+			self.cond[i] = self.cond[self.n];
 			return;
 		}
 	}
-	if (self.n < MAX_BREAKPOINTS) self.at[self.n++] = a;
+	if (self.n < MAX_BREAKPOINTS) {
+		self.at[self.n] = a;
+		self.cond[self.n++] = {};
+	}
 }
 
 // GameBoy.run_frame, stopping before the CPU runs an instruction at a
-// breakpoint: true then, and the next call goes on with the same frame.
+// breakpoint, or after one that touched a watched address (b.watches.hit
+// then): true then, and the next call goes on with the same frame.
 // `resume`: the instruction at PC runs even with a breakpoint there (going
 // on from a break).
 fn bool GameBoy.run_frame_breaking(&self, Breakpoints* b, bool resume) {
@@ -174,13 +272,20 @@ fn bool GameBoy.run_frame_breaking(&self, Breakpoints* b, bool resume) {
 	self.mmu.ppu.frame_ready = false;
 	ulong end = self.cpu.clk + (lcd ? frame * 2 : frame);
 	bool skip = resume;
+	b.watches.hit = false;
+	self.mmu.watch = b.watches.n ? &b.watches : null;
+	defer self.mmu.watch = null;
 	while ((!lcd || !self.mmu.ppu.frame_ready) && self.cpu.clk < end) {
-		if (!skip && !self.cpu.halted && !self.cpu.stopped && b.hit(self.cpu.pc)) {
+		if (!skip && !self.cpu.halted && !self.cpu.stopped && b.hit(self)) {
 			self.mmu.ppu_touch();
 			return true;
 		}
 		skip = false;
 		self.step();
+		if (b.watches.hit) {
+			self.mmu.ppu_touch();
+			return true;
+		}
 	}
 	self.mmu.ppu_touch();
 	self.mmu.ppu.frame_ready = false;

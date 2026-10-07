@@ -160,6 +160,10 @@ macro String @field_name($name, $i) => $name.len ? $name : string::tformat("~%d"
 
 // Whether a field of this type is state: not pointers, slices and the like,
 // also behind a typedef (String is a slice).
+// Fields that belong to the game rather than its state: the fallback ROM of
+// a cartridge without a mapper (Mmu.rom) comes from the ROM file.
+macro bool @not_state($name) => $name == "rom";
+
 macro bool @is_state($type) {
 	$switch $type.kind:
 		$case POINTER:
@@ -181,13 +185,13 @@ macro bool @is_state($type) {
 macro void write_struct($Type, StateWriter* w, void* p) {
 	ushort n;
 	$foreach $m : $Type::members:
-		$if @is_state($m.type):
+		$if @is_state($m.type) &&& !@not_state($m.name):
 			n++;
 		$endif
 	$endforeach
 	w.u16(n);
 	$foreach $i, $m : $Type::members:
-		$if @is_state($m.type):
+		$if @is_state($m.type) &&& !@not_state($m.name):
 			write_member($m.type, @field_name($m.name, $i), w, (char*)p + $m.offset);
 		$endif
 	$endforeach
@@ -281,7 +285,7 @@ fn long field_int(StateField* f) {
 
 macro void read_struct($Type, char[] rec, void* p) {
 	$foreach $i, $m : $Type::members:
-		$if @is_state($m.type):
+		$if @is_state($m.type) &&& !@not_state($m.name):
 			if (try f = find_field(rec, @field_name($m.name, $i))) read_member($m.type, &f, (char*)p + $m.offset);
 		$endif
 	$endforeach
@@ -451,8 +455,10 @@ fn void GameBoy.restore_host_side(&self, HostSide* k) {
 	self.mmu.serial_echo = k.mmu.serial_echo;
 	self.mmu.link = k.mmu.link;
 	self.mmu.cheats = k.mmu.cheats;
+	self.mmu.watch = k.mmu.watch;
 	self.mmu.serial_waiting = false;
 	self.mmu.ppu.vram1 = k.mmu.ppu.vram1;
+	self.mmu.rom = k.mmu.rom; // (older states have it too)
 	self.mmu.ppu.fb = k.mmu.ppu.fb;
 	self.mmu.ppu.cfb = k.mmu.ppu.cfb;
 	// Sound: this machine's buffer, emptied (what it held belongs to the

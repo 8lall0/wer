@@ -351,7 +351,12 @@ fn void run_game_frame(display::Input* in) {
 			dbg.breaks.temp = -1;
 			dbg.follow = true;
 			screen.clear_audio();
-			notice.show(string::tformat("Break at $%04X", gb.cpu.pc));
+			mmu::Watches* w = &dbg.breaks.watches;
+			if (w.hit) {
+				notice.show(string::tformat("%s $%04X ($%02X), now at $%04X", w.hit_write ? "Write to" : "Read of", w.hit_at, w.hit_value, gb.cpu.pc));
+			} else {
+				notice.show(string::tformat("Break at $%04X", gb.cpu.pc));
+			}
 		}
 		return;
 	}
