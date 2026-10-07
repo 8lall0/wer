@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Publish the web build on GitHub Pages: builds it (scripts/build-web.sh) and
 # commits the page, the privacy policy (privacy.html), wer.js, wer.wasm and
-# the licenses to the gh-pages branch
+# the licenses (LICENSE, LICENSE-sameboy, LICENSE-mame) to the gh-pages branch
 # (kept in a worktree at build/gh-pages), then pushes it. The site is
 # https://<owner>.github.io/<repo>/ once Pages serves that branch.
 #
@@ -24,7 +24,7 @@ if [ ! -d "$SITE" ]; then
 fi
 
 cd "$SITE"
-cp "$ROOT/build/web/index.html" "$ROOT/build/web/privacy.html" "$ROOT/build/web/wer.js" "$ROOT/build/web/wer.wasm" "$ROOT/LICENSE" "$ROOT/LICENSE-sameboy" .
+cp "$ROOT/build/web/index.html" "$ROOT/build/web/privacy.html" "$ROOT/build/web/wer.js" "$ROOT/build/web/wer.wasm" "$ROOT/LICENSE" "$ROOT/LICENSE-sameboy" "$ROOT/LICENSE-mame" .
 touch .nojekyll # served as they are
 git add -A
 if git diff --cached --quiet; then
