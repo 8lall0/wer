@@ -1,0 +1,112 @@
+# Tests (unit tests and every test ROM suite), and the Linux and web builds,
+# on each push to main and each pull request.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  C3C_VERSION: 0.8.4
+  SDL_VERSION: 3.4.18
+  RGBDS_VERSION: 1.0.4
+  EMSDK_VERSION: 6.0.11
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-c3c
+        with:
+          version: ${{ env.C3C_VERSION }}
+
+      # The test ROMs aren't in the repository: fetched once, then kept
+      # until a fetch script changes.
+      - id: roms
+        uses: actions/cache@v5
+        with:
+          path: |
+            test/acid2
+            test/age
+            test/blargg
+            test/gambatte
+            test/gbmicrotest
+            test/mbc3
+            test/mealybug
+            test/mooneye
+            test/samesuite
+            test/screens
+            test/sm83
+            test/wilbertpol
+          key: test-roms-${{ hashFiles('scripts/fetch-*.sh') }}
+      - name: Install RGBDS (SameSuite is built from source)
+        if: steps.roms.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p "$RUNNER_TEMP/rgbds"
+          curl -sfL "https://github.com/gbdev/rgbds/releases/download/v$RGBDS_VERSION/rgbds-linux-x86_64.tar.xz" | tar xJ -C "$RUNNER_TEMP/rgbds"
+          echo "$RUNNER_TEMP/rgbds" >> "$GITHUB_PATH"
+      - name: Fetch the test ROMs
+        if: steps.roms.outputs.cache-hit != 'true'
+        run: for s in scripts/fetch-*.sh; do echo "::group::$s"; "$s"; echo "::endgroup::"; done
+
+      - name: Tests
+        run: c3c test -O2
+      - name: Gambatte suite
+        run: WER_GAMBATTE=1 c3c test -O2 --test-filter gambatte
+      - name: Fuzzing (bounds checks on)
+        run: WER_FUZZ=200 c3c test -O1 --test-filter fuzz
+
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-c3c
+        with:
+          version: ${{ env.C3C_VERSION }}
+
+      # SDL3 isn't packaged for Ubuntu 24.04: a static build of it
+      # (scripts/build-sdl3.sh), kept between runs.
+      - id: sdl
+        uses: actions/cache@v5
+        with:
+          path: deps/sdl3-linux
+          key: sdl3-linux-${{ env.SDL_VERSION }}-${{ hashFiles('scripts/build-sdl3.sh') }}
+      - name: Build SDL3
+        if: steps.sdl.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake ninja-build pkg-config \
+            libasound2-dev libpulse-dev libpipewire-0.3-dev libx11-dev libxext-dev libxrandr-dev \
+            libxcursor-dev libxfixes-dev libxi-dev libxss-dev libxtst-dev libxkbcommon-dev \
+            libwayland-dev libdecor-0-dev libdrm-dev libgbm-dev libegl1-mesa-dev libgl1-mesa-dev \
+            libgles2-mesa-dev libdbus-1-dev libudev-dev libibus-1.0-dev
+          scripts/build-sdl3.sh linux
+
+      - name: Build wer
+        run: c3c build wer -O2 -L deps/sdl3-linux/lib -z -pthread -z -lm
+      - uses: actions/upload-artifact@v7
+        with:
+          name: wer-linux
+          path: build/wer
+          retention-days: 14
+
+  web:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-c3c
+        with:
+          version: ${{ env.C3C_VERSION }}
+      - uses: mymindstorm/setup-emsdk@v16
+        with:
+          version: ${{ env.EMSDK_VERSION }}
+      - name: Build wer for the browser (wasm32)
+        run: scripts/build-web.sh
+      - uses: actions/upload-artifact@v7
+        with:
+          name: wer-web
+          path: build/web
+          retention-days: 14
