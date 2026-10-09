@@ -58,8 +58,6 @@ fn bool Cpu.service_interrupt(&self, mmu::Mmu *mmu) {
 		if (mmu.hdma_due) return true;
 		if (!self.ime) return !seen_early;
 	}
-	// TODO: STOP is only released by joypad.
-
 	if (!self.ime) return false;
 
 	if (io_trace) io::eprintfn("INT if %02X ly %d lc %d", pending, mmu.ppu.line, mmu.ppu.dot);

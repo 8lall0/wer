@@ -177,6 +177,7 @@ struct Mmu {
 	bool   if_written;  // the CPU wrote IF: it overrides what the PPU raises in the next dot (Gambatte)
 	bool   irq_early;   // the PPU raised an interrupt early enough in the last tick
 	int    ppu_freeze;  // dots the PPU stands still (right after a CGB speed switch)
+	uint   stop_dots;   // dots into the current blank frame of STOP mode
 	sgb::Sgb* sgb;      // non-null in SGB mode (heap, freed by GameBoy.destroy)
 
 	Dma dma;
@@ -1101,6 +1102,29 @@ fn void Mmu.tick(&self, char mcycles) {
 	// The camera runs on the CPU's clock pin, which stops in HALT.
 	if (self.cart && self.cart.camera.countdown && !self.cpu_halted) self.cart.camera_tick(rt);
 	self.quiet = self.quiet_cycles();
+}
+
+// STOP mode starts: the screen goes white, the PPU keeps where it stood.
+fn void Mmu.stop_enter(&self) {
+	self.ppu_touch();
+	self.ppu.blank();
+	self.stop_dots = 0;
+}
+
+// An M-cycle in STOP mode: the system clock stands still, so do the timer,
+// the PPU, the APU and the DMAs. What has a clock of its own runs on (a
+// cartridge's), the sound out goes on with the channels frozen, and a white
+// frame is done every frame's time so the host loops get their frames.
+fn void Mmu.stop_tick(&self) {
+	uint rt = self.double_speed ? 2 : 4;
+	self.rt_clock += rt;
+	self.apu.tick(rt, 0, 0, false, true);
+	if (self.cart && (self.cart.has_rtc || self.cart.has_clock)) self.cart.tick(rt);
+	self.stop_dots += rt;
+	if (self.stop_dots >= 70224) {
+		self.stop_dots -= 70224;
+		self.ppu.frame_ready = true;
+	}
 }
 
 // How many M-cycles from now Mmu.tick can only count: no DMA, serial

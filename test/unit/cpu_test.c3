@@ -2,6 +2,7 @@ module cpu_test;
 
 import cpu;
 import mmu;
+import joypad;
 import std::core::test;
 
 // ---------------------------------------------------------------------------
@@ -944,7 +945,7 @@ fn void step_illegal_opcode_stops() @test
 	c.pc = 0x0100;
 
 	c.step(&m);
-	test::@check(c.stopped, "illegal opcode halts the core");
+	test::@check(c.locked, "illegal opcode locks the core up");
 }
 
 fn void step_ei_is_delayed_one_instruction() @test
@@ -1093,15 +1094,73 @@ fn void halt_pending_but_masked_still_halts() @test
 	test::@check(!c.halt_bug, "no halt bug");
 }
 
-fn void stop_resets_div_and_continues() @test
+fn void stop_resets_div_and_waits_for_a_button() @test
 {
 	cpu::Cpu c = cpu::init();
 	mmu::Mmu m;
+	load_program(&m, 0x0100, { 0x10, 0x00, 0x04 }); // STOP; INC B
+	c.pc = 0x0100;
 	m.tick(80); // let DIV advance
 
-	c.stop(&m);
-	test::@check(!c.stopped, "STOP does not permanently halt the core");
+	c.step(&m);
+	test::@check(c.stopped, "STOP mode");
 	test::eq((char)0x00, m.get(0xFF04));
+	test::eq((ushort)0x0102, c.pc);
+	for (int i = 0; i < 1000; i++) c.step(&m);
+	test::@check(c.stopped, "still stopped without a button");
+	test::eq((char)0x00, m.get(0xFF04)); // the timer stands still too
+	char b = c.bc.hi;
+
+	m.set_input(joypad::BTN_A, 0);
+	test::@check((m.get(0xFF0F) & 0x10) != 0, "the press raises the joypad interrupt");
+	c.step(&m);
+	test::@check(!c.stopped, "a button wakes it up");
+	c.step(&m);
+	test::eq((char)(b + 1), c.bc.hi);
+}
+
+fn void stop_needs_a_selected_row() @test
+{
+	cpu::Cpu c = cpu::init();
+	mmu::Mmu m;
+	m.joypad.write(0x30); // no row selected
+	c.stop(&m);
+	m.set_input(joypad::BTN_A, joypad::PAD_UP);
+	for (int i = 0; i < 100; i++) c.step(&m);
+	test::@check(c.stopped, "a button not seen doesn't wake it");
+	m.joypad.write(0x10); // the buttons row
+	c.step(&m);
+	test::@check(!c.stopped, "seen once its row is selected");
+}
+
+fn void stop_with_a_button_held_is_halt() @test
+{
+	cpu::Cpu c = cpu::init();
+	mmu::Mmu m;
+	m.set_input(0, joypad::PAD_DOWN);
+	m.set(0xFF0F, 0x00);
+	m.tick(80);
+	char div = m.get(0xFF04);
+
+	c.stop(&m);
+	test::@check(!c.stopped, "no STOP mode");
+	test::@check(c.halted, "HALT instead");
+	test::eq(div, m.get(0xFF04)); // DIV not reset
+}
+
+fn void stop_with_an_interrupt_pending_is_one_byte() @test
+{
+	cpu::Cpu c = cpu::init();
+	mmu::Mmu m;
+	load_program(&m, 0x0100, { 0x10, 0x04 }); // STOP; INC B
+	c.pc = 0x0100;
+	c.ime = false;
+	m.set(0xFFFF, 0x04);
+	m.set(0xFF0F, 0x04); // timer interrupt pending
+
+	c.step(&m);
+	test::@check(c.stopped, "STOP mode");
+	test::eq((ushort)0x0101, c.pc); // the byte after STOP runs as an instruction
 }
 
 // ---------------------------------------------------------------------------

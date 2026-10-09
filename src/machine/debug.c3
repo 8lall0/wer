@@ -276,7 +276,7 @@ fn bool GameBoy.run_frame_breaking(&self, Breakpoints* b, bool resume) {
 	self.mmu.watch = b.watches.n ? &b.watches : null;
 	defer self.mmu.watch = null;
 	while ((!lcd || !self.mmu.ppu.frame_ready) && self.cpu.clk < end) {
-		if (!skip && !self.cpu.halted && !self.cpu.stopped && b.hit(self)) {
+		if (!skip && !self.cpu.halted && !self.cpu.stopped && !self.cpu.locked && b.hit(self)) {
 			self.mmu.ppu_touch();
 			return true;
 		}
@@ -295,9 +295,9 @@ fn bool GameBoy.run_frame_breaking(&self, Breakpoints* b, bool resume) {
 // One instruction (or an interrupt's call). A halted or stopped CPU runs
 // until it wakes up (a frame's time at most).
 fn void GameBoy.step_instruction(&self) {
-	if (self.cpu.halted || self.cpu.stopped) {
+	if (self.cpu.halted || self.cpu.stopped || self.cpu.locked) {
 		ulong end = self.cpu.clk + 70224;
-		while ((self.cpu.halted || self.cpu.stopped) && self.cpu.clk < end) self.step();
+		while ((self.cpu.halted || self.cpu.stopped || self.cpu.locked) && self.cpu.clk < end) self.step();
 	} else {
 		self.step();
 	}

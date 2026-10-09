@@ -36,6 +36,16 @@ fn char Cpu.execute_one(&self, mmu::Mmu *mmu) {
 // Run one step: service a pending interrupt, idle one cycle while halted /
 // stopped, or fetch+execute one instruction. Returns the M-cycles consumed.
 fn char Cpu.step(&self, mmu::Mmu *mmu) {
+	// STOP mode: an M-cycle of nothing, until a button in a selected row is
+	// pressed. Then the machine carries on where it stood (a joypad
+	// interrupt that came with the press is taken next).
+	if (self.stopped) {
+		self.bus_cycles = 1;
+		mmu.stop_tick();
+		if ((mmu.joypad.read() & 0x0F) != 0x0F) self.stopped = false;
+		self.clk += 1;
+		return 1;
+	}
 	// An HBlank DMA block is copied between instructions (Gambatte: a DMA
 	// event), and holds the CPU off the bus while it runs.
 	// A block HALT held back: the next instruction runs before any interrupt
@@ -46,7 +56,7 @@ fn char Cpu.step(&self, mmu::Mmu *mmu) {
 		mmu.hdma_due = false;
 		// The next opcode is read before the copy (Gambatte
 		// Interrupter::prefetch; its fetch cycle still comes after).
-		if (!self.halted && !self.stopped && !self.prefetched && !self.no_prefetch) {
+		if (!self.halted && !self.locked && !self.prefetched && !self.no_prefetch) {
 			self.prefetch_op = self.bus_value(mmu, self.pc);
 			self.prefetched = true;
 		}
@@ -54,7 +64,7 @@ fn char Cpu.step(&self, mmu::Mmu *mmu) {
 		self.no_prefetch = false;
 	}
 	if (mmu.gdma_due) {
-		if (!self.halted && !self.stopped && !self.prefetched) {
+		if (!self.halted && !self.locked && !self.prefetched) {
 			self.prefetch_op = self.bus_value(mmu, self.pc);
 			self.prefetched = true;
 		}
@@ -88,7 +98,7 @@ fn char Cpu.step(&self, mmu::Mmu *mmu) {
 	}
 	self.bus_cycles = 0;
 	if (held_block || !self.service_interrupt(mmu)) {
-		if (self.halted || self.stopped) {
+		if (self.halted || self.locked) {
 			bool first = self.just_halted;
 			mmu.cpu_halted = self.halted;
 			// The OAM DMA stands still in HALT, after one more M-cycle
@@ -112,8 +122,8 @@ fn char Cpu.step(&self, mmu::Mmu *mmu) {
 }
 
 fn void Cpu.illegal(&self, char op) {
-	// Not a valid opcode. On hardware the CPU locks up; approximate with STOP.
-	self.stopped = true;
+	// Not a valid opcode: the CPU locks up (the rest of the machine runs on).
+	self.locked = true;
 }
 
 // The 8 ALU operations selected by bits 3..5 of the 0x80-0xBF range and by

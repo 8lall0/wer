@@ -115,8 +115,11 @@ struct Cpu {
 
 	// HALT: CPU is idle until an interrupt is pending.
 	bool halted;
-	// STOP: CPU (and on DMG the whole system) is idle until a button is pressed.
+	// STOP mode: the system clock stands still (CPU, timer, PPU, APU, DMA)
+	// until a selected joypad line goes low (Cpu.step).
 	bool stopped;
+	// Locked up by an illegal opcode: nothing but a reset gets it going.
+	bool locked;
 	// HALT bug: the next opcode fetch must not advance PC (it is read twice).
 	bool halt_bug;
 	bool just_halted; // the first M-cycle in HALT (samples interrupts like a CGB)

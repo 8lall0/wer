@@ -328,7 +328,7 @@ fn void Debugger.draw_cpu(&self, gameboy::GameBoy* gb) {
 	self.text(0, 1, string::tformat("AF %04X  BC %04X  DE %04X  HL %04X", c.af.reg, c.bc.reg, c.de.reg, c.hl.reg));
 	self.text(0, 2, string::tformat("Flags %c%c%c%c  IME %d  IE %02X  IF %02X%s", f & 0x80 ? 'Z' : '-', f & 0x40 ? 'N' : '-',
 		f & 0x20 ? 'H' : '-', f & 0x10 ? 'C' : '-', c.ime ? 1 : 0, m.peek(0xFFFF), m.peek(0xFF0F),
-		c.halted ? "  HALT" : c.stopped ? "  STOP" : ""));
+		c.halted ? "  HALT" : c.stopped ? "  STOP" : c.locked ? "  LOCKED" : ""));
 	self.text(0, 3, string::tformat("LCDC %02X STAT %02X LY %02X  dot %d", m.peek(0xFF40), m.peek(0xFF41), m.peek(0xFF44), m.ppu.dot));
 	uint bank = m.cart ? m.cart.rom_bank : 1;
 	self.text(0, 4, string::tformat("DIV %02X TIMA %02X  ROM bank %d%s", m.peek(0xFF04), m.peek(0xFF05), bank, m.double_speed ? "  2x" : ""));
