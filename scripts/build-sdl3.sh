@@ -23,6 +23,8 @@ SDL_VERSION="${SDL_VERSION:-3.4.18}"
 SDL_SRC="$ROOT_DIR/deps/sdl_src-$SDL_VERSION"
 BUILD_DIR="$ROOT_DIR/deps/build_sdl3_$TARGET"
 INSTALL_DIR="$ROOT_DIR/deps/sdl3-$TARGET"
+# Parallel jobs (macOS has no nproc).
+JOBS="$(nproc 2>/dev/null || sysctl -n hw.ncpu)"
 
 # 1. Shallow clone of the release if not present (not needed for windows)
 if [ "$TARGET" != "windows" ] && [ ! -d "$SDL_SRC" ]; then
@@ -45,7 +47,7 @@ if [ "$TARGET" = "linux" ]; then
         -DSDL_TESTS=OFF \
         -DSDL_EXAMPLES=OFF
 
-    cmake --build . -j"$(nproc)"
+    cmake --build . -j"$JOBS"
     cmake --install .
 
 elif [ "$TARGET" = "windows" ]; then
@@ -85,7 +87,7 @@ elif [ "$TARGET" = "android-arm64" ]; then
         -DSDL_TESTS=OFF \
         -DSDL_EXAMPLES=OFF
 
-    cmake --build . -j"$(nproc)"
+    cmake --build . -j"$JOBS"
     cmake --install .
 
 elif [[ "$TARGET" =~ ^macos ]]; then
@@ -141,7 +143,7 @@ elif [[ "$TARGET" =~ ^macos ]]; then
         -DSDL_TESTS=OFF \
         -DSDL_EXAMPLES=OFF
 
-    cmake --build . -j"$(nproc)"
+    cmake --build . -j"$JOBS"
     cmake --install .
 fi
 

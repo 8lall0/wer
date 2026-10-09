@@ -1,5 +1,6 @@
-# Tests (unit tests and every test ROM suite), and the Linux and web builds,
-# on each push to main and each pull request.
+# Tests (unit tests and every test ROM suite, on Linux and on macOS), and
+# the Linux, Windows, macOS and web builds, on each push to main and each
+# pull request.
 name: CI
 
 on:
@@ -102,4 +103,96 @@ jobs:
         with:
           name: wer-web
           path: build/web
+          retention-days: 14
+
+  # Cross-compiled from Linux, as the releases are: c3c's copy of the MSVC
+  # SDK (accepting Microsoft's licence for it), SDL's own Windows build.
+  windows:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-c3c
+        with:
+          version: ${{ env.C3C_VERSION }}
+      - id: msvc
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/c3/msvc_sdk
+          key: msvc-sdk-c3c-${{ env.C3C_VERSION }}
+      - name: Fetch the MSVC SDK
+        if: steps.msvc.outputs.cache-hit != 'true'
+        run: yes | c3c fetch-sdk windows
+      - name: llvm-rc on the PATH (icon, manifest, version information)
+        run: |
+          echo "$(ls -d /usr/lib/llvm-*/bin | sort -V | tail -1)" >> "$GITHUB_PATH"
+      - name: Build wer.exe
+        run: c3c build windows -O3 --trust=full
+      - name: Package
+        run: |
+          d=dist/wer-windows-x64
+          mkdir -p $d
+          cp build/wer.exe deps/sdl3-windows/lib/SDL3.dll LICENSE LICENSE-mame LICENSE-sameboy $d/
+          cp deps/sdl3-windows/LICENSE.txt $d/SDL3-LICENSE.txt
+      - uses: actions/upload-artifact@v7
+        with:
+          name: wer-windows-x64
+          path: dist
+          retention-days: 14
+
+  # On a Mac (Apple silicon) with Xcode's SDK, which only Apple hardware may
+  # use: the tests run here too. SDL is built as for the cross build
+  # (scripts/build-sdl3.sh macos), with Homebrew's clang and lld.
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-c3c
+        with:
+          version: ${{ env.C3C_VERSION }}
+      - name: LLVM and lld, the macOS SDK where the macos target looks
+        run: |
+          brew install llvm lld
+          echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+          echo "$(brew --prefix lld)/bin" >> "$GITHUB_PATH"
+          mkdir -p ~/.cache/c3
+          ln -sfn "$(xcrun --show-sdk-path)" ~/.cache/c3/MacOSX.sdk
+      # The test job's ROMs, if it has saved them (otherwise the suites
+      # print a line and pass).
+      - uses: actions/cache/restore@v5
+        with:
+          path: |
+            test/acid2
+            test/age
+            test/blargg
+            test/gambatte
+            test/gbmicrotest
+            test/mbc3
+            test/mealybug
+            test/mooneye
+            test/samesuite
+            test/screens
+            test/sm83
+            test/wilbertpol
+          key: test-roms-${{ hashFiles('scripts/fetch-*.sh') }}
+
+      - name: Tests
+        run: c3c test macos -O2 --trust=full
+      - name: Build wer
+        run: c3c build macos -O3 --trust=full
+      - name: Run it (dmg-acid2, headless)
+        if: hashFiles('test/acid2/dmg-acid2.gb') != ''
+        run: |
+          cd "$RUNNER_TEMP"
+          "$GITHUB_WORKSPACE/build/wer_macos" --headless --no-boot --frames=60 "$GITHUB_WORKSPACE/test/acid2/dmg-acid2.gb"
+      - name: Package
+        run: |
+          d=dist/wer-macos-arm64
+          mkdir -p $d
+          cp build/wer_macos $d/wer
+          cp LICENSE LICENSE-mame LICENSE-sameboy $d/
+          cp deps/sdl_src-${SDL_VERSION}/LICENSE.txt $d/SDL3-LICENSE.txt
+      - uses: actions/upload-artifact@v7
+        with:
+          name: wer-macos-arm64
+          path: dist
           retention-days: 14

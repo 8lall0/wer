@@ -1,5 +1,5 @@
-# Installs the C3 compiler from its GitHub release (Linux x64) and puts
-# c3c on the PATH.
+# Installs the C3 compiler from its GitHub release (Linux x64 or macOS) and
+# puts c3c on the PATH.
 name: Set up c3c
 description: Install a given release of the C3 compiler
 inputs:
@@ -11,6 +11,12 @@ runs:
   steps:
     - shell: bash
       run: |
-        curl -sfL "https://github.com/c3lang/c3c/releases/download/v${{ inputs.version }}/c3-linux.tar.gz" | tar xz -C "$RUNNER_TEMP"
+        url="https://github.com/c3lang/c3c/releases/download/v${{ inputs.version }}"
+        if [ "$RUNNER_OS" = macOS ]; then
+          curl -sfL -o "$RUNNER_TEMP/c3.zip" "$url/c3-macos.zip"
+          unzip -q "$RUNNER_TEMP/c3.zip" -d "$RUNNER_TEMP"
+        else
+          curl -sfL "$url/c3-linux.tar.gz" | tar xz -C "$RUNNER_TEMP"
+        fi
         echo "$RUNNER_TEMP/c3" >> "$GITHUB_PATH"
         "$RUNNER_TEMP/c3/c3c" --version
