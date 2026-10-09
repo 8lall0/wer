@@ -11,6 +11,8 @@ on:
 env:
   C3C_VERSION: 0.8.4
   SDL_VERSION: 3.4.18
+  # The test binary has the frontend in it too: it links SDL3 like wer.
+  SDL_LINK: -L deps/sdl3-linux/lib -z -pthread -z -lm
   RGBDS_VERSION: 1.0.4
   EMSDK_VERSION: 6.0.11
 
@@ -22,6 +24,9 @@ jobs:
       - uses: ./.github/actions/setup-c3c
         with:
           version: ${{ env.C3C_VERSION }}
+      - uses: ./.github/actions/setup-sdl3
+        with:
+          version: ${{ env.SDL_VERSION }}
 
       # The test ROMs aren't in the repository: fetched once, then kept
       # until a fetch script changes.
@@ -55,11 +60,11 @@ jobs:
         run: for s in scripts/fetch-*.sh; do echo "::group::$s"; "$s"; echo "::endgroup::"; done
 
       - name: Tests
-        run: c3c test -O2
+        run: c3c test -O2 $SDL_LINK
       - name: Gambatte suite
-        run: WER_GAMBATTE=1 c3c test -O2 --test-filter gambatte
+        run: WER_GAMBATTE=1 c3c test -O2 $SDL_LINK --test-filter gambatte
       - name: Fuzzing (bounds checks on)
-        run: WER_FUZZ=200 c3c test -O1 --test-filter fuzz
+        run: WER_FUZZ=200 c3c test -O1 $SDL_LINK --test-filter fuzz
 
   linux:
     runs-on: ubuntu-24.04
@@ -69,26 +74,12 @@ jobs:
         with:
           version: ${{ env.C3C_VERSION }}
 
-      # SDL3 isn't packaged for Ubuntu 24.04: a static build of it
-      # (scripts/build-sdl3.sh), kept between runs.
-      - id: sdl
-        uses: actions/cache@v5
+      - uses: ./.github/actions/setup-sdl3
         with:
-          path: deps/sdl3-linux
-          key: sdl3-linux-${{ env.SDL_VERSION }}-${{ hashFiles('scripts/build-sdl3.sh') }}
-      - name: Build SDL3
-        if: steps.sdl.outputs.cache-hit != 'true'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends cmake ninja-build pkg-config \
-            libasound2-dev libpulse-dev libpipewire-0.3-dev libx11-dev libxext-dev libxrandr-dev \
-            libxcursor-dev libxfixes-dev libxi-dev libxss-dev libxtst-dev libxkbcommon-dev \
-            libwayland-dev libdecor-0-dev libdrm-dev libgbm-dev libegl1-mesa-dev libgl1-mesa-dev \
-            libgles2-mesa-dev libdbus-1-dev libudev-dev libibus-1.0-dev
-          scripts/build-sdl3.sh linux
+          version: ${{ env.SDL_VERSION }}
 
       - name: Build wer
-        run: c3c build wer -O2 -L deps/sdl3-linux/lib -z -pthread -z -lm
+        run: c3c build wer -O2 $SDL_LINK
       - uses: actions/upload-artifact@v7
         with:
           name: wer-linux
