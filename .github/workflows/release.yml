@@ -1,0 +1,103 @@
+# A release: push a tag vX.Y.Z (the version in project.json). CI builds and
+# tests everything; the downloads are packaged as before (wer-X.Y.Z-*) and
+# put in a DRAFT release, to read over and publish on GitHub. An annotated
+# tag's message (git tag -a vX.Y.Z -F notes.md) becomes the release notes.
+#
+# Run by hand (Actions > Release > Run workflow) it makes a throwaway draft
+# under the tag name given, to try the packaging out.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag name for the trial draft (e.g. v0.0.0-try)
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: The tag is project.json's version
+        if: github.event_name == 'push'
+        run: |
+          version="$(sed -n 's/^ *"version": *"\([0-9.]*\)".*/\1/p' project.json)"
+          if [ "$TAG" != "v$version" ]; then
+            echo "::error::tag $TAG, but project.json says version $version"
+            exit 1
+          fi
+
+  build:
+    needs: check
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v8
+        with:
+          path: art
+      - name: Package
+        run: |
+          v="${TAG#v}"
+          mkdir dist
+          # Linux: the program itself (SDL built in).
+          cp art/wer-linux/wer "dist/wer-$v-linux-x86_64"
+          chmod +x "dist/wer-$v-linux-x86_64"
+          # Windows, macOS: their folders, renamed for the version.
+          for p in windows-x64 macos-arm64; do
+            mv "art/wer-$p/wer-$p" "art/wer-$v-$p"
+          done
+          chmod +x "art/wer-$v-macos-arm64/wer"
+          # Web: the page, a README, the licences.
+          w="art/wer-$v-web"
+          mkdir "$w"
+          cp art/wer-web/* web/README.txt LICENSE LICENSE-mame LICENSE-sameboy "$w/"
+          cp "art/wer-$v-windows-x64/SDL3-LICENSE.txt" "$w/"
+          cd art
+          for p in windows-x64 macos-arm64 web; do
+            zip -qr "../dist/wer-$v-$p.zip" "wer-$v-$p"
+          done
+          cd ..
+          ls -l dist
+      - name: Release notes
+        run: |
+          v="${TAG#v}"
+          # An annotated tag's message, if it has one.
+          if [ "${{ github.event_name }}" = push ]; then
+            git fetch -q --force origin "refs/tags/$TAG:refs/tags/$TAG"
+            if [ "$(git cat-file -t "$TAG")" = tag ]; then
+              git tag -l --format='%(contents)' "$TAG" > notes.md
+              printf '\n' >> notes.md
+            fi
+          fi
+          cat >> notes.md <<NOTES
+          ## Downloads
+
+          | Platform | File |
+          |---|---|
+          | Web browsers | \`wer-$v-web.zip\`, or play at https://8lall0.github.io/wer/ |
+          | Linux x86-64 | \`wer-$v-linux-x86_64\` |
+          | Windows x64 | \`wer-$v-windows-x64.zip\` |
+          | macOS, Apple silicon (11 or newer) | \`wer-$v-macos-arm64.zip\` (not notarized: right-click > Open the first time) |
+          NOTES
+          cat notes.md
+      - name: Draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$TAG" dist/* --draft --title "wer ${TAG#v}" \
+            --notes-file notes.md --target "$GITHUB_SHA"

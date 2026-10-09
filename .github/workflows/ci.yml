@@ -8,6 +8,8 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  # The release workflow builds through this one.
+  workflow_call:
 
 env:
   C3C_VERSION: 0.8.4
@@ -80,7 +82,7 @@ jobs:
           version: ${{ env.SDL_VERSION }}
 
       - name: Build wer
-        run: c3c build wer -O2 $SDL_LINK
+        run: c3c build wer -O3 $SDL_LINK
       - uses: actions/upload-artifact@v7
         with:
           name: wer-linux
