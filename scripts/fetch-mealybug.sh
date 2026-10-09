@@ -8,6 +8,8 @@
 #
 # The files are git-ignored. Without them the test prints one line and passes.
 set -euo pipefail
+# ImageMagick 7's magick, else 6's convert (as on Debian and Ubuntu).
+magick() { if command -v magick >/dev/null; then command magick "$@"; else convert "$@"; fi; }
 
 DEST="$(cd "$(dirname "$0")/.." && pwd)/test/mealybug"
 TMP="$(mktemp -d)"

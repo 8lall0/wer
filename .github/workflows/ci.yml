@@ -42,9 +42,11 @@ jobs:
             test/sm83
             test/wilbertpol
           key: test-roms-${{ hashFiles('scripts/fetch-*.sh') }}
-      - name: Install RGBDS (SameSuite is built from source)
+      - name: Install RGBDS (SameSuite is built from source) and ImageMagick
         if: steps.roms.outputs.cache-hit != 'true'
         run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends imagemagick
           mkdir -p "$RUNNER_TEMP/rgbds"
           curl -sfL "https://github.com/gbdev/rgbds/releases/download/v$RGBDS_VERSION/rgbds-linux-x86_64.tar.xz" | tar xJ -C "$RUNNER_TEMP/rgbds"
           echo "$RUNNER_TEMP/rgbds" >> "$GITHUB_PATH"
