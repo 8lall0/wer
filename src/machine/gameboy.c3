@@ -59,7 +59,7 @@ fn String save_base(String rom_path, char[] rom) {
 }
 
 fn String strip_rom_extension(String path) {
-	foreach (ext : (String[]){ ".gb", ".gbc", ".cgb", ".sgb" }) {
+	foreach (ext : (String[]){ ".gb", ".gbc", ".cgb", ".sgb", ".zip" }) {
 		if (path.len > ext.len && path[path.len - ext.len..].to_lower_tcopy() == ext) return path[:path.len - ext.len];
 	}
 	return path;

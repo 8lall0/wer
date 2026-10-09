@@ -1,9 +1,9 @@
 module fuzz_test;
-import gameboy, mmu, cart, patch;
+import gameboy, mmu, cart, patch, zip, zip_test;
 import std::core::test, std::io, std::io::file, std::os::env, std::hash::crc32;
 
 // Fuzzing what wer reads from outside: ROMs (random code and headers, every
-// mapper), ROM patches and save states (a field at a time set to a random or extreme
+// mapper), ROM patches, zip archives and save states (a field at a time set to a random or extreme
 // value). Nothing may read or write out of bounds: run it with the checks
 // on (c3c test -O1 --test-filter fuzz), where that stops with a backtrace.
 // A few iterations by default; WER_FUZZ=n for n, WER_FUZZ_SEED for another
@@ -157,6 +157,38 @@ fn void random_patches() @test {
 		}
 		if (log) io::eprintfn("patch %d: %s, %d bytes", i, magic[kind], s.len());
 		(void)patch::apply(rom, s.str_view(), tmem);
+	}
+}
+
+// --- zip archives --------------------------------------------------------------
+
+// The zip tests' archives with bytes changed (the directory, the headers,
+// the deflated data), and random bytes after a zip's signature.
+fn void damaged_zips() @test {
+	Rng r = rng();
+	int n = iterations(20) * 50;
+	char[][4] good = { &zip_test::STORED, &zip_test::FIXED, &zip_test::DYNAMIC, &zip_test::NO_ROM };
+	for (int i = 0; i < n; i++) {
+		char[] z;
+		if (r.below(8)) {
+			char[] src = good[r.below(4)];
+			z = mem::temp_array(char, (sz)src.len);
+			z[..] = src[..];
+			ulong changes = 1 + r.below(8);
+			for (ulong k = 0; k < changes; k++) {
+				usz at = (usz)r.below(z.len);
+				z[at] = r.below(2) ? (char)r.next() : z[at] ^ (char)(1 << r.below(8));
+			}
+		} else {
+			z = mem::temp_array(char, (sz)(4 + r.below(300)));
+			foreach (&b : z) *b = (char)r.next();
+			z[0] = 'P';
+			z[1] = 'K';
+			z[2] = 3;
+			z[3] = 4;
+		}
+		if (log) io::eprintfn("zip %d: %d bytes", i, z.len);
+		(void)zip::extract_rom(z, tmem);
 	}
 }
 

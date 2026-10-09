@@ -56,6 +56,10 @@ ROMs: they never leave the browser; touch controls on phones).
 - **Save states** (9 slots per game), **rewind** (hold R, the left shoulder
   or the touch screen's << to run the game backwards), **pause**, **frame
   advance** and **fast forward**.
+- **Zipped games**: a `.zip` opens like the ROM inside it (the first `.gb`
+  or `.gbc` in it), from the command line, the menu, or dropped on the
+  window. Saves, states and patches go by the zip's name (`game.sav` for
+  `game.zip`).
 - **Patches**: translations and hacks in IPS, UPS or BPS, applied as the game
   loads (the ROM file stays as it is): put `game.ips`, `game.ups` or
   `game.bps` next to `game.gbc`, or name one with `--patch=FILE`. UPS and BPS
@@ -196,7 +200,7 @@ Options given on the command line override `~/.wer/wer.conf` for that run.
 | A / B | Z / X | right / bottom face button |
 | Start / Select | Enter / Right Shift | Start / Back |
 | Menu | Esc | Guide, or Back + Start |
-| Open ROM | Ctrl+O | |
+| Open ROM | Ctrl+O, or drop the file on the window | |
 | Save state 1-9 | Shift+F1 … Shift+F9 | Menu |
 | Load state 1-9 | F1 … F9 | Menu |
 | Screenshot | F12 (`game-shot-N.png` next to the game) | |

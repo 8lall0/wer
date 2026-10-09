@@ -519,7 +519,7 @@ char[4096] dialog_path;
 
 // Must stay valid until the callback runs, so it isn't a local.
 sdl::DialogFileFilter[1] rom_filters = {
-	{ "Game Boy ROMs", "gb;gbc" },
+	{ "Game Boy ROMs", "gb;gbc;zip" },
 };
 
 fn void on_dialog(void* userdata, ZString* files, int filter) {
@@ -527,7 +527,10 @@ fn void on_dialog(void* userdata, ZString* files, int filter) {
 		dialog_state.store(DIALOG_CANCELLED);
 		return;
 	}
-	String path = files[0].str_view();
+	set_dialog_path(files[0].str_view());
+}
+
+fn void set_dialog_path(String path) {
 	usz n = path.len < dialog_path.len - 1 ? path.len : dialog_path.len - 1;
 	for (usz i = 0; i < n; i++) dialog_path[i] = path[i];
 	dialog_path[n] = 0;
@@ -569,6 +572,10 @@ fn Input Display.poll(&self) {
 		switch (e.type) {
 			case sdl::EVENT_QUIT:
 				in.quit = true;
+			case sdl::EVENT_DROP_FILE:
+				// A file dropped on the window: opened like one from the dialog.
+				ZString dropped = ((sdl::DropEvent*)&e).data;
+				if (dropped && dialog_state.load() != DIALOG_OPEN) set_dialog_path(dropped.str_view());
 			case sdl::EVENT_WINDOW_CLOSE_REQUESTED:
 				// Two windows: closing the game's ends wer, the debugger's only itself.
 				if (((sdl::WindowEvent*)&e).window_id == self.debug_window) {

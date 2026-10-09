@@ -46,6 +46,7 @@ const uint EVENT_FINGER_DOWN     = 0x700;
 const uint EVENT_FINGER_UP       = 0x701;
 const uint EVENT_FINGER_MOTION   = 0x702;
 const uint EVENT_FINGER_CANCELED = 0x703;
+const uint EVENT_DROP_FILE       = 0x1000;
 
 // SDL_GamepadButton / SDL_GamepadAxis values used directly
 const int GAMEPAD_BUTTON_INVALID    = -1;
@@ -121,6 +122,17 @@ const ushort KMOD_SHIFT = 0x0003;
 struct Event {
 	uint type;
 	char[124] pad;
+}
+
+struct DropEvent {
+	uint   type;
+	uint   reserved;
+	ulong  timestamp;
+	uint   window_id;
+	float  x;
+	float  y;
+	ZString source;
+	ZString data;     // the file's path (valid while the event is handled)
 }
 
 struct KeyboardEvent {

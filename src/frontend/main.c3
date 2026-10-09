@@ -1,6 +1,6 @@
 module wer;
 import std::io, std::io::file, std::time::clock, std::thread::os, std::math, std::collections::list;
-import gameboy, ppu, display, mmu, config, netlink, joypad, patch, record;
+import gameboy, ppu, display, mmu, config, netlink, joypad, patch, record, zip;
 
 // Real time per frame: 70224 T-cycles at the model's clock (59.73 fps on a
 // DMG, 61.17 fps on an original SGB).
@@ -48,13 +48,30 @@ faultdef ROM_UNREADABLE;
 // the ROM with its name (game.ips, game.ups or game.bps for game.gbc).
 String patch_arg;
 
-// A ROM file's contents, patched (patch.c3) when there is a patch for it.
+// A ROM file's contents: out of its .zip if it is one (zip.c3), patched
+// (patch.c3) when there is a patch for it.
 // A patch that doesn't fit leaves the game as it is, with a message; one
 // named on the command line stops wer instead.
 fn char[]? read_rom(String path, bool command_line = false) {
 	char[]? data = file::load_temp(path);
 	if (catch data) data = display::load_file_temp(path); // content:// URIs
 	if (catch data) return ROM_UNREADABLE~;
+	if (zip::is_zip(data)) {
+		char[]? rom = zip::extract_rom(data, tmem);
+		if (catch e = rom) {
+			String why;
+			switch (e) {
+				case zip::NO_ROM:      why = "has no Game Boy ROM (.gb, .gbc) in it";
+				case zip::UNSUPPORTED: why = "is packed in a way wer can't open (encrypted?)";
+				default:               why = "is damaged";
+			}
+			io::eprintfn("%s %s", path, why);
+			sz slash = path.rindex_of_char('/') ?? -1;
+			notice.show(string::tformat("%s %s", path[slash + 1..], why));
+			return ROM_UNREADABLE~;
+		}
+		data = rom;
+	}
 	String found = command_line ? patch_arg : "";
 	if (!found.len) {
 		String base = gameboy::strip_rom_extension(path);
