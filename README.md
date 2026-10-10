@@ -49,7 +49,9 @@ ROMs: they never leave the browser; touch controls on phones).
 - **Link cable**: two Game Boys in one window, side by side (trade with
   yourself, Tetris versus with two gamepads), or two copies of wer over the
   network, in BGB's link protocol (so wer also links with BGB), or two
-  browsers with a short code. Infrared too, between two Game Boys here.
+  browsers with a short code. Infrared too, between two Game Boys here, and
+  Hudson's GB KISS LINK: GB KISS files (`.gbf`) and Nectaris GB's maps to
+  and from files.
 - **Game Boy Printer**: printouts (Game Boy Camera photos, Pokédex pages,
   ...) become PNG files next to the game.
 - **4-Player Adapter** (DMG-07): four Game Boys in one window for F-1 Race,
@@ -191,6 +193,7 @@ wer --mode=cgb game.gbc
 | `--link-rom=ROM` | a second Game Boy in the window, running ROM, joined by the link cable |
 | `--link=four` | four Game Boys on the 4-Player Adapter, all running the game |
 | `--link=barcode` | the Barcode Boy (Menu → Swipe card) |
+| `--link=kiss` | the GB KISS LINK (GB KISS files and Nectaris GB's maps: Menu → File, Map) |
 | `--link=printer` | the Game Boy Printer on the link port |
 | `--record=NAME` | record the run: `NAME.gif` (the picture) and `NAME.wav` (the sound), until wer quits; with `--headless --frames=N --input=...` a recording made without a window |
 | `--movie=FILE` | play a movie (`.wer`) from its start; with `--headless`, to its end unless `--frames` says otherwise |
@@ -275,6 +278,17 @@ Enter to plug it in):
   their own battery saves (`game-2.sav` ...).
 - **Barcode Boy** plugs in the card reader: **Swipe card...** in the menu
   asks for a card's 13-digit barcode number (printed under its bars).
+- **GB KISS LINK** is Hudson's infrared modem (HC-749), with wer as the PC
+  it was plugged into. In Nectaris GB's **GB KISS** menu, "send to PC"
+  (パソコンニオクル) saves the map as `game-map-1.bin`, `-2`, ... next to the
+  game (512 bytes, the game's own format), and "receive from PC"
+  (パソコンカラモラウ) gives the game the map picked on the menu's **Map** line
+  (the newest at first). Any GB KISS game's **GB KISS menu** trades files
+  (`.gbf`, such as the programs on [gbkiss.org](https://gbkiss.org/)) with
+  it too: one the menu sends (送信) is saved as `game-kiss-1.gbf`, `-2`, ...;
+  when the menu receives (Start, or 受信) it gets the file picked on the
+  **File** line: a `.gbf` opened or dropped on the window, or one received
+  before.
 - **Printer** plugs in the Game Boy Printer: each printout is saved as a
   PNG next to the game (`game-print-1.png`, `-2`, ...; in a browser it
   downloads).
