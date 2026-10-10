@@ -48,7 +48,8 @@ const ulong KISS_GAP    = 600;   // before a byte the game has to get ready for
 const ulong KISS_WAIT   = 60000; // the game silent this long: start the command over
 const ulong KISS_RETRY  = 200000; // ... after this long
 
-const int KISS_STEPS = 300;
+const int KISS_STEPS = 600;
+const ulong KISS_AGAIN = 30000; // a command the game didn't answer: tried again after this
 
 bool kiss_trace; // print each step (WER_KISS_TRACE)
 
@@ -64,12 +65,36 @@ struct KissStepData {
 	char value;
 }
 
+// What the game answers a command with.
+enum KissAnswer : char {
+	NONE,
+	ECHO,      // one byte (a write's checksum)
+	BYTES,     // its handshake, then bytes and their checksum (reads)
+	REGS,      // its handshake, then its registers after the command (8 and a checksum)
+	REGS_256,  // ... and 256 bytes and their checksum
+}
+
 enum KissState : char {
-	ID,       // reading what the game wants
-	WRITE_1,  // the map's first half to the game
+	KISS_ID,  // what is listening: the GB KISS menu ($CE00)
+	MAP_ID,   // ... or Nectaris GB's map mode ($D000)
+	WRITE_1,  // a map's first half to the game
 	WRITE_2,
 	READ_1,   // ... or from it
 	READ_2,
+	// A file to the GB KISS menu, as a Game Boy sends one (Dan Docs).
+	G_FLAG1,  // $CE00 = $01: a transfer starts
+	G_START,  // the menu gets ready
+	G_TITLE,  // the title and icon (the menu says whether it has the file)
+	G_DUP,    // ... it has: it makes way for this one
+	G_FLAG5,  // $CE00 = $05
+	G_SEARCH, // where the file goes
+	G_READ2,
+	G_PREP,
+	G_HIST,   // the history
+	G_DATA,   // the file, 256 bytes at a time
+	G_FINISH,
+	G_CART,   // the cartridge code
+	G_FLAG2,  // $CE00 = $02: done
 	BYE,      // ending the session
 	DONE,
 }
@@ -89,11 +114,12 @@ struct KissLink {
 	ulong  rise;         // its last rising edge
 	int    rises;
 	char   byte;
-	char[260] rx;
+	char[300] rx;
 	int    nrx;
 	ulong  last;         // the last time anything was looked at
 	ulong  failed_at;    // a command went wrong: start it over after KISS_RETRY
 	bool   failed;
+	bool   again;        // ... unanswered: try it again after KISS_AGAIN
 	ulong  done_at;      // the session ended (another can start once the game is back)
 	// The session.
 	KissState state;
@@ -102,6 +128,14 @@ struct KissLink {
 	char   offset;       // "TRANCE": where the game's map is
 	bool   received;     // a map came in (the frontend saves it)
 	bool   sent;         // the map went out
+	// A GB KISS file (.gbf) to send to the menu.
+	char[16384] gbf;
+	int    gbf_len;
+	bool   has_gbf;
+	bool   gbf_sent;     // it went out
+	char   slot;         // the menu's slot for it
+	char[256] search;    // the menu's answer to its title, given back to it
+	int    gbf_at;       // how much of its data has gone
 	String status;       // what happened last, for the frontend (static text)
 }
 
@@ -119,6 +153,22 @@ fn void KissLink.set_map(&self, char[] map) {
 	self.has_map = true;
 }
 
+faultdef NOT_A_GBF;
+
+// A GB KISS file (.gbf) to give the GB KISS menu when it receives (Start
+// in the menu, or its Receive command).
+fn void? KissLink.set_gbf(&self, char[] gbf) {
+	if (gbf.len < 7 || gbf.len > self.gbf.len) return NOT_A_GBF~;
+	int size = gbf[0] | (int)gbf[1] << 8;
+	int meta = 6 + gbf[4] + (gbf[2] & 1 ? 46 : 0);
+	if (size != gbf.len || meta > size) return NOT_A_GBF~;
+	self.gbf[:gbf.len] = gbf[..];
+	self.gbf_len = (int)gbf.len;
+	self.has_gbf = true;
+}
+
+fn int KissLink.gbf_meta(&self) => 6 + self.gbf[4] + (self.gbf[2] & 1 ? 46 : 0);
+
 fn void Mmu.connect_kiss(&self, Link* l, KissLink* k) {
 	*l = { .kiss = k };
 	self.link = l;
@@ -134,14 +184,38 @@ fn String kiss_map_name(char[] map) {
 // --- the session -----------------------------------------------------------
 
 fn void KissLink.start_session(&self) {
-	self.state = ID;
-	self.command(0x08, 0xD000, 8);
+	self.state = KISS_ID;
+	self.send(0x08, 0xCE00, 0xCE00, 0x10, 0, {}, BYTES);
+}
+
+// The next part of a file to the menu: 256 bytes, or what is left.
+fn void KissLink.gbf_chunk(&self) {
+	int raw = self.gbf_len - self.gbf_meta();
+	int n = raw - self.gbf_at < 256 ? raw - self.gbf_at : 256;
+	int start = self.gbf_meta() + self.gbf_at;
+	self.gbf_at += n;
+	self.send(0x0A, 0xC500, 0xC600, (char)n, self.gbf_at < raw ? 1 : 0, self.gbf[start:n], REGS);
 }
 
 // The command just finished: what comes next.
 fn void KissLink.command_done(&self) {
 	switch (self.state) {
-		case ID:
+		case KISS_ID:
+			if (self.nrx >= 16 && (String)self.rx[2:13] == "GB KISS MENU ") {
+				if (!self.has_gbf) {
+					self.status = "the menu wants a file: none to send";
+					self.bye();
+					return;
+				}
+				self.slot = self.rx[15];
+				self.gbf_at = 0;
+				self.state = G_FLAG1;
+				self.send(0x0B, 0xCE00, 0xCE00, 1, 0, (char[1]){ 0x01 }[..], ECHO);
+				return;
+			}
+			self.state = MAP_ID;
+			self.send(0x08, 0xD000, 0xD000, 8, 0, {}, BYTES);
+		case MAP_ID:
 			if (self.nrx >= 7 && (String)self.rx[:7] == "RECEIVE") {
 				if (!self.has_map) {
 					self.status = "the game wants a map: none to send";
@@ -149,30 +223,81 @@ fn void KissLink.command_done(&self) {
 					return;
 				}
 				self.state = WRITE_1;
-				self.command(0x0B, 0xD000, 0, self.map[:256]);
+				self.send(0x0B, 0xD000, 0xD000, 0, 0, self.map[:256], ECHO);
 			} else if (self.nrx >= 7 && (String)self.rx[:6] == "TRANCE") {
 				self.offset = self.rx[6];
+				ushort a = (ushort)(0x4000 + (int)self.offset * 0x200);
 				self.state = READ_1;
-				self.command(0x09, (ushort)(0x4000 + (int)self.offset * 0x200), 0);
+				self.send(0x09, a, a, 0, 0, {}, BYTES);
 			} else {
 				self.status = "not a game the GB KISS LINK knows";
 				self.bye();
 			}
 		case WRITE_1:
 			self.state = WRITE_2;
-			self.command(0x0B, 0xD100, 0, self.map[256:256]);
+			self.send(0x0B, 0xD100, 0xD100, 0, 0, self.map[256:256], ECHO);
 		case WRITE_2:
 			self.sent = true;
 			self.status = "map sent";
 			self.bye();
 		case READ_1:
 			self.map[:256] = self.rx[:256];
+			ushort a = (ushort)(0x4000 + (int)self.offset * 0x200 + 0x100);
 			self.state = READ_2;
-			self.command(0x09, (ushort)(0x4000 + (int)self.offset * 0x200 + 0x100), 0);
+			self.send(0x09, a, a, 0, 0, {}, BYTES);
 		case READ_2:
 			self.map[256:256] = self.rx[:256];
 			self.received = true;
 			self.status = "map received";
+			self.bye();
+		case G_FLAG1:
+			self.state = G_START;
+			self.send(0x00, 0xCE00, 0xCE00, 1, 0, {}, NONE);
+		case G_START:
+		case G_DUP:
+			self.state = G_TITLE;
+			self.send(0x02, 0xC700, 0xC50C, self.gbf[4], 0, self.gbf[6:self.gbf[4]], REGS_256);
+		case G_TITLE:
+			self.search[..] = self.rx[9:256];
+			if (self.rx[0] == 0x80) {  // the menu has it already: replace it
+				self.state = G_DUP;
+				self.send(0x06, 0xC700, 0x0910, 0x08, 0x23, self.search[..], REGS);
+				return;
+			}
+			self.state = G_FLAG5;
+			self.send(0x0B, 0xCE00, 0xCE00, 1, self.slot, (char[1]){ 0x05 }[..], ECHO);
+		case G_FLAG5:
+			int raw = self.gbf_len - self.gbf_meta();
+			self.state = G_SEARCH;
+			self.send(0x03, 0xC700, (ushort)raw, self.slot, self.gbf[2], self.search[..], REGS_256);
+		case G_SEARCH:
+			self.state = G_READ2;
+			self.send(0x08, 0xCE00, 0xDFFC, 2, self.rx[7], {}, BYTES);
+		case G_READ2:
+			self.state = G_PREP;
+			self.send(0x04, 0xC500, 0xFFD2, 0x2E, 0, {}, REGS);
+		case G_PREP:
+			int hist = self.gbf[2] & 1 ? 46 : 0;
+			self.state = G_HIST;
+			self.send(0x0A, 0xC500, 0xC600, (char)hist, 0, self.gbf[6 + self.gbf[4]:hist], REGS);
+		case G_HIST:
+		case G_DATA:
+			if (self.gbf_at < self.gbf_len - self.gbf_meta()) {
+				self.state = G_DATA;
+				self.gbf_chunk();
+				return;
+			}
+			self.state = G_FINISH;
+			self.send(0x04, 0xC50B, (ushort)(0x03 - self.gbf_meta()), 0, 0, {}, REGS);
+		case G_FINISH:
+			self.state = G_CART;
+			self.send(0x0A, 0xC500, 0xC50A, 1, 0, self.gbf[3:1], REGS);
+		case G_CART:
+			self.state = G_FLAG2;
+			self.send(0x0B, 0xCE00, 0xCE00, 1, 0, (char[1]){ 0x02 }[..], ECHO);
+		case G_FLAG2:
+			self.gbf_sent = true;
+			self.status = "file sent";
 			self.bye();
 		case BYE:
 			self.state = DONE;
@@ -184,7 +309,7 @@ fn void KissLink.command_done(&self) {
 
 fn void KissLink.bye(&self) {
 	self.state = BYE;
-	self.command(0x00, 0xCE00, 1);
+	self.send(0x00, 0xCE00, 0xCE00, 1, 0, {}, NONE);
 }
 
 // --- commands ----------------------------------------------------------------
@@ -193,9 +318,28 @@ fn void KissLink.push(&self, KissStep kind, char value = 0) {
 	self.steps[self.nsteps++] = { kind, value };
 }
 
-// A command: `len` bytes (0 = 256) at `addr`, `data` written there, or read
-// from there (commands $08 and $09).
-fn void KissLink.command(&self, char cmd, ushort addr, char len, char[] data = {}) {
+fn void KissLink.push_bytes(&self, char[] data) {
+	char sum;
+	foreach (b : data) {
+		self.push(SEND_CB, b);
+		sum += b;
+	}
+	self.push(SEND_CB, -sum);
+}
+
+// The game's handshake, then `n` bytes and their checksum from it.
+fn void KissLink.push_answer(&self, int n) {
+	self.push(RECV_HS, 0xAA);
+	self.push(SEND_HS, 0x55);
+	self.push(RECV_HS, 0xC3);
+	self.push(SEND_HS, 0x3C);
+	for (int i = 0; i <= n; i++) self.push(RECV_CB);
+}
+
+// A command: the registers it carries (the game's handlers take local and
+// remote addresses, a length (0 = 256) and a parameter from them), the data
+// after it, and what the game answers.
+fn void KissLink.send(&self, char cmd, ushort local, ushort remote, char len, char param, char[] data, KissAnswer answer) {
 	self.nsteps = 0;
 	self.at = 0;
 	self.nrx = 0;
@@ -205,29 +349,22 @@ fn void KissLink.command(&self, char cmd, ushort addr, char len, char[] data = {
 	self.push(RECV_HS, 0x3C);
 	self.push(SEND_CB, 0x48);
 	self.push(SEND_CB, 0x75);
-	char[8] head = { 0x30, cmd, (char)addr, (char)(addr >> 8), (char)addr, (char)(addr >> 8), len, 0 };
-	char sum;
-	foreach (b : head) {
-		self.push(SEND_CB, b);
-		sum += b;
+	self.push_bytes((char[8]){ 0x30, cmd, (char)local, (char)(local >> 8), (char)remote, (char)(remote >> 8), len, param }[..]);
+	// $03 and $06 always take 256 bytes; the others what the length says.
+	if (data.len || cmd == 0x0A || cmd == 0x0B) {
+		int n = cmd == 0x03 || cmd == 0x06 ? 256 : len ? len : 256;
+		char[256] buf;
+		buf[:data.len < n ? data.len : n] = data[:data.len < n ? data.len : n];
+		self.push_bytes(buf[:n]);
 	}
-	self.push(SEND_CB, -sum);
-	int n = len ? len : 256;
-	if (cmd == 0x0B) {
-		sum = 0;
-		foreach (b : data[:n]) {
-			self.push(SEND_CB, b);
-			sum += b;
-		}
-		self.push(SEND_CB, -sum);
-		self.push(RECV_CB);      // the game's echo of the checksum
-	} else if (cmd == 0x08 || cmd == 0x09) {
-		// The answer: the game's handshake, the bytes, their checksum.
-		self.push(RECV_HS, 0xAA);
-		self.push(SEND_HS, 0x55);
-		self.push(RECV_HS, 0xC3);
-		self.push(SEND_HS, 0x3C);
-		for (int i = 0; i <= n; i++) self.push(RECV_CB);
+	switch (answer) {
+		case NONE:     break;
+		case ECHO:     self.push(RECV_CB);
+		case BYTES:    self.push_answer(len ? len : 256);
+		case REGS:     self.push_answer(8);
+		case REGS_256:
+			self.push_answer(8);
+			for (int i = 0; i <= 256; i++) self.push(RECV_CB);
 	}
 	self.begin_step(self.last + KISS_GAP);
 }
@@ -307,10 +444,16 @@ fn void KissLink.fail(&self, ulong now) {
 		self.done_at = now;
 		return;
 	}
-	if (kiss_trace) io::eprintfn("kiss %d: FAILED at step %d/%d %s phase %d (byte $%02X, rises %d)", now, self.at, self.nsteps, self.steps[self.at].kind, self.phase, self.byte, self.rises);
-	self.failed = true;
-	self.failed_at = now;
+	if (kiss_trace) io::eprintfn("kiss %d: %s at step %d/%d %s phase %d (byte $%02X, rises %d)", now, self.at <= 3 ? "unanswered" : "FAILED", self.at, self.nsteps, self.steps[self.at].kind, self.phase, self.byte, self.rises);
 	self.light = false;
+	self.failed_at = now;
+	// No answer to the handshake (the game not listening yet, or busy
+	// between two parts of the session): the same command again soon.
+	if (self.at <= 3) {
+		self.again = true;
+		return;
+	}
+	self.failed = true;
 }
 
 // Time moves on to `now` (it only does when the game looks).
@@ -324,13 +467,20 @@ fn void KissLink.advance(&self, ulong now) {
 		self.t = now;
 	}
 	// Long unwatched (the game busy elsewhere): the command starts over now.
-	if (now > self.last + KISS_RETRY && !self.failed) {
+	if (now > self.last + KISS_RETRY && !self.failed && !self.again) {
 		self.at = 0;
 		self.nrx = 0;
 		self.last = now;
 		self.begin_step(now);
 	}
 	self.last = now;
+	if (self.again) {
+		if (now < self.failed_at + KISS_AGAIN) return;
+		self.again = false;
+		self.at = 0;
+		self.nrx = 0;
+		self.begin_step(now);
+	}
 	if (self.failed) {
 		if (now < self.failed_at + KISS_RETRY) return;
 		self.failed = false;
