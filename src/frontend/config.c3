@@ -8,6 +8,7 @@ import std::io, std::io::file, std::io::path, std::os::env;
 //   # comment
 //   mode = sgb
 //   palette = 1-A
+//   dmg-palette = classic
 //   scale = 3
 //   key.a = Z
 //   pad.a = b
@@ -59,6 +60,8 @@ const String[7] DEFAULT_HOT_PADS = { "rightshoulder", "leftshoulder", "none", "n
 struct Config {
 	String    mode;     // "dmg", "dmg-0", "mgb", "sgb", "sgb2", "cgb" (= "cgb-c"), "cgb-0" ... "cgb-e"
 	String    palette;  // SGB palette "1-A" .. "4-H"
+	String    dmg_palette; // DMG mode's: display::dmg_palette_name ("auto", "classic", "2-C", "custom", ...)
+	String    dmg_colors;  // the "custom" one's colours (display::parse_colors), or ""
 	String    color;    // CGB/SGB colour correction: gameboy::COLOR_NAMES
 	String    blend;    // frame blending: "off", "simple", "accurate"
 	String    filter;   // screen filter: display::FILTER_NAMES
@@ -75,6 +78,8 @@ fn Config defaults() {
 	Config c;
 	c.mode = "dmg".copy(mem);
 	c.palette = "1-A".copy(mem);
+	c.dmg_palette = "auto".copy(mem);
+	c.dmg_colors = "".copy(mem);
 	c.color = "balanced".copy(mem);
 	c.blend = "off".copy(mem);
 	c.filter = "off".copy(mem);
@@ -90,6 +95,8 @@ fn Config defaults() {
 fn void Config.free(&self) {
 	free(self.mode.ptr);
 	free(self.palette.ptr);
+	free(self.dmg_palette.ptr);
+	free(self.dmg_colors.ptr);
 	free(self.color.ptr);
 	free(self.blend.ptr);
 	free(self.filter.ptr);
@@ -120,6 +127,13 @@ fn bool Config.set(&self, String name, String value) {
 			replace(&self.mode, value);
 		case name == "palette":
 			replace(&self.palette, value);
+		case name == "dmg-palette":
+			if (display::dmg_palette_index(value) < 0) return false;
+			replace(&self.dmg_palette, value);
+		case name == "dmg-colors":
+			char[12] c;
+			if (value.len && !display::parse_colors(value, &c)) return false;
+			replace(&self.dmg_colors, value);
 		case name == "color":
 			if (color_index(value) < 0) return false;
 			replace(&self.color, value);
@@ -219,6 +233,8 @@ fn String Config.to_text(&self, Allocator allocator) {
 	out.append("# (a = bottom, b = right, x = left, y = top face button).\n");
 	out.appendf("mode = %s\n", self.mode);
 	out.appendf("palette = %s\n", self.palette);
+	out.appendf("dmg-palette = %s\n", self.dmg_palette);
+	if (self.dmg_colors.len) out.appendf("dmg-colors = %s\n", self.dmg_colors);
 	out.appendf("color = %s\n", self.color);
 	out.appendf("blend = %s\n", self.blend);
 	out.appendf("filter = %s\n", self.filter);

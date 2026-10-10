@@ -28,6 +28,23 @@ const char[12] PALETTE_MGB = {
 	0x14, 0x14, 0x10,
 };
 
+// The green the Game Boy is remembered by, darker and yellower than the
+// screen itself ("classic").
+const char[12] PALETTE_CLASSIC = {
+	0x9B, 0xBC, 0x0F,
+	0x8B, 0xAC, 0x0F,
+	0x30, 0x62, 0x30,
+	0x0F, 0x38, 0x0F,
+};
+
+// Plain greys, white to black.
+const char[12] PALETTE_GREY = {
+	0xFF, 0xFF, 0xFF,
+	0xAA, 0xAA, 0xAA,
+	0x55, 0x55, 0x55,
+	0x00, 0x00, 0x00,
+};
+
 // The 32 built-in Super Game Boy palettes, 1-A .. 4-H, in the SGB's own 15-bit
 // BGR format. Colour 0 is the lightest, so a DMG shade (0-3) indexes it
 // directly: SGB_PALETTES[palette][shade]. Values from mGBA (src/gb/overrides.c).
@@ -795,16 +812,23 @@ fn int Display.audio_queued(&self) {
 }
 
 // RGB for shades 0-3 of a named palette: "dmg" (the default green), "mgb"
-// (the Pocket's grey), or an SGB
-// palette "1-A" .. "4-H" (case-insensitive). False for an unknown name.
+// or "pocket" (the Pocket's grey), "classic", "grey", or an SGB palette
+// "1-A" .. "4-H" (case-insensitive). False for an unknown name.
 fn bool palette_rgb(String name, char[12]* out) {
-	if (name == "dmg") {
-		*out = PALETTE;
-		return true;
-	}
-	if (name == "mgb") {
-		*out = PALETTE_MGB;
-		return true;
+	switch (name) {
+		case "dmg":
+			*out = PALETTE;
+			return true;
+		case "mgb":
+		case "pocket":
+			*out = PALETTE_MGB;
+			return true;
+		case "classic":
+			*out = PALETTE_CLASSIC;
+			return true;
+		case "grey":
+			*out = PALETTE_GREY;
+			return true;
 	}
 	if (name.len != 3 || name[1] != '-') return false;
 	char group = name[0];
@@ -816,4 +840,84 @@ fn bool palette_rgb(String name, char[12]* out) {
 		sgb::bgr555_to_rgb(SGB_PALETTES[index][shade], (*out)[shade * 3 : 3]);
 	}
 	return true;
+}
+
+// The palettes DMG mode (DMG, DMG 0, Pocket) offers, in the menu's order:
+// the model's own screen ("auto": green, a Pocket's grey), the presets, the
+// SGB's 32 for a Game Boy game's 4 shades, and the player's own four colours
+// ("custom": dmg-colors in wer.conf, or --palette=RRGGBB,...).
+const String[5] DMG_PRESETS       = { "auto", "dmg", "classic", "pocket", "grey" };
+const String[5] DMG_PRESET_LABELS = { "Auto", "Green", "Classic", "Pocket", "Grey" };
+const int DMG_SGB_FIRST     = DMG_PRESETS.len;
+const int DMG_CUSTOM        = DMG_SGB_FIRST + 32;
+const int DMG_PALETTE_COUNT = DMG_CUSTOM + 1;
+
+// Its name in wer.conf and on the command line.
+fn String dmg_palette_name(int i) {
+	if (i < DMG_SGB_FIRST) return DMG_PRESETS[i];
+	if (i == DMG_CUSTOM) return "custom";
+	int k = i - DMG_SGB_FIRST;
+	return string::tformat("%c-%c", (char)('1' + k / 8), (char)('A' + k % 8));
+}
+
+// Its name in the menu (at most 7 characters: the menu is 20 wide at 1x).
+fn String dmg_palette_label(int i) {
+	if (i < DMG_SGB_FIRST) return DMG_PRESET_LABELS[i];
+	if (i == DMG_CUSTOM) return "Custom";
+	return string::tformat("SGB %s", dmg_palette_name(i));
+}
+
+// The index of a name ("4-h" too), or -1.
+fn int dmg_palette_index(String name) {
+	for (int i = 0; i < DMG_PALETTE_COUNT; i++) {
+		String n = dmg_palette_name(i);
+		if (name == n) return i;
+		if (name.len == 3 && n.len == 3 && name[0] == n[0] && name[1] == n[1] && (name[2] | 0x20) == (n[2] | 0x20)) return i;
+	}
+	return -1;
+}
+
+// The colours of DMG palette `i`: "auto" is the Pocket's grey on a Pocket,
+// else the DMG's green; "custom" is `custom`.
+fn char[12] dmg_palette_rgb(int i, bool pocket, char[12] custom) {
+	char[12] out = pocket ? PALETTE_MGB : PALETTE;
+	if (i == DMG_CUSTOM) return custom;
+	if (i > 0 && i < DMG_CUSTOM) palette_rgb(dmg_palette_name(i), &out);
+	return out;
+}
+
+// Four colours, lightest first, "RRGGBB,RRGGBB,RRGGBB,RRGGBB" (a '#' in
+// front of each and spaces are fine). False, `out` untouched, if it isn't.
+fn bool parse_colors(String text, char[12]* out) {
+	char[12] c;
+	int colour;
+	int digits;
+	foreach (ch : text) {
+		if (ch == ' ' || ch == '#') continue;
+		if (ch == ',') {
+			if (digits != 6 || colour == 3) return false;
+			colour++;
+			digits = 0;
+			continue;
+		}
+		int v;
+		switch {
+			case ch >= '0' && ch <= '9': v = ch - '0';
+			case (ch | 0x20) >= 'a' && (ch | 0x20) <= 'f': v = (ch | 0x20) - 'a' + 10;
+			default: return false;
+		}
+		if (digits == 6) return false;
+		usz at = (usz)(colour * 3 + digits / 2);
+		c[at] = (char)((c[at] << 4) | v);
+		digits++;
+	}
+	if (colour != 3 || digits != 6) return false;
+	*out = c;
+	return true;
+}
+
+// Four colours as parse_colors reads them.
+fn String colors_text(char[12] c) {
+	return string::tformat("%02x%02x%02x,%02x%02x%02x,%02x%02x%02x,%02x%02x%02x",
+		c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8], c[9], c[10], c[11]);
 }

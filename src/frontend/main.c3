@@ -161,9 +161,9 @@ fn String window_title(gameboy::Cartridge* cart, gameboy::GameBoy* gb) {
 	return string::tformat("wer - %s%s", (ZString)&cart.title[0], tag);
 }
 
-// The SGB's built-in palettes, offered in SGB mode (DMG mode is always the
-// green DMG screen), in the order Left/Right cycles through them. The first,
-// 1-A, is the SGB's default.
+// The SGB's built-in palettes, offered in SGB mode (DMG mode has its own
+// list: display::dmg_palette_name), in the order Left/Right cycles through
+// them. The first, 1-A, is the SGB's default.
 const String[32] PALETTE_NAMES = {
 	"1-A", "1-B", "1-C", "1-D", "1-E", "1-F", "1-G", "1-H",
 	"2-A", "2-B", "2-C", "2-D", "2-E", "2-F", "2-G", "2-H",
@@ -180,8 +180,8 @@ fn int palette_index(String name) {
 	return -1;
 }
 
-// The colours shades 0-3 are shown in: the fixed DMG green, or in SGB mode
-// the chosen SGB palette.
+// The colours shades 0-3 are shown in: DMG mode's palette (dmg_pal), or in
+// SGB mode the chosen SGB palette.
 // In SGB mode the chosen preset colours everything until the game sends its
 // own palettes (and again whenever the player picks one in the menu).
 fn void apply_preset(gameboy::GameBoy* gb, int pal) {
@@ -190,7 +190,11 @@ fn void apply_preset(gameboy::GameBoy* gb, int pal) {
 
 fn char[12] mode_colors(Mode mode, int pal) {
 	char[12] colors;
-	display::palette_rgb(mode.model().is_sgb() ? PALETTE_NAMES[pal] : mode == MGB ? "mgb" : "dmg", &colors);
+	if (mode.model().is_sgb()) {
+		display::palette_rgb(PALETTE_NAMES[pal], &colors);
+	} else {
+		colors = display::dmg_palette_rgb(dmg_pal, mode == MGB, custom_colors);
+	}
 	return colors;
 }
 
@@ -262,6 +266,8 @@ fn Mode? mode_from(String name) {
 fn void save_settings(config::Config* cfg, Mode mode, int pal, int scale) {
 	cfg.set("mode", MODE_NAMES[mode.ordinal]);
 	cfg.set("palette", PALETTE_NAMES[pal]);
+	cfg.set("dmg-palette", display::dmg_palette_name(dmg_pal));
+	if (has_custom) cfg.set("dmg-colors", display::colors_text(custom_colors));
 	cfg.set("color", gameboy::COLOR_NAMES[gameboy::color_correction.ordinal]);
 	cfg.set("blend", display::BLEND_NAMES[blend.ordinal]);
 	cfg.set("filter", display::FILTER_NAMES[filter.ordinal]);
@@ -440,6 +446,9 @@ bool boot = true;
 Mode mode;
 int scale;
 int pal;
+int dmg_pal;              // display::dmg_palette_name
+char[12] custom_colors;   // DMG mode's "custom" palette, when has_custom
+bool has_custom;
 char[12] colors;
 gameboy::GameBoy gb;
 gameboy::Cartridge cart;
@@ -655,7 +664,7 @@ fn bool frame() {
 		}
 		items[count++] = OPEN;
 		items[count++] = MODE;
-		if (mode.model().is_sgb()) items[count++] = PALETTE;
+		if (mode.model().is_sgb() || mode.model() == DMG) items[count++] = PALETTE;
 		if (mode.model() == CGB || mode.model().is_sgb()) items[count++] = COLORS;
 		items[count++] = BLEND;
 		items[count++] = FILTER;
@@ -723,7 +732,14 @@ fn bool frame() {
 		if ((item == SAVE_STATE || item == LOAD_STATE) && step != 0) {
 			slot = (slot - 1 + step + STATE_SLOTS) % STATE_SLOTS + 1;
 		}
-		if (item == PALETTE && step != 0) {
+		if (item == PALETTE && step != 0 && !mode.model().is_sgb()) {
+			// "Custom" only once there are colours for it.
+			int n = has_custom ? display::DMG_PALETTE_COUNT : display::DMG_CUSTOM;
+			dmg_pal = (dmg_pal + step + n) % n;
+			colors = mode_colors(mode, pal);
+			save_settings(&cfg, mode, pal, scale);
+		}
+		if (item == PALETTE && step != 0 && mode.model().is_sgb()) {
 			int n = (int)PALETTE_NAMES.len;
 			pal = (pal + step + n) % n;
 			colors = mode_colors(mode, pal);
@@ -787,7 +803,7 @@ fn bool frame() {
 					}
 				case SCALE:   lines[i] = string::tformat("Scale:   < %dx >", scale);
 				case MODE:    lines[i] = string::tformat("Mode:    < %s >", MODE_LABELS[mode.ordinal]);
-				case PALETTE: lines[i] = string::tformat("Palette: < %s >", PALETTE_NAMES[pal]);
+				case PALETTE: lines[i] = string::tformat("Palette: < %s >", mode.model().is_sgb() ? PALETTE_NAMES[pal] : display::dmg_palette_label(dmg_pal));
 				case COLORS:  lines[i] = string::tformat("Colors:  < %s >", gameboy::COLOR_LABELS[gameboy::color_correction.ordinal]);
 				case BLEND:   lines[i] = string::tformat("Blending: < %s >", display::BLEND_LABELS[blend.ordinal]);
 				case FILTER:  lines[i] = string::tformat("Filter:  < %s >", display::FILTER_LABELS[filter.ordinal]);
@@ -923,6 +939,9 @@ fn int main(String[] args) @winmain
 	scale = cfg.scale;
 	pal = palette_index(cfg.palette);
 	if (pal < 0) pal = 0; // 1-A
+	has_custom = cfg.dmg_colors.len && display::parse_colors(cfg.dmg_colors, &custom_colors);
+	dmg_pal = display::dmg_palette_index(cfg.dmg_palette);
+	if (dmg_pal < 0 || (dmg_pal == display::DMG_CUSTOM && !has_custom)) dmg_pal = 0; // auto
 	gameboy::color_correction = (gameboy::ColorCorrection)config::color_index(cfg.color);
 	blend = (display::Blend)config::blend_index(cfg.blend);
 	filter = (display::Filter)display::filter_index(cfg.filter);
@@ -987,14 +1006,26 @@ fn int main(String[] args) @winmain
 	}
 
 	if (palette.len) {
-		if (!mode.model().is_sgb()) {
-			io::eprintn("--palette only applies to --mode=sgb/sgb2 (DMG mode is always green)");
+		if (mode.model() == CGB) {
+			io::eprintn("--palette doesn't apply to the Game Boy Color modes: they colour games themselves");
 			return 1;
 		}
-		pal = palette_index(palette);
-		if (pal < 0) {
-			io::eprintfn("unknown palette '%s': use an SGB palette 1-A .. 4-H", palette);
-			return 1;
+		if (mode.model().is_sgb()) {
+			pal = palette_index(palette);
+			if (pal < 0) {
+				io::eprintfn("unknown palette '%s': use an SGB palette 1-A .. 4-H", palette);
+				return 1;
+			}
+		} else if (display::parse_colors(palette, &custom_colors)) {
+			has_custom = true;
+			dmg_pal = display::DMG_CUSTOM;
+		} else {
+			dmg_pal = display::dmg_palette_index(palette);
+			if (dmg_pal < 0 || (dmg_pal == display::DMG_CUSTOM && !has_custom)) {
+				io::eprintfn("unknown palette '%s': use auto, dmg, classic, pocket, grey, an SGB palette 1-A .. 4-H, "
+					"or four colours, lightest first (e0f8d0,88c070,346856,081820)", palette);
+				return 1;
+			}
 		}
 	}
 	colors = mode_colors(mode, pal);

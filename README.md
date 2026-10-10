@@ -18,6 +18,9 @@ ROMs: they never leave the browser; touch controls on phones).
   (CPU CGB 0 to E), and a Game Boy Advance running Game Boy games (games that
   look for one find it: B set at start, its sound timing, its screen's
   colours, no infrared port). CGB-only games switch to the Game Boy Color automatically.
+- **Palettes**: original Game Boy games in the DMG's green, a Pocket's grey,
+  a darker "classic" green, plain greys, any of the SGB's 32 palettes, or
+  colours of your own.
 - **Super Game Boy**: game-controlled colours and borders, the 32 built-in
   palettes, the original SGB running about 2.4% fast like the real one.
 - **Game Boy Color**: colour games, double speed, VRAM DMA, and original Game
@@ -169,7 +172,7 @@ wer --mode=cgb game.gbc
 | Option | |
 |---|---|
 | `--mode=dmg\|mgb\|sgb\|sgb2\|cgb` | the model to emulate: `dmg` is a CPU DMG A/B/C (`dmg-0` the first DMGs), `mgb` a Game Boy Pocket, `cgb` a CPU CGB C (the others with `cgb-0`, `cgb-a`, `cgb-b`, `cgb-c`, `cgb-d`, `cgb-e`), `gba` a Game Boy Advance |
-| `--palette=1-A` … `4-H` | SGB built-in palette (SGB modes) |
+| `--palette=classic` | the screen's colours: in the DMG and Pocket modes `auto` (green, a Pocket's grey: the default), `dmg`, `classic`, `pocket`, `grey`, an SGB palette `1-A` … `4-H`, or your own four, lightest first (`--palette=e0f8d0,88c070,346856,081820`); in the SGB modes an SGB palette |
 | `--blend=off\|simple\|accurate` | frame blending, like the LCD's slow response (games that flicker objects for transparency look right): `simple` mixes each frame half and half with the last, `accurate` is SameBoy's model of the LCD |
 | `--colors=balanced` | CGB/SGB colour correction, as the real screens looked: `off` (raw colours), `balanced` (the default), `accurate`, `boost`, `reduce`, `low` (SameBoy's modes) |
 | `--filter=off\|sharp\|smooth\|lcd\|scanlines` | how the pixels are drawn: `sharp` keeps them crisp and even at any size (full screen, a phone), `smooth` blurs them, `lcd` shows the dot grid of a Game Boy's screen, `scanlines` dark lines between rows (the last two from 3x up) |
@@ -216,8 +219,9 @@ Options given on the command line override `~/.wer/wer.conf` for that run.
 Every Game Boy button, and fast forward, rewind, pause, frame advance, the
 screenshot key and the debugger's, can be rebound to a key or a gamepad button in
 **Menu → Controls**; a hotkey whose key is bound to a Game Boy button gives
-way to it. The menu also switches the model, SGB palette and scale; changes
-are saved to `~/.wer/wer.conf`.
+way to it. The menu also switches the model, the palette and scale; changes
+are saved to `~/.wer/wer.conf` (your own DMG colours as `dmg-colors =
+e0f8d0,88c070,346856,081820` there, then `Custom` in the menu).
 
 ### Debugger
 

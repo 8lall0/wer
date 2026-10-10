@@ -86,3 +86,23 @@ fn void hotkeys_and_filter_round_trip() @test
 	test::eq("start", b.hot_pads[config::Hotkey.PAUSE.ordinal]);
 	test::eq("lcd", b.filter);
 }
+
+fn void dmg_palette_round_trip() @test
+{
+	config::Config a = config::defaults();
+	defer a.free();
+	test::eq("auto", a.dmg_palette);
+	test::eq("", a.dmg_colors);
+	assert(a.set("dmg-palette", "classic"));
+	assert(a.set("dmg-palette", "4-h"));
+	assert(!a.set("dmg-palette", "purple"));
+	assert(a.set("dmg-colors", "#FFEEDD, aabbcc,778899,001122"));
+	assert(!a.set("dmg-colors", "ffeedd,aabbcc,778899"));
+	test::eq("4-h", a.dmg_palette);
+
+	config::Config b = config::defaults();
+	defer b.free();
+	b.parse(a.to_text(tmem), "round trip");
+	test::eq("4-h", b.dmg_palette);
+	test::eq("#FFEEDD, aabbcc,778899,001122", b.dmg_colors);
+}
