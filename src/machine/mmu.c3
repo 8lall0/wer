@@ -893,7 +893,7 @@ fn void Mmu.dma_conflict_write(&self, ushort addr, char value) {
 // SC written with start + internal clock. Nothing moves yet: the bits shift
 // in as the serial clock runs (Mmu.serial_tick).
 fn void Mmu.serial_start(&self) {
-	if (self.serial_echo) io::eprintf("%c", self.io[0x01]); // the byte being sent
+	if (self.serial_echo && !self.link) io::eprintf("%c", self.io[0x01]); // the byte being sent (test ROMs: nothing plugged in)
 	if (self.serial_log_len < self.serial_log.len) self.serial_log[self.serial_log_len++] = self.io[0x01];
 	self.serial_active = true;
 	self.serial_bits = 0;
@@ -936,7 +936,7 @@ fn void Mmu.serial_shift(&self) {
 	if (++self.serial_bits < 8) return;
 	if (self.link) {
 		int b = self.link_exchange();
-		if (b == -1 && !self.link.peer && !self.link.printer && !self.link.barcode) {
+		if (b == -1 && !self.link.peer && !self.link.device()) {
 			self.serial_waiting = true;
 			return;
 		}

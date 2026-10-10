@@ -106,3 +106,16 @@ fn void dmg_palette_round_trip() @test
 	test::eq("4-h", b.dmg_palette);
 	test::eq("#FFEEDD, aabbcc,778899,001122", b.dmg_colors);
 }
+
+fn void workboy_clock_round_trip() @test
+{
+	config::Config a = config::defaults();
+	defer a.free();
+	test::eq(0, a.workboy_clock);
+	test::@check(a.set("workboy-clock", "-788918400"), "a clock set back in time");
+	test::@check(!a.set("workboy-clock", "soon"), "not a number");
+	config::Config b = config::defaults();
+	defer b.free();
+	b.parse(a.to_text(tmem), "test");
+	test::eq(-788918400, b.workboy_clock);
+}
