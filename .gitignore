@@ -24,3 +24,5 @@ test/screens/
 android/keystore.properties
 *.jks
 *.keystore
+resources/*.zip
+resources/*.wer
