@@ -1,7 +1,9 @@
 # A release: push a tag vX.Y.Z (the version in project.json). CI builds and
 # tests everything; the downloads are packaged as before (wer-X.Y.Z-*) and
 # put in a DRAFT release, to read over and publish on GitHub. An annotated
-# tag's message (git tag -a vX.Y.Z -F notes.md) becomes the release notes.
+# tag's message (git tag -a vX.Y.Z --cleanup=verbatim -F notes.md; verbatim
+# keeps its ## headings) becomes the release notes. Publishing the draft
+# puts its web build on GitHub Pages (deploy-web.yml).
 #
 # Run by hand (Actions > Release > Run workflow) it makes a throwaway draft
 # under the tag name given, to try the packaging out.

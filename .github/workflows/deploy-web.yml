@@ -1,0 +1,57 @@
+# The web build of a release, on GitHub Pages: when a release is published,
+# its wer-X.Y.Z-web.zip goes on the gh-pages branch (as scripts/deploy-web.sh
+# does from a local build), so the site runs exactly what was released.
+#
+# Run by hand (Actions > Deploy web > Run workflow) it deploys the release
+# named, e.g. to go back to an earlier one.
+name: Deploy web
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release to deploy (e.g. v0.24.0)
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: deploy-web
+
+env:
+  TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.tag }}
+
+jobs:
+  deploy:
+    # A pre-release doesn't replace the site.
+    if: github.event_name != 'release' || !github.event.release.prerelease
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: gh-pages
+      - name: The release's web build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v="${TAG#v}"
+          gh release download "$TAG" -R "$GITHUB_REPOSITORY" -p "wer-$v-web.zip" -D "$RUNNER_TEMP"
+          unzip -q "$RUNNER_TEMP/wer-$v-web.zip" -d "$RUNNER_TEMP"
+          w="$RUNNER_TEMP/wer-$v-web"
+          cp "$w/index.html" "$w/privacy.html" "$w/wer.js" "$w/wer.wasm" "$w/LICENSE" "$w/LICENSE-sameboy" "$w/LICENSE-mame" .
+          touch .nojekyll # served as they are
+      - name: Push to gh-pages
+        run: |
+          git add -A
+          if git diff --cached --quiet; then
+            echo "gh-pages already has wer ${TAG#v}"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898333+github-actions[bot]@users.noreply.github.com"
+          git commit -q -m "wer ${TAG#v} in the browser"
+          git push -q origin gh-pages
+          echo "pushed wer ${TAG#v} to gh-pages"
