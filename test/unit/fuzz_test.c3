@@ -192,6 +192,51 @@ fn void damaged_zips() @test {
 	}
 }
 
+// --- movies --------------------------------------------------------------------
+
+// A movie file with characters changed (header, runs, the state's base64),
+// then played from whatever it says: parsing and the state check must hold.
+fn void damaged_movies() @test {
+	Rng r = rng();
+	gameboy::GameBoy gb = gameboy::new(false, DMG);
+	defer gb.destroy();
+	gameboy::Movie m;
+	defer m.free();
+	m.begin(&gb, "FUZZ");
+	for (ulong f = 0; f < 40; f++) {
+		m.record(f, (char)(f & 0x0F), (char)(f >> 2 & 0x0F));
+		gb.run_frame();
+	}
+	String good = m.to_text(tmem).copy(mem);
+	defer free(good.ptr);
+	int n = iterations(20) * 20;
+	for (int i = 0; i < n; i++) {
+		char[] t = mem::temp_array(char, (sz)good.len);
+		t[..] = good[..];
+		ulong changes = 1 + r.below(6);
+		for (ulong k = 0; k < changes; k++) {
+			// Mostly in the header and runs, where the numbers are.
+			usz at = (usz)(r.below(2) ? r.below(t.len < 300 ? t.len : 300) : r.below(t.len));
+			t[at] = r.below(2) ? (char)(r.below(96) + 32) : (char)r.next();
+		}
+		if (log) io::eprintfn("movie %d", i);
+		gameboy::Movie? got = gameboy::parse_movie((String)t);
+		if (catch got) continue;
+		gameboy::GameBoy fresh = gameboy::new(false, DMG);
+		if (try got.restart(&fresh)) {
+			for (ulong k = 0; k < got.len() && k < 5; k++) {
+				char b;
+				char d;
+				got.at(k, &b, &d);
+				fresh.mmu.set_input(b, d);
+				fresh.run_frame();
+			}
+		}
+		fresh.destroy();
+		got.free();
+	}
+}
+
 // --- save states ---------------------------------------------------------------
 
 // A value in a state: an integer field, an array's elements, raw bytes.

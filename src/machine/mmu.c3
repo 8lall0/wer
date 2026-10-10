@@ -178,6 +178,10 @@ struct Mmu {
 	bool   irq_early;   // the PPU raised an interrupt early enough in the last tick
 	int    ppu_freeze;  // dots the PPU stands still (right after a CGB speed switch)
 	uint   stop_dots;   // dots into the current blank frame of STOP mode
+	// Frames run since power-on, and a hash of the buttons held in each
+	// (input_mix): what a movie checks a state or rewind against (movie.c3).
+	ulong  frames;
+	uint   input_hash;
 	sgb::Sgb* sgb;      // non-null in SGB mode (heap, freed by GameBoy.destroy)
 
 	Dma dma;
@@ -1102,6 +1106,15 @@ fn void Mmu.tick(&self, char mcycles) {
 	// The camera runs on the CPU's clock pin, which stops in HALT.
 	if (self.cart && self.cart.camera.countdown && !self.cpu_halted) self.cart.camera_tick(rt);
 	self.quiet = self.quiet_cycles();
+}
+
+// The hash of every frame's buttons so far, one more frame on (FNV-1a).
+fn uint input_mix(uint hash, char buttons, char dpad) => (hash ^ (uint)(buttons << 4 | dpad)) * 16777619;
+
+// A frame done: counted, with the buttons it was played with.
+fn void Mmu.frame_done(&self) {
+	self.frames++;
+	self.input_hash = input_mix(self.input_hash, self.joypad.buttons, self.joypad.dpad);
 }
 
 // STOP mode starts: the screen goes white, the PPU keeps where it stood.

@@ -289,6 +289,7 @@ fn bool GameBoy.run_frame_breaking(&self, Breakpoints* b, bool resume) {
 	}
 	self.mmu.ppu_touch();
 	self.mmu.ppu.frame_ready = false;
+	self.mmu.frame_done();
 	return false;
 }
 

@@ -536,7 +536,7 @@ char[4096] dialog_path;
 
 // Must stay valid until the callback runs, so it isn't a local.
 sdl::DialogFileFilter[1] rom_filters = {
-	{ "Game Boy ROMs", "gb;gbc;zip" },
+	{ "Game Boy ROMs, wer movies", "gb;gbc;zip;wer" },
 };
 
 fn void on_dialog(void* userdata, ZString* files, int filter) {

@@ -125,6 +125,7 @@ fn gameboy::Cartridge? load_game(gameboy::GameBoy* gb, String path, bool boot, M
 		return ROM_UNREADABLE~;
 	}
 	record_finish(); // a recording is of one game
+	movie_stop();    // and so is a movie (a reset leaves it too)
 	if (model != CGB && gameboy::requires_cgb(data)) {
 		io::printfn("CGB-only game: running on a CGB instead of %s", model);
 		model = CGB;
@@ -422,6 +423,7 @@ enum MenuItem : char {
 	SCALE,
 	CONTROLS,
 	CHEATS,
+	MOVIE,
 	LINK,
 	SWIPE,
 	RESET,
@@ -511,6 +513,11 @@ fn bool frame() {
 		chosen = "";
 	}
 	if (!screen.dialog_open()) dialog_p2 = false;
+	if (chosen.len && chosen.len > 4 && chosen[chosen.len - 4..].to_lower_tcopy() == ".wer") {
+		movie_play(chosen);
+		menu = false;
+		chosen = "";
+	}
 	if (chosen.len) {
 		if (try loaded = load_game(&gb, chosen, boot, mode, pal)) {
 			cart = loaded;
@@ -672,6 +679,7 @@ fn bool frame() {
 		if (!env::ANDROID && !env::EMSCRIPTEN) items[count++] = SCALE;
 		items[count++] = CONTROLS;
 		if (has_rom) items[count++] = CHEATS;
+		if (has_rom) items[count++] = MOVIE;
 		items[count++] = LINK;
 		if (link_mode == BARCODE) items[count++] = SWIPE;
 		if (has_rom) items[count++] = RESET;
@@ -729,6 +737,7 @@ fn bool frame() {
 			save_settings(&cfg, mode, pal, scale);
 		}
 		if (item == LINK && step != 0) link_step(step);
+		if (item == MOVIE && step != 0) movie_step(step);
 		if ((item == SAVE_STATE || item == LOAD_STATE) && step != 0) {
 			slot = (slot - 1 + step + STATE_SLOTS) % STATE_SLOTS + 1;
 		}
@@ -764,6 +773,8 @@ fn bool frame() {
 				case CHEATS:
 					cheat_menu = true;
 					selected = 0;
+				case MOVIE:
+					if (movie_enter()) menu = false;
 				case SWIPE:
 					swipe_ask();
 				case LINK:
@@ -809,6 +820,7 @@ fn bool frame() {
 				case FILTER:  lines[i] = string::tformat("Filter:  < %s >", display::FILTER_LABELS[filter.ordinal]);
 				case CONTROLS: lines[i] = "Controls...";
 				case CHEATS:  lines[i] = cheats.count ? string::tformat("Cheats... (%d)", cheats.count) : "Cheats...";
+				case MOVIE:   lines[i] = movie_line();
 				case LINK:    lines[i] = link_line();
 				case SWIPE:   lines[i] = swipe_line();
 				case RESET:   lines[i] = "Reset";
@@ -837,6 +849,7 @@ fn bool frame() {
 		NanoDuration budget = frame_period(gb.mmu.model) * 3 / 4;
 		int n = 0;
 		do {
+			movie_frame(&in.buttons, &in.dpad);
 			run_game_frame(&in);
 			if (paused) break; // a breakpoint
 			rewind.record(&gb);
@@ -847,6 +860,7 @@ fn bool frame() {
 		} while (n < FAST_FORWARD_MAX && clock::now() - start < budget);
 		screen.clear_audio();
 	} else if (running) {
+		movie_frame(&in.buttons, &in.dpad);
 		run_game_frame(&in);
 		rewind.record(&gb);
 		frames_run++;
@@ -925,6 +939,9 @@ fn int main(String[] args) @winmain
 	$endif
 	bool headless = false;
 	int frames = 600;
+	bool frames_given;      // else a movie plays to its end
+	String movie_arg;       // --movie=FILE: play it
+	String record_movie_arg; // --record-movie=FILE: record the run
 	String rom;
 	String palette;
 	String link_arg;     // --link=host or --link=ADDRESS
@@ -950,7 +967,6 @@ fn int main(String[] args) @winmain
 		switch {
 			case a == "--headless": headless = true;
 			case a == "--no-boot": boot = false;
-			case a.starts_with("--frames="): frames = a[9..].to_int() ?? 600;
 			case a.starts_with("--palette="): palette = a[10..];
 			case a == "--sgb-log": sgb_log = true;
 			case a == "--printer-log": mmu::printer_log = true;
@@ -967,6 +983,11 @@ fn int main(String[] args) @winmain
 			case a.starts_with("--screenshot="): shot_exit = a[13..];
 			case a.starts_with("--patch="): patch_arg = a[8..];
 			case a.starts_with("--record="): record_arg = a[9..];
+			case a.starts_with("--movie="): movie_arg = a[8..];
+			case a.starts_with("--record-movie="): record_movie_arg = a[15..];
+			case a.starts_with("--frames="):
+				frames = a[9..].to_int() ?? 600;
+				frames_given = true;
 			case a.starts_with("--input="):
 				if (try s = joypad::parse_script(a[8..])) {
 					input_script = s;
@@ -1047,6 +1068,22 @@ fn int main(String[] args) @winmain
 			if (catch cheat_add(c, true, false)) io::eprintfn("not a cheat code: %s", c);
 		}
 	}
+	if (movie_arg.len || record_movie_arg.len) {
+		if (!has_rom || (movie_arg.len && record_movie_arg.len)) {
+			io::eprintn("--movie and --record-movie need a game, and only one of them");
+			return 1;
+		}
+		if (movie_arg.len) {
+			movie_play(movie_arg);
+			if (movie_state != PLAYING) {
+				io::eprintfn("%s: %s", movie_arg, notice.current());
+				return 1;
+			}
+			if (!frames_given) frames = (int)movie.len();
+		} else {
+			movie_record(false, record_movie_arg); // the game has just been switched on
+		}
+	}
 
 	if (headless) {
 		if (!has_rom) setup_demo_scene(&gb);
@@ -1064,6 +1101,7 @@ fn int main(String[] args) @winmain
 			char buttons;
 			char dpad;
 			input_script.at((ulong)f, &buttons, &dpad);
+			movie_frame(&buttons, &dpad);
 			gb.mmu.set_input(buttons, dpad);
 			gb.run_frame();
 			uint got = gb.audio(&audio);
@@ -1078,6 +1116,7 @@ fn int main(String[] args) @winmain
 			io::printfn("wrote %s and %s", recorder.gif_path, recorder.wav_path);
 			recorder.free_paths();
 		}
+		movie_stop(); // a recording is saved
 		if (catch write_ppm(&gb, "wer-frame.ppm", colors)) {
 			io::eprintn("could not write wer-frame.ppm");
 			return 1;
@@ -1155,6 +1194,7 @@ fn int main(String[] args) @winmain
 			(void)os::native_sleep_nano(remaining);
 		}
 		record_finish();
+		movie_stop();
 	$endif
 	return 0;
 }

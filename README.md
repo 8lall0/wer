@@ -75,6 +75,14 @@ ROMs: they never leave the browser; touch controls on phones).
   animated GIF and its sound as a WAV, next to the game (`--record=NAME`
   records a whole run, with `--headless` too). Every frame the game runs goes
   in, fast forward included, so recordings play at the game's own speed.
+- **Movies** (tool-assisted play): **Menu → Movie** records your play from
+  power-on or from where you are, button by button, into `game-movie-N.wer`
+  next to the game, and plays it back exactly. While recording, rewinding
+  or loading a save state goes back in the movie and records again from
+  there; pause (P) and frame advance (N) play it a frame at a time. Open or
+  drop a `.wer` file to watch it; take over while one plays to record on
+  from that point. (Not with the link cable; tilt and the camera aren't
+  recorded.)
 - **Debugger** (F10, desktop): registers, disassembly, breakpoints (with
   conditions) and watchpoints, stepping, memory, VRAM tiles, tile maps,
   objects and palettes, in a window of its own.
@@ -185,6 +193,8 @@ wer --mode=cgb game.gbc
 | `--link=barcode` | the Barcode Boy (Menu → Swipe card) |
 | `--link=printer` | the Game Boy Printer on the link port |
 | `--record=NAME` | record the run: `NAME.gif` (the picture) and `NAME.wav` (the sound), until wer quits; with `--headless --frames=N --input=...` a recording made without a window |
+| `--movie=FILE` | play a movie (`.wer`) from its start; with `--headless`, to its end unless `--frames` says otherwise |
+| `--record-movie=FILE` | record a movie of the run from power-on (with `--input`, and `--headless` too) |
 | `--patch=FILE` | apply an IPS, UPS or BPS patch to the game (instead of the one next to it, if any) |
 | `--cheat=CODE` | a Game Genie (`ABC-DEF-GHI`) or GameShark (`01VVAAAA`) code, for this run |
 | `--printer-log` | print every packet the printer gets and its answers |

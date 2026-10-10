@@ -496,6 +496,7 @@ fn void GameBoy.run_frame(&self) {
 		ulong target = self.cpu.clk + frame;
 		while (self.cpu.clk < target) self.step();
 		self.mmu.ppu_touch();
+		self.mmu.frame_done();
 		return;
 	}
 	self.mmu.ppu.frame_ready = false;
@@ -503,6 +504,7 @@ fn void GameBoy.run_frame(&self) {
 	while (!self.mmu.ppu.frame_ready && self.cpu.clk < deadline) self.step();
 	self.mmu.ppu_touch();
 	self.mmu.ppu.frame_ready = false;
+	self.mmu.frame_done();
 }
 
 // run_frame, stopping `slices` times along the way to call `between` (the
@@ -526,6 +528,7 @@ fn void GameBoy.run_frame_polled(&self, Between between, void* ctx, int slices) 
 	}
 	self.mmu.ppu_touch();
 	self.mmu.ppu.frame_ready = false;
+	self.mmu.frame_done();
 }
 
 // Two Game Boys joined by the link cable (mmu::connect_local), a frame of
@@ -545,6 +548,8 @@ fn void run_linked_frame(GameBoy* a, GameBoy* b) {
 	b.mmu.ppu_touch();
 	a.mmu.ppu.frame_ready = false;
 	b.mmu.ppu.frame_ready = false;
+	a.mmu.frame_done();
+	b.mmu.frame_done();
 }
 
 // Four Game Boys on the DMG-07 4-Player Adapter (mmu/adapter.c3), a frame
@@ -571,6 +576,7 @@ fn void run_four_frame(GameBoy*[4] g, mmu::Adapter* adapter) {
 	}
 	for (int i = 0; i < 4; i++) g[i].mmu.ppu_touch();
 	for (int i = 0; i < 4; i++) g[i].mmu.ppu.frame_ready = false;
+	for (int i = 0; i < 4; i++) g[i].mmu.frame_done();
 }
 
 fn void GameBoy.set_audio_rate(&self, uint rate) {
