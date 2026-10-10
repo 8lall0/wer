@@ -124,6 +124,7 @@ fn bool Ppu.is_cgb_hw(&self) => self.cgb_hw;
 
 // VRAM as the PPU sees it: bank 1 when bit 13 of the address is set.
 fn char Ppu.vram_read(&self, ushort a) {
+	if (self.stop_vram) return 0xFF;
 	if (a & 0x2000) return self.vram1 ? self.vram1[a & 0x1FFF] : 0xFF;
 	return self.vram[a & 0x1FFF];
 }
@@ -143,8 +144,8 @@ fn void Ppu.oam_scan(&self, int i) {
 	// with the Y and X last on its bus (SameBoy add_object_from_index;
 	// strikethrough, Gambatte oamdma/late_sp39y).
 	if (!dma) {
-		self.scan_y_bus = oam[i * 4];
-		self.scan_x_bus = oam[i * 4 + 1];
+		self.scan_y_bus = self.stop_oam ? 0xFF : oam[i * 4];
+		self.scan_x_bus = self.stop_oam ? 0xFF : oam[i * 4 + 1];
 	}
 	char y = self.scan_y_bus;
 	char x = self.scan_x_bus;
@@ -447,11 +448,11 @@ fn void Ppu.plain_tile_dots(&self) {
 		char color = bg_off && !self.cgb ? 0 : bg.color;
 		if (r.lcd_x + j < WIDTH) {
 			if (self.cgb) {
-				if (self.cfb.len) self.cfb[at + j] = pal_color(&self.bg_pal, bg.palette, color);
+				if (self.cfb.len) self.cfb[at + j] = self.pal(&self.bg_pal, bg.palette, color);
 			} else {
 				char sh = shade(self.bgp, color);
 				if (self.fb.len) self.fb[at + j] = sh;
-				if (self.compat && self.cfb.len) self.cfb[at + j] = pal_color(&self.bg_pal, 0, sh);
+				if (self.compat && self.cfb.len) self.cfb[at + j] = self.pal(&self.bg_pal, 0, sh);
 			}
 		}
 		if (pos0 + j == WIDTH - 2) r.x158_dot = dot0 + j;
@@ -839,14 +840,14 @@ fn void Ppu.render_pixel(&self) {
 		int at = self.line * WIDTH + r.lcd_x;
 		if (self.cgb) {
 			if (self.cfb.len) {
-				self.cfb[at] = draw_obj ? pal_color(&self.obj_pal, ob.palette, ob.color)
-				                        : pal_color(&self.bg_pal, bg.palette, color);
+				self.cfb[at] = draw_obj ? self.pal(&self.obj_pal, ob.palette, ob.color)
+				                        : self.pal(&self.bg_pal, bg.palette, color);
 			}
 		} else {
 			char s = draw_obj ? shade(ob.palette ? self.obp1 : self.obp0, ob.color) : shade(self.bgp, color);
 			if (self.fb.len) self.fb[at] = s;
 			if (self.compat && self.cfb.len) {
-				self.cfb[at] = draw_obj ? pal_color(&self.obj_pal, ob.palette, s) : pal_color(&self.bg_pal, 0, s);
+				self.cfb[at] = draw_obj ? self.pal(&self.obj_pal, ob.palette, s) : self.pal(&self.bg_pal, 0, s);
 			}
 		}
 	}

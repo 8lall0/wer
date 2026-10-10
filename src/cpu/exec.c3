@@ -42,7 +42,10 @@ fn char Cpu.step(&self, mmu::Mmu *mmu) {
 	if (self.stopped) {
 		self.bus_cycles = 1;
 		mmu.stop_tick();
-		if ((mmu.joypad.read() & 0x0F) != 0x0F) self.stopped = false;
+		if ((mmu.joypad.read() & 0x0F) != 0x0F) {
+			self.stopped = false;
+			mmu.stop_leave();
+		}
 		self.clk += 1;
 		return 1;
 	}

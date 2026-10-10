@@ -1117,22 +1117,42 @@ fn void Mmu.frame_done(&self) {
 	self.input_hash = input_mix(self.input_hash, self.joypad.buttons, self.joypad.dpad);
 }
 
-// STOP mode starts: the screen goes white, the PPU keeps where it stood.
+// STOP mode starts. A DMG's PPU stops where it stood and the screen goes
+// white; a CGB's runs on, kept off VRAM, OAM and the palettes unless the
+// CPU was locked out of them (mode 2/3) when it stopped.
 fn void Mmu.stop_enter(&self) {
 	self.ppu_touch();
-	self.ppu.blank();
 	self.stop_dots = 0;
+	if (self.model == CGB) {
+		self.ppu.stop_vram = !self.ppu.vram_read_locked();
+		self.ppu.stop_oam = !self.ppu.oam_read_locked();
+		self.ppu.stop_pal = !self.ppu.palette_locked();
+		return;
+	}
+	self.ppu.blank();
+}
+
+// STOP mode ends (Cpu.step): the PPU has everything again.
+fn void Mmu.stop_leave(&self) {
+	self.ppu_touch();
+	self.ppu.stop_vram = self.ppu.stop_oam = self.ppu.stop_pal = false;
 }
 
 // An M-cycle in STOP mode: the system clock stands still, so do the timer,
-// the PPU, the APU and the DMAs. What has a clock of its own runs on (a
-// cartridge's), the sound out goes on with the channels frozen, and a white
-// frame is done every frame's time so the host loops get their frames.
+// the APU and the DMAs, and a DMG's PPU. What has a clock of its own runs on
+// (a cartridge's), the sound out goes on with the channels frozen; a CGB's
+// PPU runs on (Mmu.stop_enter), on a DMG a white frame is done every
+// frame's time so the host loops get their frames.
 fn void Mmu.stop_tick(&self) {
 	uint rt = self.double_speed ? 2 : 4;
 	self.rt_clock += rt;
 	self.apu.tick(rt, 0, 0, false, true);
 	if (self.cart && (self.cart.has_rtc || self.cart.has_clock)) self.cart.tick(rt);
+	if (self.model == CGB) {
+		self.ppu_touch();
+		self.request_irq(self.ppu.tick(rt));
+		return;
+	}
 	self.stop_dots += rt;
 	if (self.stop_dots >= 70224) {
 		self.stop_dots -= 70224;

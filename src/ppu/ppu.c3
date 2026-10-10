@@ -66,6 +66,12 @@ struct Ppu {
 	char     rev;     // ... its revision (REV_*, mmu::CgbRevision's ordinal)
 	bool     mgb;     // Game Boy Pocket / Light
 	char     pal_written; // DMG: BGP/OBP0/OBP1 (bits 0-2) written during this line
+	// CGB in STOP mode: the PPU runs on, but off what the CPU didn't have
+	// locked when it stopped (SameBoy enter_stop_mode): VRAM and OAM read
+	// $FF, palettes black (Mmu.stop_enter; daid stop_instr*).
+	bool     stop_vram;
+	bool     stop_oam;
+	bool     stop_pal;
 
 	char lcdc;
 	char stat;
@@ -160,6 +166,9 @@ const char ATTR_YFLIP    = 0x40;
 const char ATTR_PRIORITY = 0x80;
 
 // Colour `index` of CGB palette `palette` (0-7) in palette RAM, as RGB555.
+// A palette colour as the PPU reads it (black while STOP keeps it off them).
+fn ushort Ppu.pal(&self, char[] pal, int palette, int index) => self.stop_pal ? 0 : pal_color(pal, palette, index);
+
 fn ushort pal_color(char[] pal, int palette, int index) {
 	int i = palette * 8 + index * 2;
 	return (ushort)(pal[i] | ((ushort)pal[i + 1] << 8));
