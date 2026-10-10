@@ -131,6 +131,21 @@ fn Sgb* new() {
 	return s;
 }
 
+// As the SNES side is when a game starts: no packet on the way, one player
+// (what a boot ROM did over the link is forgotten; the colours stay).
+fn void Sgb.reset_link(&self) {
+	self.p1 = 0x30;
+	self.receiving = false;
+	self.starting = false;
+	self.low = 0;
+	self.bits = 0;
+	self.packet = {};
+	self.packets_expected = 0;
+	self.packets_received = 0;
+	self.players = 1;
+	self.player = 0;
+}
+
 fn void Sgb.free(&self) {
 	mem::free(self);
 }

@@ -341,9 +341,13 @@ fn Cartridge GameBoy.load_rom_named(&self, char[] data, String save_path) {
 	c.cgb       = data.len >= 0x150 && (data[0x143] & 0x80) != 0;
 	c.logo_ok   = cart::logo_matches(data);
 
-	// Started without a boot ROM: VRAM as the DMG / SGB boot ROM leaves it.
-	if (!self.mmu.boot_active && self.mmu.model != CGB && data.len >= 0x134) {
-		self.mmu.ppu.load_boot_logo(data[0x104:48]);
+	// Started without a boot ROM: VRAM as the boot ROM leaves it, the logo
+	// from the header in it. A CGB leaves the logo's tiles for a DMG game
+	// (Mealybug's CGB screenshots show what of them the tests don't
+	// overwrite) but not their map (daid stop_instr_gbc_mode3); for a CGB
+	// game it clears VRAM.
+	if (!self.mmu.boot_active && data.len >= 0x134 && (self.mmu.model != CGB || !c.cgb)) {
+		self.mmu.ppu.load_boot_logo(data[0x104:48], self.mmu.model != CGB);
 	}
 
 	// A CGB turns its colour features on only for games that support them.
@@ -409,10 +413,65 @@ fn void Cartridge.print(&self) {
 }
 
 fn char GameBoy.step(&self) {
+	if (self.mmu.boot_done) self.boot_handoff();
 	if (self.mmu.agb_inc_b) self.agb_inc_b();
 	if (self.mmu.cart_reset) self.cart_reset();
 	char cycles = self.cpu.step(&self.mmu);
 	return cycles;
+}
+
+// wer's boot ROMs are its own: they show its logo and play its chime, but
+// they don't leave the machine exactly as Nintendo's do (the timer, where
+// the LCD is in its frame, the sound, the registers), which the hardware
+// tests check and some games notice. So when one is done the machine takes
+// the state Nintendo's hands over in, the one it starts in without a boot
+// ROM (new(false), load_rom_named: VRAM with the logo from the cartridge's
+// header, as some games check), keeping what the boot ROM decided: the
+// picture on the screen, a CGB's mode and the colours it picked for a DMG
+// game (from the title, or a button combination).
+fn void GameBoy.boot_handoff(&self) {
+	self.mmu.boot_done = false;
+	mmu::Model model = self.mmu.model;
+	bool compat = model == CGB && !self.mmu.cgb_mode;
+	HostSide k = self.host_side();
+	GameBoy* fresh = mem::new(GameBoy);
+	defer free(fresh);
+	*fresh = new(false, model);
+	fresh.set_cgb_revision(self.mmu.cgb_rev);
+	fresh.set_dmg_revision(self.mmu.dmg_rev);
+	if (compat) {
+		fresh.mmu.enter_compat_mode();
+		fresh.cpu = cpu::init_cgb_dmg();
+		if (self.mmu.cgb_rev == AGB) fresh.mmu.agb_inc_b = true;
+		fresh.mmu.ppu.bg_pal = self.mmu.ppu.bg_pal;
+		fresh.mmu.ppu.obj_pal = self.mmu.ppu.obj_pal;
+	} else if (model == CGB) {
+		fresh.mmu.timer.div = 0x1EA0; // as load_rom_named: a CGB game
+	}
+	if (model != CGB || compat) {
+		char[48] logo;
+		for (int i = 0; i < 48; i++) logo[i] = self.mmu.peek((ushort)(0x104 + i));
+		fresh.mmu.ppu.load_boot_logo(&logo, model != CGB);
+	}
+	fresh.mmu.joypad.buttons = self.mmu.joypad.buttons;
+	fresh.mmu.joypad.dpad = self.mmu.joypad.dpad;
+	fresh.cpu.clk = self.cpu.clk;
+	fresh.mmu.rt_clock = self.mmu.rt_clock;
+	fresh.mmu.frames = self.mmu.frames;
+	fresh.mmu.input_hash = self.mmu.input_hash;
+	if (self.mmu.sgb) self.mmu.sgb.reset_link();
+	bool has_extram = self.mmu.has_extram;
+	char[0x2000] extram = self.mmu.extram;
+	self.cpu = fresh.cpu;
+	self.mmu = fresh.mmu;
+	self.restore_host_side(&k);
+	if (self.mmu.ppu.vram1) mem::set(self.mmu.ppu.vram1, 0, 0x2000);
+	self.mmu.has_extram = has_extram;
+	self.mmu.extram = extram;
+	// The fresh machine's own buffers (this one keeps its own).
+	fresh.mmu.cart = null;
+	fresh.destroy();
+	self.mmu.ppu_touch();
 }
 
 // A multi-game cartridge reset the console to start the game picked: the

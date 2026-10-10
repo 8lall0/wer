@@ -753,7 +753,7 @@ const char[8] REGISTERED = { 0x3C, 0x42, 0xB9, 0xA5, 0xB9, 0xA5, 0x42, 0x3C };
 // (48 bytes, a nibble per 4-pixel row, doubled to 8x8 tiles 1-24), the
 // (R) symbol as tile 25, and both in the tile map at $9904 / $9924. Some
 // test ROMs draw with these tiles (Mealybug Tearoom's (R) sprites).
-fn void Ppu.load_boot_logo(&self, char[] logo) {
+fn void Ppu.load_boot_logo(&self, char[] logo, bool map = true) {
 	usz at = 0x10;
 	foreach (b : logo) {
 		foreach (nibble : (char[2]){ b >> 4, b & 0x0F }) {
@@ -772,6 +772,7 @@ fn void Ppu.load_boot_logo(&self, char[] logo) {
 		self.vram[0x190 + i * 2] = b;
 		self.vram[0x190 + i * 2 + 1] = 0;
 	}
+	if (!map) return;
 	for (int i = 0; i < 12; i++) {
 		self.vram[0x1904 + i] = (char)(i + 1);
 		self.vram[0x1924 + i] = (char)(i + 13);

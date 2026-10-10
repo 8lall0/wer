@@ -134,6 +134,7 @@ struct Mmu {
 
 	bool boot_active;
 	bool agb_inc_b;     // GBA: the boot ROM's last INC B is still to happen (GameBoy.step)
+	bool boot_done;     // the boot ROM just unmapped itself: GameBoy.boot_handoff
 	Model model;
 	CgbRevision cgb_rev; // CGB only
 	DmgRevision dmg_rev; // DMG only
@@ -714,6 +715,7 @@ fn void Mmu.io_set(&self, ushort addr, char value) {
 			if (self.cart && self.cart.mbc == SACHEN) self.cart.sachen.locked = false;
 			// A GBA's boot ROM ends with INC B: what games check (Pan Docs).
 			if (self.model == CGB && self.cgb_rev == AGB) self.agb_inc_b = true;
+			self.boot_done = true;
 		case 0xFF4C:   // KEY0: writable only while the CGB boot ROM runs
 			if (self.model == CGB && self.boot_active) self.key0 = value;
 		default:       self.io[addr - 0xFF00] = value;
