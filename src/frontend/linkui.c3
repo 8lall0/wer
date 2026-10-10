@@ -10,11 +10,12 @@ enum LinkMode : char {
 	FOUR,   // four here, on the 4-Player Adapter
 	PRINTER, // the Game Boy Printer: printouts become PNG files
 	BARCODE, // the Barcode Boy: cards typed in by number
+	KISS,    // the GB KISS LINK: Nectaris GB maps to and from files (kissui.c3)
 	HOST,   // waiting for, or linked with, a side that joined
 	JOIN,   // linked with a side that hosts
 }
 
-const String[7] LINK_LABELS = { "Off", "2 players here", "4 players here", "Printer", "Barcode Boy", "Host", "Join" };
+const String[8] LINK_LABELS = { "Off", "2 players here", "4 players here", "Printer", "Barcode Boy", "GB KISS LINK", "Host", "Join" };
 
 // Pixels between the two pictures.
 const int LINK_GAP = 8;
@@ -104,6 +105,7 @@ fn String link_line() {
 			case HOST:    state = net.connected() ? "  linked" : "  waiting";
 			case JOIN:    state = net.connected() ? "  linked" : net.state == CONNECTING ? "  connecting" : "  lost";
 			case PRINTER:
+			case KISS:
 			case LOCAL:   state = "  on";
 			default:      break;
 		}
@@ -146,6 +148,9 @@ fn void link_apply() {
 			gb.mmu.connect_barcode(&barcode_cable, &barcode);
 			link_mode = BARCODE;
 			notice.show("Barcode Boy: Menu > Swipe card");
+		case KISS:
+			link_stop();
+			kiss_plug();
 		case LOCAL:
 			// The second game comes from the file dialog (link_second_chosen).
 			dialog_p2 = true;
@@ -265,6 +270,8 @@ fn void link_replug() {
 			gb.mmu.connect_printer(&printer_cable, &printer);
 		case BARCODE:
 			gb.mmu.connect_barcode(&barcode_cable, &barcode);
+		case KISS:
+			gb.mmu.connect_kiss(&kiss_cable, &kiss);
 		case HOST:
 		case JOIN:
 			net.replug(&gb.mmu);
@@ -372,6 +379,11 @@ fn void link_run_frame(display::Input* in) {
 	}
 	if (link_mode == BARCODE) {
 		gb.run_frame_polled(fn (ctx) { barcode.tick(&gb.mmu); }, null, 16);
+		return;
+	}
+	if (link_mode == KISS) {
+		gb.run_frame();
+		kiss_poll();
 		return;
 	}
 	if (net.state != OFF) {

@@ -15,6 +15,8 @@ struct Link {
 	Mmu* peer;          // the other Game Boy here, or null: over the network
 	Printer* printer;   // ... or the Game Boy Printer (printer.c3)
 	BarcodeBoy* barcode; // ... or the Barcode Boy (barcode.c3)
+	KissLink* kiss;     // infrared: the GB KISS LINK (kiss.c3)
+	bool kiss_led;      // ... the game's LED as it last saw it
 	bool out_pending;   // network: a byte to send for a transfer this side clocks
 	char out_byte;
 	char out_control;   // SC as written (bit 1: the CGB's fast clock)
@@ -31,7 +33,21 @@ fn bool Mmu.ir_led(&self) {
 	return self.cart && self.cart.ir_out && (self.cart.ir_mode || (self.cart.mbc == HUC3 && self.cart.huc3.mode == 0xE));
 }
 
-fn bool Mmu.ir_seen(&self) => self.link && self.link.peer && self.link.peer.ir_led() && !(self.model == CGB && self.cgb_rev == AGB);
+fn bool Mmu.ir_seen(&self) {
+	if (!self.link || (self.model == CGB && self.cgb_rev == AGB)) return false;
+	if (self.link.kiss) return self.link.kiss.seen(self.rt_clock);
+	return self.link.peer && self.link.peer.ir_led();
+}
+
+// The cartridge's infrared state may have changed (a write to it): the
+// GB KISS LINK sees the LED's edges.
+fn void Mmu.ir_written(&self) {
+	if (!self.link || !self.link.kiss) return;
+	bool on = self.ir_led();
+	if (on == self.link.kiss_led) return;
+	self.link.kiss_led = on;
+	self.link.kiss.led(on, self.rt_clock);
+}
 
 // Connect two Game Boys in this process (both Links must stay where they are).
 fn void connect_local(Mmu* a, Link* la, Mmu* b, Link* lb) {

@@ -271,6 +271,7 @@ fn void Mmu.set(&self, ushort addr, char value) {
 		if (self.cart) {
 			self.cart.write(addr, value);
 			if (self.cart.reset_request) self.cart_reset = true; // GameBoy.step
+			if (self.link && self.link.kiss) self.ir_written();
 		}
 		return;
 	}
@@ -282,6 +283,7 @@ fn void Mmu.set(&self, ushort addr, char value) {
 	if (addr < 0xC000) {
 		if (self.cart) {
 			self.cart.write(addr, value);
+			if (self.link && self.link.kiss) self.ir_written();
 		} else if (self.has_extram) {
 			self.extram[addr - 0xA000] = value;
 		}
