@@ -157,7 +157,7 @@ fn String window_title(gameboy::Cartridge* cart, gameboy::GameBoy* gb) {
 		case DMG:  tag = gb.mmu.dmg_rev == ABC ? "" : gb.mmu.dmg_rev == MGB ? " [Pocket]" : " [DMG-0]";
 		case SGB:  tag = " [SGB]";
 		case SGB2: tag = " [SGB2]";
-		case CGB:  tag = gb.mmu.cgb_rev == C ? " [CGB]" : gb.mmu.cgb_rev == AGB ? " [GBA]" : string::tformat(" [CGB-%s]", REV_LETTERS[gb.mmu.cgb_rev.ordinal]);
+		case CGB:  tag = gb.mmu.cgb_rev == E ? " [CGB]" : gb.mmu.cgb_rev == AGB ? " [GBA]" : string::tformat(" [CGB-%s]", REV_LETTERS[gb.mmu.cgb_rev.ordinal]);
 	}
 	return string::tformat("wer - %s%s", (ZString)&cart.title[0], tag);
 }
@@ -210,13 +210,13 @@ enum Mode : char {
 	CGB_0,  // CPU CGB 0 ... E: the CGB's chip revisions
 	CGB_A,
 	CGB_B,
-	CGB,    // CPU CGB C, the default CGB
+	CGB_C,
 	CGB_D,
-	CGB_E,
+	CGB,    // CPU CGB E, the default CGB (the last revision, as SameBoy's)
 	GBA,    // a Game Boy Advance running Game Boy games
 }
 
-const String[12] MODE_NAMES = { "dmg-0", "dmg", "mgb", "sgb", "sgb2", "cgb-0", "cgb-a", "cgb-b", "cgb", "cgb-d", "cgb-e", "gba" };
+const String[12] MODE_NAMES = { "dmg-0", "dmg", "mgb", "sgb", "sgb2", "cgb-0", "cgb-a", "cgb-b", "cgb-c", "cgb-d", "cgb", "gba" };
 const String[12] MODE_LABELS = { "DMG (0)", "DMG", "Pocket", "SGB", "SGB2", "CGB (0)", "CGB (A)", "CGB (B)", "CGB (C)", "CGB (D)", "CGB (E)", "GBA" };
 
 fn mmu::Model Mode.model(self) {
@@ -235,10 +235,10 @@ fn mmu::CgbRevision Mode.revision(self) {
 		case CGB_0: return mmu::CgbRevision.CGB0;
 		case CGB_A: return mmu::CgbRevision.A;
 		case CGB_B: return mmu::CgbRevision.B;
+		case CGB_C: return mmu::CgbRevision.C;
 		case CGB_D: return mmu::CgbRevision.D;
-		case CGB_E: return mmu::CgbRevision.E;
 		case GBA:   return mmu::CgbRevision.AGB;
-		default:    return mmu::CgbRevision.C;
+		default:    return mmu::CgbRevision.E; // CGB, and a CGB-only game started in another mode
 	}
 }
 
@@ -256,9 +256,9 @@ fn Mode cycle_mode(Mode m, int dir) {
 	return (Mode)((m.ordinal + (dir > 0 ? 1 : n - 1)) % n);
 }
 
-// A mode's name in the settings and on the command line ("cgb-c" is "cgb").
+// A mode's name in the settings and on the command line ("cgb-e" is "cgb").
 fn Mode? mode_from(String name) {
-	if (name == "cgb-c") return CGB;
+	if (name == "cgb-e") return CGB;
 	foreach (i, n : MODE_NAMES) if (name == n) return (Mode)(i);
 	return NOT_FOUND~;
 }
@@ -1019,7 +1019,7 @@ fn int main(String[] args) @winmain
 				if (try m = mode_from(a[7..])) {
 					mode = m;
 				} else {
-					io::eprintfn("unknown mode '%s': use dmg, dmg-0, mgb, sgb, sgb2, cgb (= cgb-c), cgb-0, cgb-a, cgb-b, cgb-d, cgb-e or gba", a[7..]);
+					io::eprintfn("unknown mode '%s': use dmg, dmg-0, mgb, sgb, sgb2, cgb (= cgb-e), cgb-0, cgb-a, cgb-b, cgb-c, cgb-d or gba", a[7..]);
 					return 1;
 				}
 			default: rom = a;

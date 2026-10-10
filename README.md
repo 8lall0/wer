@@ -179,7 +179,7 @@ wer --mode=cgb game.gbc
 
 | Option | |
 |---|---|
-| `--mode=dmg\|mgb\|sgb\|sgb2\|cgb` | the model to emulate: `dmg` is a CPU DMG A/B/C (`dmg-0` the first DMGs), `mgb` a Game Boy Pocket, `cgb` a CPU CGB C (the others with `cgb-0`, `cgb-a`, `cgb-b`, `cgb-c`, `cgb-d`, `cgb-e`), `gba` a Game Boy Advance |
+| `--mode=dmg\|mgb\|sgb\|sgb2\|cgb` | the model to emulate: `dmg` is a CPU DMG A/B/C (`dmg-0` the first DMGs), `mgb` a Game Boy Pocket, `cgb` a CPU CGB E, the last revision (the others with `cgb-0`, `cgb-a`, `cgb-b`, `cgb-c`, `cgb-d`), `gba` a Game Boy Advance |
 | `--palette=classic` | the screen's colours: in the DMG and Pocket modes `auto` (green, a Pocket's grey: the default), `dmg`, `classic`, `pocket`, `grey`, an SGB palette `1-A` … `4-H`, or your own four, lightest first (`--palette=e0f8d0,88c070,346856,081820`); in the SGB modes an SGB palette |
 | `--blend=off\|simple\|accurate` | frame blending, like the LCD's slow response (games that flicker objects for transparency look right): `simple` mixes each frame half and half with the last, `accurate` is SameBoy's model of the LCD |
 | `--colors=balanced` | CGB/SGB colour correction, as the real screens looked: `off` (raw colours), `balanced` (the default), `accurate`, `boost`, `reduce`, `low` (SameBoy's modes) |

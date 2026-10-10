@@ -58,7 +58,7 @@ const String[7] DEFAULT_HOT_KEYS = { "Tab", "R", "P", "N", "F12", "F10", "F11" }
 const String[7] DEFAULT_HOT_PADS = { "rightshoulder", "leftshoulder", "none", "none", "none", "none", "none" };
 
 struct Config {
-	String    mode;     // "dmg", "dmg-0", "mgb", "sgb", "sgb2", "cgb" (= "cgb-c"), "cgb-0" ... "cgb-e"
+	String    mode;     // "dmg", "dmg-0", "mgb", "sgb", "sgb2", "cgb" (= "cgb-e"), "cgb-0" ... "cgb-d"
 	String    palette;  // SGB palette "1-A" .. "4-H"
 	String    dmg_palette; // DMG mode's: display::dmg_palette_name ("auto", "classic", "2-C", "custom", ...)
 	String    dmg_colors;  // the "custom" one's colours (display::parse_colors), or ""
