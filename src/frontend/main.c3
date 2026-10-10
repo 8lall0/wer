@@ -427,6 +427,7 @@ enum MenuItem : char {
 	LINK,
 	SWIPE,
 	KISS_MAP,
+	KISS_FILE,
 	RESET,
 	QUIT,
 }
@@ -516,6 +517,11 @@ fn bool frame() {
 	if (!screen.dialog_open()) dialog_p2 = false;
 	if (chosen.len && chosen.len > 4 && chosen[chosen.len - 4..].to_lower_tcopy() == ".wer") {
 		movie_play(chosen);
+		menu = false;
+		chosen = "";
+	}
+	if (chosen.len && chosen.len > 4 && chosen[chosen.len - 4..].to_lower_tcopy() == ".gbf") {
+		kiss_open(chosen);
 		menu = false;
 		chosen = "";
 	}
@@ -684,6 +690,7 @@ fn bool frame() {
 		items[count++] = LINK;
 		if (link_mode == BARCODE) items[count++] = SWIPE;
 		if (link_mode == KISS) items[count++] = KISS_MAP;
+		if (link_mode == KISS) items[count++] = KISS_FILE;
 		if (has_rom) items[count++] = RESET;
 		items[count++] = QUIT;
 		if (selected >= count) selected = count - 1;
@@ -741,6 +748,7 @@ fn bool frame() {
 		if (item == LINK && step != 0) link_step(step);
 		if (item == MOVIE && step != 0) movie_step(step);
 		if (item == KISS_MAP && step != 0) kiss_map_step(step);
+		if (item == KISS_FILE && step != 0) kiss_file_step(step);
 		if ((item == SAVE_STATE || item == LOAD_STATE) && step != 0) {
 			slot = (slot - 1 + step + STATE_SLOTS) % STATE_SLOTS + 1;
 		}
@@ -792,6 +800,7 @@ fn bool frame() {
 					}
 				case QUIT:   break;
 				case KISS_MAP: break;
+				case KISS_FILE: break;
 				case PALETTE: break;
 				case COLORS:  break;
 				case BLEND:   break;
@@ -828,6 +837,7 @@ fn bool frame() {
 				case LINK:    lines[i] = link_line();
 				case SWIPE:   lines[i] = swipe_line();
 				case KISS_MAP: lines[i] = kiss_map_line();
+				case KISS_FILE: lines[i] = kiss_file_line();
 				case RESET:   lines[i] = "Reset";
 				case QUIT:    lines[i] = "Quit";
 			}

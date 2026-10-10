@@ -95,6 +95,11 @@ enum KissState : char {
 	G_FINISH,
 	G_CART,   // the cartridge code
 	G_FLAG2,  // $CE00 = $02: done
+	// A file from the GB KISS menu: the game sends, the GB KISS LINK
+	// answers as a receiving menu would (L_HEAD then L_BODY, per command).
+	L_HEAD,   // its handshake and a command's registers
+	L_BODY,   // the command's data
+	L_ANSWER, // our answer
 	BYE,      // ending the session
 	DONE,
 }
@@ -136,6 +141,18 @@ struct KissLink {
 	char   slot;         // the menu's slot for it
 	char[256] search;    // the menu's answer to its title, given back to it
 	int    gbf_at;       // how much of its data has gone
+	// Receiving a file: the command being answered, and the file so far.
+	char[8] head;        // its registers: status, command, local, remote, length, parameter
+	char[32] vram;       // $CE00-$CE1F as a receiving menu has it
+	char[16384] in_gbf;  // the file as it comes: metadata at 0, data after
+	int    in_title;     // creator, title and icon: their length
+	int    in_raw;       // the data so far
+	int    in_raw_size;
+	char   in_flags;
+	bool   in_hist;      // the history is in
+	bool   gbf_received; // a whole file came in (the frontend saves it)
+	char[16384] out_gbf; // ... here
+	int    out_len;
 	String status;       // what happened last, for the frontend (static text)
 }
 
@@ -160,14 +177,17 @@ faultdef NOT_A_GBF;
 fn void? KissLink.set_gbf(&self, char[] gbf) {
 	if (gbf.len < 7 || gbf.len > self.gbf.len) return NOT_A_GBF~;
 	int size = gbf[0] | (int)gbf[1] << 8;
-	int meta = 6 + gbf[4] + (gbf[2] & 1 ? 46 : 0);
+	int meta = 5 + gbf[4] + (gbf[2] & 1 ? 46 : 0);
 	if (size != gbf.len || meta > size) return NOT_A_GBF~;
 	self.gbf[:gbf.len] = gbf[..];
 	self.gbf_len = (int)gbf.len;
 	self.has_gbf = true;
 }
 
-fn int KissLink.gbf_meta(&self) => 6 + self.gbf[4] + (self.gbf[2] & 1 ? 46 : 0);
+// The file's metadata: size (2), flags, cartridge code, then the length of
+// what follows it (the creator code, the title, the icon), that, and the
+// history (46 bytes) if the flags say so.
+fn int KissLink.gbf_meta(&self) => 5 + self.gbf[4] + (self.gbf[2] & 1 ? 46 : 0);
 
 fn void Mmu.connect_kiss(&self, Link* l, KissLink* k) {
 	*l = { .kiss = k };
@@ -199,6 +219,7 @@ fn void KissLink.gbf_chunk(&self) {
 
 // The command just finished: what comes next.
 fn void KissLink.command_done(&self) {
+	if (kiss_trace) io::eprintfn("ANSWER %s: %s ... %s", self.state, self.rx[:self.nrx < 9 ? self.nrx : 9], self.nrx > 9 ? self.rx[9:self.nrx - 9 < 24 ? self.nrx - 9 : 24] : (char[]){});
 	switch (self.state) {
 		case KISS_ID:
 			if (self.nrx >= 16 && (String)self.rx[2:13] == "GB KISS MENU ") {
@@ -256,7 +277,7 @@ fn void KissLink.command_done(&self) {
 		case G_START:
 		case G_DUP:
 			self.state = G_TITLE;
-			self.send(0x02, 0xC700, 0xC50C, self.gbf[4], 0, self.gbf[6:self.gbf[4]], REGS_256);
+			self.send(0x02, 0xC700, 0xC50C, self.gbf[4], 0, self.gbf[5:self.gbf[4]], REGS_256);
 		case G_TITLE:
 			self.search[..] = self.rx[9:256];
 			if (self.rx[0] == 0x80) {  // the menu has it already: replace it
@@ -277,9 +298,14 @@ fn void KissLink.command_done(&self) {
 			self.state = G_PREP;
 			self.send(0x04, 0xC500, 0xFFD2, 0x2E, 0, {}, REGS);
 		case G_PREP:
-			int hist = self.gbf[2] & 1 ? 46 : 0;
-			self.state = G_HIST;
-			self.send(0x0A, 0xC500, 0xC600, (char)hist, 0, self.gbf[6 + self.gbf[4]:hist], REGS);
+			// The history first, if there is one (each $0A appends to the
+			// file; a length of 0 would be 256 bytes).
+			if (self.gbf[2] & 1) {
+				self.state = G_HIST;
+				self.send(0x0A, 0xC500, 0xC600, 46, 0, self.gbf[5 + self.gbf[4]:46], REGS);
+				return;
+			}
+			nextcase G_HIST;
 		case G_HIST:
 		case G_DATA:
 			if (self.gbf_at < self.gbf_len - self.gbf_meta()) {
@@ -299,10 +325,173 @@ fn void KissLink.command_done(&self) {
 			self.gbf_sent = true;
 			self.status = "file sent";
 			self.bye();
+		case L_HEAD:
+			self.got_head();
+		case L_BODY:
+			self.got_body();
+			self.start_answer();
+		case L_ANSWER:
+			self.listen(self.last);   // the next command
 		case BYE:
 			self.state = DONE;
 			self.done_at = self.last;
 		case DONE:
+			break;
+	}
+}
+
+// --- a file from the GB KISS menu ----------------------------------------------
+
+// Listening: the game sends commands, as a Game Boy sending a file does.
+fn void KissLink.listen(&self, ulong now) {
+	if (self.state != L_HEAD && self.state != L_BODY && self.state != L_ANSWER) {
+		self.vram[..] = 0;
+		self.vram[:16] = (char[16]){ 0x00, 0x02, 'G', 'B', ' ', 'K', 'I', 'S', 'S', ' ', 'M', 'E', 'N', 'U', ' ', 0x00 }[..];
+		self.in_title = self.in_raw = self.in_raw_size = 0;
+		self.in_hist = false;
+		self.status = "receiving a file";
+	}
+	self.state = L_HEAD;
+	self.nsteps = 0;
+	self.at = 0;
+	self.nrx = 0;
+	self.push(RECV_HS, 0xAA);
+	self.push(SEND_HS, 0x55);
+	self.push(RECV_HS, 0xC3);
+	self.push(SEND_HS, 0x3C);
+	for (int i = 0; i < 11; i++) self.push(RECV_CB); // $48 $75, 8 registers, checksum
+	self.begin_step(now);
+}
+
+fn void KissLink.push_regs(&self, char[8] regs) {
+	self.push(SEND_HS, 0xAA);
+	self.push(RECV_HS, 0x55);
+	self.push(SEND_HS, 0xC3);
+	self.push(RECV_HS, 0x3C);
+	self.push_bytes(&regs);
+}
+
+// A command's registers are in: take its data, then answer it.
+fn void KissLink.got_head(&self) {
+	char sum;
+	foreach (b : self.rx[2:8]) sum += b;
+	if (self.rx[0] != 0x48 || self.rx[1] != 0x75 || (char)(sum + self.rx[10]) != 0) {
+		self.listen(self.last);
+		return;
+	}
+	self.head[..] = self.rx[2:8];
+	char cmd = self.head[1];
+	int len = self.head[6] ? self.head[6] : 256;
+	int n = cmd == 0x03 || cmd == 0x06 ? 256 : cmd == 0x02 || cmd == 0x0A || cmd == 0x0B ? len : 0;
+	if (!n) {
+		self.start_answer();
+		return;
+	}
+	self.state = L_BODY;
+	self.nsteps = 0;
+	self.at = 0;
+	self.nrx = 0;
+	for (int i = 0; i <= n; i++) self.push(RECV_CB);
+	self.begin_step(self.last);
+}
+
+fn void KissLink.start_answer(&self) {
+	self.state = L_ANSWER;
+	self.nsteps = 0;
+	self.at = 0;
+	char sum;
+	int len = self.head[6] ? self.head[6] : 256;
+	if (self.head[1] == 0x0B) foreach (b : self.rx[:len]) sum += b;
+	self.nrx = 0;
+	self.answer(self.head[1], -sum);
+	if (!self.nsteps) {           // nothing to say ($00): the next command
+		self.listen(self.last);
+		return;
+	}
+	self.begin_step(self.last + KISS_GAP);
+}
+
+// The answer, as Nectaris GB's menu gives it (`echo`: a write's checksum).
+fn void KissLink.answer(&self, char cmd, char echo) {
+	int len = self.head[6] ? self.head[6] : 256;
+	ushort local = self.head[2] | (ushort)self.head[3] << 8;
+	int meta = 5 + self.in_title + (self.in_flags & 1 ? 46 : 0);
+	switch (cmd) {
+		case 0x08:   // a read of our memory: the handshake, the bytes, the checksum
+			self.push(SEND_HS, 0xAA);
+			self.push(RECV_HS, 0x55);
+			self.push(SEND_HS, 0xC3);
+			self.push(RECV_HS, 0x3C);
+			char[256] out;
+			for (int i = 0; i < len; i++) {
+				int a = local + i - 0xCE00;
+				out[i] = a >= 0 && a < 32 ? self.vram[a] : 0;
+			}
+			self.push_bytes(out[:len]);
+		case 0x0B:   // a write: the data's checksum back
+			self.push(SEND_CB, echo);
+		case 0x02:
+			self.push_regs({ 0x90, 0x00, 0x00, 0xC5, (char)len, 0xC4, 0x00, 0x00 });
+			char[256] out;
+			out[:10] = (char[10]){ 0x00, 0x00, 0xFF, 0x0F, 0x00, 0x0F, 0x00, 0x1E, 0x00, 0x06 }[..];
+			self.push_bytes(&out);
+		case 0x03:
+			self.push_regs({ 0x80, 0x00, 0x00, 0xC5, 0x0C, 0xC5, 0x00, 0x77 });
+			char[256] out;
+			self.push_bytes(&out);
+		case 0x04:
+			self.push_regs({ 0xC0, 0x00, 0x00, 0xC5, self.head[4], self.head[5], (char)meta, (char)(meta >> 8) });
+		case 0x0A:
+			self.push_regs({ 0x80, 0x00, 0x00, 0xC5, self.head[6], 0xC4, self.head[6], 0x00 });
+		case 0x00:
+			break;
+		default:
+			self.push_regs({ 0x80, 0x00, 0x00, 0xC5, 0x00, 0xC4, 0x00, 0x00 });
+	}
+}
+
+// The command's data is in (the answer has gone, or is going): keep what
+// it carries.
+fn void KissLink.got_body(&self) {
+	char cmd = self.head[1];
+	int len = self.head[6] ? self.head[6] : 256;
+	ushort remote = self.head[4] | (ushort)self.head[5] << 8;
+	char[] data = self.rx[:self.nrx];
+	switch (cmd) {
+		case 0x02:   // creator, title and icon
+			self.in_title = len;
+			self.in_gbf[5:len] = data[:len];
+		case 0x03:   // the size of the data, and the flags
+			self.in_raw_size = remote;
+			self.in_flags = self.head[7];
+		case 0x0A:
+			if (remote == 0xC50A) {          // the cartridge code: the last thing
+				self.in_gbf[3] = data[0];
+			} else if ((self.in_flags & 1) && !self.in_hist) {
+				self.in_hist = true;         // the history comes first
+				self.in_gbf[5 + self.in_title:46] = data[:46];
+			} else {
+				int meta = 5 + self.in_title + (self.in_flags & 1 ? 46 : 0);
+				if ((usz)(meta + self.in_raw + len) <= self.in_gbf.len) self.in_gbf[meta + self.in_raw:len] = data[:len];
+				self.in_raw += len;
+			}
+		case 0x0B:
+			int a = remote - 0xCE00;
+			for (int i = 0; i < len && a + i >= 0 && a + i < 32; i++) self.vram[a + i] = data[i];
+			// $CE00 = $02: the file is done.
+			if (a == 0 && data[0] == 0x02 && self.in_title) {
+				int meta = 5 + self.in_title + (self.in_flags & 1 ? 46 : 0);
+				int size = meta + self.in_raw;
+				self.in_gbf[0] = (char)size;
+				self.in_gbf[1] = (char)(size >> 8);
+				self.in_gbf[2] = self.in_flags;
+				self.in_gbf[4] = (char)self.in_title;
+				self.out_gbf[:size] = self.in_gbf[:size];
+				self.out_len = size;
+				self.gbf_received = true;
+				self.status = "file received";
+			}
+		default:
 			break;
 	}
 }
@@ -466,13 +655,6 @@ fn void KissLink.advance(&self, ulong now) {
 		self.start_session();
 		self.t = now;
 	}
-	// Long unwatched (the game busy elsewhere): the command starts over now.
-	if (now > self.last + KISS_RETRY && !self.failed && !self.again) {
-		self.at = 0;
-		self.nrx = 0;
-		self.last = now;
-		self.begin_step(now);
-	}
 	self.last = now;
 	if (self.again) {
 		if (now < self.failed_at + KISS_AGAIN) return;
@@ -554,6 +736,12 @@ fn void KissLink.led(&self, bool on, ulong now) {
 			if (!rose && !(fell && self.phase == 9)) return;
 			if (fell) {   // the closing pulse is over: the byte is in
 				char b = ~self.byte;
+				// The game sends a handshake of its own: it is sending a
+				// file. Listen to it.
+				if (b == 0xAA && s.value == 0x55 && self.state == KISS_ID) {
+					self.listen(now);
+					return;
+				}
 				if (b != s.value) { self.fail(now); return; }
 				self.step_done(now);
 				return;

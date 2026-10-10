@@ -79,3 +79,79 @@ fn void nectaris_map_round_trip() @test {
 	test::@check(kiss.received, "a map came back (%s)", kiss.status);
 	test::@check(kiss.map[..] == map[..], "the same map");
 }
+
+// A GB KISS data file made up for the test: a title, a history, 300 bytes.
+fn char[] test_gbf() {
+	char[] g = mem::temp_array(char, 359);
+	g[0] = (char)359;
+	g[1] = (char)(359 >> 8);
+	g[2] = 0x01;          // has a history
+	g[3] = 0x00;          // any cartridge
+	g[4] = 8;             // creator code + title
+	g[5] = 0x00;          // creator: none (the title is the icon)
+	g[6:7] = ((String)"WERTEST")[..];
+	int h = 13;           // the history: points, author, sources
+	g[h + 2:10] = ((String)"WER       ")[..];
+	for (int i = h + 13; i < h + 46; i++) g[i] = ' ';
+	g[h + 23] = 0;
+	g[h + 34] = 0;
+	g[h + 45] = 0;
+	for (int i = 59; i < 359; i++) g[i] = (char)(i * 7);
+	return g;
+}
+
+fn void gb_kiss_file_both_ways() @test {
+	char[] rom;
+	foreach (path : ROMS) {
+		if (try data = file::load_temp(path)) {
+			rom = zip::is_zip(data) ? zip::extract_rom(data, tmem) ?? {} : data;
+			break;
+		}
+	}
+	if (!rom.len) return;
+	const String TO_MENU = "320:start,520:down,560:down,600:down,640:a,760:down,800:down,840:down,880:down,920:a";
+	// The menu formats its storage, then asks for the owner's name: give
+	// it one in battery RAM, and start again.
+	char[] ram;
+	{
+		gameboy::GameBoy gb = gameboy::new(true, DMG);
+		defer gb.destroy();
+		gb.load_rom(rom);
+		gb.mmu.cart.has_battery = false;
+		play(&gb, TO_MENU, 1400);
+		ram = mem::temp_array(char, gb.mmu.cart.ram.len);
+		ram[..] = gb.mmu.cart.ram[..];
+		ram[0x3FC6:3] = ((String)"WER")[..];
+	}
+	gameboy::GameBoy gb = gameboy::new(true, DMG);
+	defer gb.destroy();
+	gb.load_rom(rom);
+	gb.mmu.cart.has_battery = false;
+	gb.mmu.cart.ram[..] = ram[..];
+	mmu::KissLink* kiss = mem::new(mmu::KissLink);
+	defer free(kiss);
+	kiss.init();
+	char[] gbf = test_gbf();
+	kiss.set_gbf(gbf)!!;
+	mmu::Link cable;
+	gb.mmu.connect_kiss(&cable, kiss);
+
+	// To the menu: Start receives into the next free slot.
+	play(&gb, TO_MENU.tconcat(",1300:start"), 2600);
+	test::@check(kiss.gbf_sent, "the file went to the menu (%s)", kiss.status);
+	bool found;
+	for (usz i = 0; i + gbf.len <= gb.mmu.cart.ram.len; i++) {
+		if (gb.mmu.cart.ram[i:gbf.len] == gbf) found = true;
+	}
+	test::@check(found, "the menu keeps it in battery RAM as it was");
+
+	// From the menu: the file (2nd), Send (4th command), A.
+	play(&gb, "60:right,120:a,200:down,240:down,280:down,320:a,420:a", 1500);
+	test::@check(kiss.gbf_received, "a file came back (%s)", kiss.status);
+	char[] got = kiss.out_gbf[:kiss.out_len];
+	test::eq(got.len, gbf.len);
+	// The same file, but for its history: passing it on, the sending menu
+	// credits its owner (here the author, WER: a point more).
+	test::@check(got[:13] == gbf[:13] && got[59..] == gbf[59..], "the same file");
+	test::eq(got[25], (char)1);
+}
