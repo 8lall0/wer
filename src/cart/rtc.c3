@@ -4,8 +4,10 @@ module cart;
 //
 // Five registers sit behind RAM "banks" $08-$0C: seconds, minutes, hours, the
 // low 8 bits of the day counter, and DH (bit 0 = day bit 8, bit 6 = halt,
-// bit 7 = day carry). Reads return the *latched* copy, taken when $00 then $01
-// is written to $6000-$7FFF; writes go to the running clock.
+// bit 7 = day carry). Reads return the *latched* copy, taken by any write
+// to $6000-$7FFF (games write $00 then $01, but a single write of any value
+// latches: CasualPokePlayer's latch-rtc-test); writes go to the running
+// clock.
 //
 // While the emulator runs, the clock advances with emulated time (one second
 // per `cpu_hz` T-cycles, the running model's clock). Across sessions it catches up with the wall clock via
@@ -48,9 +50,9 @@ fn void Rtc.latch(&self) {
 	for (int i = 0; i < 5; i++) self.latched[i] = self.reg(i);
 }
 
-// A write to $6000-$7FFF: $00 followed by $01 latches the clock.
+// A write to $6000-$7FFF latches the clock, whatever the value.
 fn void Rtc.write_latch(&self, char value) {
-	if (self.latch_last == 0 && value == 1) self.latch();
+	self.latch();
 	self.latch_last = value;
 }
 

@@ -225,6 +225,42 @@ fn void mbc3_rtc_reads_the_latched_copy() @test
 	test::eq((char)31, rtc_read(c, 0x08));
 }
 
+// Any single write to $6000-$7FFF latches (CasualPokePlayer's latch-rtc-test).
+fn void mbc3_rtc_any_write_latches() @test
+{
+	cart::Cartridge* c = build(4, 0x10, 0x03);
+	defer c.free();
+	c.write(0x0000, 0x0A);
+	rtc_write(c, 0x08, 12);
+	c.write(0x6000, 0x5C);
+	test::eq((char)12, rtc_read(c, 0x08));
+	rtc_write(c, 0x08, 40);
+	c.write(0x7FFF, 0x5C);               // the same value again latches too
+	test::eq((char)40, rtc_read(c, 0x08));
+}
+
+// With the clock RAMB is 4 bits: the upper ones are ignored, and banks
+// $04-$07 and $0D-$0F map to nothing (rtc-invalid-banks-test).
+fn void mbc3_rtc_bank_register_is_4_bits() @test
+{
+	cart::Cartridge* c = build(4, 0x10, 0x03); // 32 KiB RAM
+	defer c.free();
+	c.write(0x0000, 0x0A);
+	for (char b = 0; b < 4; b++) {
+		c.write(0x4000, b);
+		c.write(0xA000, b + 0x40);
+	}
+	c.write(0x4000, 0x12);               // = bank 2
+	test::eq((char)0x42, c.read(0xA000));
+	c.write(0x4000, 0x05);               // nothing there (not bank 1)
+	test::eq((char)0xFF, c.read(0xA000));
+	c.write(0xA000, 0x99);
+	c.write(0x4000, 0x01);
+	test::eq((char)0x41, c.read(0xA000));
+	c.write(0x4000, 0x0E);
+	test::eq((char)0xFF, c.read(0xA000));
+}
+
 fn void mbc3_rtc_rolls_over_and_sets_day_carry() @test
 {
 	cart::Cartridge* c = build(4, 0x10, 0x03);

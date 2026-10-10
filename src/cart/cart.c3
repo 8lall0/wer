@@ -503,6 +503,9 @@ fn usz Cartridge.ram_offset(&self, ushort addr) {
 	// MBC3 banks $08-$0C are the RTC registers, not RAM: keep them out of range
 	// (reads $FF, writes dropped) instead of wrapping onto real save RAM.
 	if ((self.mbc == MBC3 || self.mbc == PKJD) && bank >= 0x08) return self.ram.len;
+	// With the clock, banks 4-7 map to nothing either (but for MBC30's 8
+	// RAM banks).
+	if (self.has_rtc && bank >= 0x04 && self.ram.len <= 0x8000) return self.ram.len;
 	bank = wrap_bank(bank, self.ram.len, 0x2000);
 	return (usz)bank * 0x2000 + local % (usz)self.ram.len; // 2 KiB RAM mirrors in its bank
 }
@@ -610,7 +613,9 @@ fn void Cartridge.mbc3_control(&self, ushort addr, char value) {
 			// 7 bits (2 MiB); MBC30, on bigger cartridges, has all 8.
 			uint b = value & (self.rom.len > 0x200000 ? 0xFF : 0x7F);
 			self.rom_bank = b == 0 ? 1 : b;
-		case addr < 0x6000: self.ram_bank = value; // 0-3 = RAM, 8-C = RTC
+		// 0-3 = RAM, 8-C = RTC. With the clock it is a 4-bit register
+		// (CasualPokePlayer's rtc-invalid-banks-test).
+		case addr < 0x6000: self.ram_bank = self.has_rtc ? value & 0x0F : value;
 		default: if (self.has_rtc) self.rtc.write_latch(value);
 	}
 }
