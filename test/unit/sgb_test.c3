@@ -48,13 +48,59 @@ fn void packet_is_decoded_and_executed() @test
 	test::eq((char)0x01, m.sgb.data[1]);
 }
 
-fn void bad_stop_bit_drops_the_packet() @test
+// The SGB doesn't check the stop bit (CasualPokePlayer's sgb-ext-test).
+fn void any_stop_bit_completes_the_packet() @test
 {
 	mmu::Mmu* m = sgb_mmu();
 	defer drop(m);
 
 	send_packet(m, pkt(sgb::CMD_MASK_EN * 8 + 1), false);
-	test::eq(0u, m.sgb.seen[sgb::CMD_MASK_EN]);
+	test::eq(1u, m.sgb.seen[sgb::CMD_MASK_EN]);
+}
+
+// A packet with bit `odd` sent as `first`, `second`, then $30 (the other
+// bits as games send them); `short_start`: no $30 after the start pulse.
+fn void send_odd(mmu::Mmu* m, char[16] bytes, int odd, char first, char second, bool short_start = false) {
+	m.set(0xFF00, 0x00);
+	if (!short_start) m.set(0xFF00, 0x30);
+	for (int i = 0; i < 128; i++) {
+		bool one = ((bytes[i / 8] >> (i % 8)) & 1) != 0;
+		if (i == odd) {
+			m.set(0xFF00, first);
+			m.set(0xFF00, second);
+		} else {
+			m.set(0xFF00, one ? 0x10 : 0x20);
+		}
+		m.set(0xFF00, 0x30);
+	}
+	m.set(0xFF00, 0x20);
+	m.set(0xFF00, 0x30);
+}
+
+// A bit is read when P1 goes back to $30, by the line that was low last.
+fn void the_last_line_low_is_the_bit() @test
+{
+	mmu::Mmu* m = sgb_mmu();
+	defer drop(m);
+
+	send_odd(m, pkt(sgb::CMD_MLT_REQ * 8 + 1, 0x00), 8, 0x20, 0x10); // 1P sent, bit 0 read as 1
+	test::eq(2, m.sgb.players);
+	send_odd(m, pkt(sgb::CMD_MLT_REQ * 8 + 1, 0x03), 8, 0x10, 0x20); // 4P sent, bit 0 read as 0
+	test::eq(3, m.sgb.players);
+}
+
+// Both lines low mid-packet start it over: the packet is lost. So is one
+// whose start pulse isn't followed by $30.
+fn void a_reset_or_a_short_start_drops_the_packet() @test
+{
+	mmu::Mmu* m = sgb_mmu();
+	defer drop(m);
+
+	send_odd(m, pkt(sgb::CMD_MLT_REQ * 8 + 1, 0x03), 8, 0x00, 0x10);
+	send_odd(m, pkt(sgb::CMD_MLT_REQ * 8 + 1, 0x03), 8, 0x20, 0x00);
+	send_odd(m, pkt(sgb::CMD_MLT_REQ * 8 + 1, 0x03), -1, 0, 0, true);
+	test::eq(0u, m.sgb.seen[sgb::CMD_MLT_REQ]);
+	test::eq(1, m.sgb.players);
 }
 
 fn void multi_packet_command_waits_for_all_packets() @test

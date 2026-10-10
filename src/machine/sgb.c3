@@ -86,6 +86,8 @@ struct Sgb {
 	// packet receiver
 	char   p1;          // last P1 select bits written (bits 4-5)
 	bool   receiving;   // a start pulse was seen
+	bool   starting;    // ... and P1 hasn't gone back to $30 since
+	char   low;         // the line last pulled low since $30 ($10 or $20; 0: none)
 	int    bits;        // data bits of the current packet so far (128 = expect stop bit)
 	char[16] packet;
 
@@ -145,24 +147,38 @@ fn void Sgb.write_p1(&self, char value) {
 		self.player = (self.player + 1) & (self.players - 1);
 	}
 
-	if (p1 == 0x00) {                    // start pulse
+	// Both lines low, whenever: a start pulse (a packet being sent is
+	// dropped). It only takes once P1 is back at $30.
+	if (p1 == 0x00) {
 		self.receiving = true;
+		self.starting = true;
 		self.bits = 0;
 		self.packet = {};
+		self.low = 0;
 		return;
 	}
-	// A bit is the edge from "both high" to one line low.
-	if (!self.receiving || prev != 0x30 || p1 == 0x30) return;
-
-	bool one = p1 == 0x10;               // P15 low = 1, P14 low = 0
+	if (!self.receiving) return;
+	if (p1 != 0x30) {                    // one line low: what the bit will be
+		if (!self.starting) self.low = p1;
+		return;
+	}
+	if (self.starting) {
+		self.starting = false;
+		return;
+	}
+	// Back to $30: a bit, by the line that was low last (P15 = 1, P14 = 0;
+	// $20 then $10 is a 1). (CasualPokePlayer's sgb-ext-test.)
+	if (!self.low) return;
+	bool one = self.low == 0x10;
+	self.low = 0;
 	if (self.bits < PACKET_BITS) {
 		if (one) self.packet[self.bits / 8] |= (char)(1 << (self.bits % 8));
 		self.bits++;
 		return;
 	}
-	// The stop bit must be 0; anything else drops the packet.
+	// The stop bit: whatever its value, the packet is done.
 	self.receiving = false;
-	if (!one) self.packet_done();
+	self.packet_done();
 }
 
 fn void Sgb.packet_done(&self) {
