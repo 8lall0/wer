@@ -23,6 +23,7 @@ struct Link {
 	PowerAntenna* antenna; // ... or the Power Antenna / Bug Sensor (antenna.c3)
 	Bardigun* bardigun; // ... or Barcode Taisen Bardigun's reader (bardigun.c3)
 	FullChanger* changer; // infrared: Zok Zok Heroes' Full Changer (fullchanger.c3)
+	Pikachu2* pikachu;  // infrared: the Pokémon Pikachu 2 (pikachu.c3)
 	bool out_pending;   // network: a byte to send for a transfer this side clocks
 	char out_byte;
 	char out_control;   // SC as written (bit 1: the CGB's fast clock)
@@ -43,17 +44,19 @@ fn bool Mmu.ir_seen(&self) {
 	if (!self.link || (self.model == CGB && self.cgb_rev == AGB)) return false;
 	if (self.link.kiss) return self.link.kiss.seen(self.rt_clock);
 	if (self.link.changer) return self.link.changer.seen(self.rt_clock);
+	if (self.link.pikachu) return self.link.pikachu.seen(self.rt_clock);
 	return self.link.peer && self.link.peer.ir_led();
 }
 
 // The cartridge's infrared state may have changed (a write to it): the
 // GB KISS LINK sees the LED's edges.
 fn void Mmu.ir_written(&self) {
-	if (!self.link || !self.link.kiss) return;
+	if (!self.link || (!self.link.kiss && !self.link.pikachu)) return;
 	bool on = self.ir_led();
 	if (on == self.link.kiss_led) return;
 	self.link.kiss_led = on;
-	self.link.kiss.led(on, self.rt_clock);
+	if (self.link.kiss) self.link.kiss.led(on, self.rt_clock);
+	if (self.link.pikachu) self.link.pikachu.led(on, self.rt_clock);
 }
 
 // Connect two Game Boys in this process (both Links must stay where they are).
@@ -71,7 +74,7 @@ fn void Mmu.unplug(&self) {
 
 // A device here answers each byte at once (no other Game Boy, no network).
 fn bool Link.device(&self) => self.printer || self.barcode || self.kiss || self.workboy || self.mobile
-	|| self.turbo || self.antenna || self.bardigun || self.changer;
+	|| self.turbo || self.antenna || self.bardigun || self.changer || self.pikachu;
 
 // SC = $81: a transfer this side clocks starts.
 fn void Mmu.link_start(&self) {
@@ -92,7 +95,7 @@ fn int Mmu.link_exchange(&self) {
 	if (l.mobile) return l.mobile.exchange(self.serial_out, self.rt_clock);
 	if (l.antenna) return l.antenna.exchange(self.serial_out, self.rt_clock);
 	if (l.bardigun) return l.bardigun.exchange(self.serial_out);
-	if (l.kiss || l.changer || l.turbo) return 0xFF; // nothing answers a byte the game clocks
+	if (l.kiss || l.changer || l.turbo || l.pikachu) return 0xFF; // nothing answers a byte the game clocks
 	if (l.peer) return l.peer.link_take(self.serial_out);
 	if (!l.in_ready) return -1;
 	l.in_ready = false;

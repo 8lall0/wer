@@ -12,6 +12,8 @@ import mmu, config, gameboy;
 //     barcode typed in
 //   Full Changer (Zok Zok Heroes): the Character line picks one of the 70,
 //     Enter waves it
+//   Pokémon Pikachu 2 (Gold, Silver): the Watts line, Enter sends them as a
+//     Mystery Gift
 
 const String TURBO_FILE = "turbo-file.bin";
 
@@ -24,6 +26,11 @@ mmu::Link antenna_cable;
 
 mmu::Bardigun bardigun;
 mmu::Link bardigun_cable;
+
+mmu::Pikachu2 pikachu;
+mmu::Link pikachu_cable;
+int pikachu_watts = 500;     // the menu's Watts line
+mmu::PikaState pikachu_told;
 
 mmu::FullChanger changer;
 mmu::Link changer_cable;
@@ -84,12 +91,48 @@ fn void changer_plug() {
 	notice.show("Full Changer: Menu > Character");
 }
 
+fn void pikachu_plug() {
+	pikachu = {};
+	gb.mmu.connect_pikachu(&pikachu_cable, &pikachu);
+	link_mode = PIKACHU;
+	pikachu_told = IDLE;
+	notice.show("Pikachu 2: Menu > Watts");
+}
+
+fn String pikachu_line() {
+	int g = mmu::pika_gift(pikachu_watts);
+	return string::tformat("Watts: < %d > %s", pikachu_watts, mmu::PIKA_ITEM_NAMES[g]);
+}
+
+fn void pikachu_step(int step) {
+	if (step > 0) pikachu_watts = pikachu_watts >= 900 ? (pikachu_watts == 999 ? 0 : 999) : pikachu_watts + 100;
+	if (step < 0) pikachu_watts = pikachu_watts == 0 ? 999 : pikachu_watts == 999 ? 900 : pikachu_watts - 100;
+}
+
+fn void pikachu_send() {
+	pikachu.send(pikachu_watts);
+	menu = false;
+	notice.show("Pikachu 2: sending (Mystery Gift screen)");
+}
+
+// After each frame: how the gift went.
+fn void pikachu_poll() {
+	if (pikachu.state == pikachu_told) return;
+	pikachu_told = pikachu.state;
+	switch (pikachu.state) {
+		case DONE:   notice.show(string::tformat("Pikachu 2: sent %d watts", pikachu.watts));
+		case FAILED: notice.show("Pikachu 2: no answer");
+		default:     break;
+	}
+}
+
 fn void accessory_replug() {
 	switch (link_mode) {
 		case TURBO:    gb.mmu.connect_turbo(&turbo_cable, &turbo);
 		case ANTENNA:  gb.mmu.connect_antenna(&antenna_cable, &antenna);
 		case BARDIGUN: gb.mmu.connect_bardigun(&bardigun_cable, &bardigun);
 		case CHANGER:  gb.mmu.connect_changer(&changer_cable, &changer);
+		case PIKACHU:  gb.mmu.connect_pikachu(&pikachu_cable, &pikachu);
 		default:       break;
 	}
 }

@@ -429,6 +429,7 @@ enum MenuItem : char {
 	KISS_MAP,
 	KISS_FILE,
 	CHARACTER,
+	WATTS,
 	RESET,
 	QUIT,
 }
@@ -692,6 +693,7 @@ fn bool frame() {
 		items[count++] = LINK;
 		if (link_mode == BARCODE || link_mode == BARDIGUN) items[count++] = SWIPE;
 		if (link_mode == CHANGER) items[count++] = CHARACTER;
+		if (link_mode == PIKACHU) items[count++] = WATTS;
 		if (link_mode == KISS) items[count++] = KISS_MAP;
 		if (link_mode == KISS) items[count++] = KISS_FILE;
 		if (has_rom) items[count++] = RESET;
@@ -753,6 +755,7 @@ fn bool frame() {
 		if (item == KISS_MAP && step != 0) kiss_map_step(step);
 		if (item == KISS_FILE && step != 0) kiss_file_step(step);
 		if (item == CHARACTER && step != 0) changer_step(step);
+		if (item == WATTS && step != 0) pikachu_step(step);
 		if ((item == SAVE_STATE || item == LOAD_STATE) && step != 0) {
 			slot = (slot - 1 + step + STATE_SLOTS) % STATE_SLOTS + 1;
 		}
@@ -806,6 +809,7 @@ fn bool frame() {
 				case KISS_MAP: break;
 				case KISS_FILE: break;
 				case CHARACTER: changer_wave();
+				case WATTS: pikachu_send();
 				case PALETTE: break;
 				case COLORS:  break;
 				case BLEND:   break;
@@ -844,6 +848,7 @@ fn bool frame() {
 				case KISS_MAP: lines[i] = kiss_map_line();
 				case KISS_FILE: lines[i] = kiss_file_line();
 				case CHARACTER: lines[i] = changer_line();
+				case WATTS: lines[i] = pikachu_line();
 				case RESET:   lines[i] = "Reset";
 				case QUIT:    lines[i] = "Quit";
 			}
@@ -1194,6 +1199,9 @@ fn int main(String[] args) @winmain
 		link_apply();
 	} else if (link_arg == "bardigun") {
 		link_pick = LinkMode.BARDIGUN;
+		link_apply();
+	} else if (link_arg == "pikachu") {
+		link_pick = LinkMode.PIKACHU;
 		link_apply();
 	} else if (link_arg == "changer") {
 		link_pick = LinkMode.CHANGER;

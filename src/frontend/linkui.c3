@@ -17,11 +17,12 @@ enum LinkMode : char {
 	ANTENNA, // the Power Antenna / Bug Sensor
 	BARDIGUN, // Barcode Taisen Bardigun's reader
 	CHANGER, // Zok Zok Heroes' Full Changer
+	PIKACHU, // the Pokémon Pikachu 2
 	HOST,   // waiting for, or linked with, a side that joined
 	JOIN,   // linked with a side that hosts
 }
 
-const String[14] LINK_LABELS = { "Off", "2 players here", "4 players here", "Printer", "Barcode Boy", "GB KISS LINK", "WorkBoy", "Mobile Adapter", "Turbo File GB", "Power Antenna", "Bardigun reader", "Full Changer", "Host", "Join" };
+const String[15] LINK_LABELS = { "Off", "2 players here", "4 players here", "Printer", "Barcode Boy", "GB KISS LINK", "WorkBoy", "Mobile Adapter", "Turbo File GB", "Power Antenna", "Bardigun reader", "Full Changer", "Pikachu 2", "Host", "Join" };
 
 // Pixels between the two pictures.
 const int LINK_GAP = 8;
@@ -119,6 +120,7 @@ fn String link_line() {
 			case ANTENNA:
 			case BARDIGUN:
 			case CHANGER:
+			case PIKACHU:
 			case LOCAL:   state = "  on";
 			default:      break;
 		}
@@ -183,6 +185,9 @@ fn void link_apply() {
 		case CHANGER:
 			link_stop();
 			changer_plug();
+		case PIKACHU:
+			link_stop();
+			pikachu_plug();
 		case LOCAL:
 			// The second game comes from the file dialog (link_second_chosen).
 			dialog_p2 = true;
@@ -312,6 +317,7 @@ fn void link_replug() {
 		case ANTENNA:
 		case BARDIGUN:
 		case CHANGER:
+		case PIKACHU:
 			accessory_replug();
 		case HOST:
 		case JOIN:
@@ -435,6 +441,11 @@ fn void link_run_frame(display::Input* in) {
 	if (link_mode == MOBILE) {
 		gb.run_frame();
 		mobile_poll();
+		return;
+	}
+	if (link_mode == PIKACHU) {
+		gb.run_frame();
+		pikachu_poll();
 		return;
 	}
 	if (link_mode == TURBO) {

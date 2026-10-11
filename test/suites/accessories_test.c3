@@ -1,7 +1,7 @@
 module accessories_suite;
 
 import gameboy, mmu, zip;
-import std::io, std::io::file, std::os::env, std::hash::crc32;
+import std::io, std::io::file, std::io::path, std::os::env, std::hash::crc32;
 import std::core::test;
 
 // The link port devices with their games, from power on (the games aren't
@@ -131,4 +131,64 @@ fn void bardigun_hatches_from_a_card() @test {
 	}
 	uint crc = screen(&gb, "bardigun");
 	test::@check(crc == 0x58c27170, "Nyaari hatched (screen CRC %08x)", crc);
+}
+
+// Pokémon Silver (Italian) and the Pokémon Pikachu 2: a new game started
+// and saved, Mystery Gift unlocked in the save (as the girl in Goldenrod's
+// department store does), then DONO SEGRETO from the main menu and 999
+// watts sent: a Rare Candy, kept for the player to collect.
+fn void pikachu_2_mystery_gift() @test {
+	char[]? rom = game("Pokemon - Versione Argento (Italy) (SGB Enhanced).gbc");
+	if (catch rom) {
+		io::printn("  (Pokémon Silver (Italy) not in resources/: the Pikachu 2 not tested with it)");
+		return;
+	}
+	String dir = (env::tget_var("TMPDIR") ?? "/tmp").tconcat("/wer-pikachu-test");
+	(void)path::mkdir(dir, true);
+	String base = dir.tconcat("/silver");
+	(void)file::delete(base.tconcat(".sav"));
+
+	// A new game, named AAAAAAA, saved in the bedroom.
+	gameboy::GameBoy gb = gameboy::new(false, CGB);
+	gb.load_rom_named(rom, base);
+	Press[200] presses;
+	int n;
+	foreach (p : (Press[*]){ { 600, 'S' }, { 900, 'S' }, { 1100, 'A' } }) presses[n++] = p;
+	for (int f = 1500; f <= 5940; f += 90) presses[n++] = { f, 'A' };
+	presses[n++] = { 6040, 'S' };
+	presses[n++] = { 6100, 'A' };
+	for (int f = 6200; f <= 9980; f += 90) presses[n++] = { f, 'A' };
+	foreach (p : (Press[*]){ { 10220, 'S' }, { 10260, 'D' }, { 10300, 'D' }, { 10340, 'A' }, { 10460, 'A' }, { 10600, 'A' }, { 10750, 'A' } }) presses[n++] = p;
+	for (int f = 0; f < 11100; f++) {
+		press(&gb, presses[:n], f);
+		gb.run_frame();
+	}
+	gb.destroy(); // the save written
+	char[] sav = file::load_temp(base.tconcat(".sav"))!!;
+	sav[0xBE3] = 0; // sMysteryGiftUnlocked
+	sav[0xBE5] = 0; // sNumDailyMysteryGiftPartnerIDs
+	file::save(base.tconcat(".sav"), sav)!!;
+
+	// Main menu > DONO SEGRETO, and the pet's watts.
+	gb = gameboy::new(false, CGB);
+	defer gb.destroy();
+	gb.load_rom_named(rom, base);
+	gb.mmu.cart.has_battery = false;
+	mmu::Pikachu2* pet = mem::new(mmu::Pikachu2);
+	defer free(pet);
+	mmu::Link l;
+	gb.mmu.connect_pikachu(&l, pet);
+	Press[*] menu = { { 600, 'S' }, { 900, 'S' }, { 1420, 'D' }, { 1460, 'D' }, { 1500, 'D' }, { 1560, 'A' } };
+	for (int f = 0; f < 1920; f++) {
+		if (f == 1700) pet.send(999);
+		press(&gb, &menu, f);
+		gb.run_frame();
+	}
+	test::eq(pet.state, mmu::PikaState.DONE);
+	test::eq(pet.region, 0x99); // Italy's
+	// The gift chosen: the Mystery Gift item list's Rare Candy ($20 in the
+	// games' items), in the save until the player collects it.
+	test::eq(gb.mmu.cart.ram[0xBE4], 0x20); // sBackupMysteryGiftItem: RARE_CANDY
+	uint crc = screen(&gb, "pikachu-2");
+	test::@check(crc == 0xc3815229, "the gift sent (screen CRC %08x)", crc);
 }
