@@ -67,6 +67,7 @@ struct Config {
 	String    filter;   // screen filter: display::FILTER_NAMES
 	int       scale;    // 1-4
 	String    link;     // the address the link cable last joined ("host" or "host:port")
+	long      workboy_clock; // seconds the WorkBoy's clock runs ahead of local time
 	String[8] keys;
 	String[8] pads;
 	String[7] hot_keys;
@@ -145,6 +146,10 @@ fn bool Config.set(&self, String name, String value) {
 			replace(&self.filter, value);
 		case name == "link":
 			replace(&self.link, value);
+		case name == "workboy-clock":
+			long? n = value.to_long();
+			if (catch n) return false;
+			self.workboy_clock = n;
 		case name == "scale":
 			int? n = value.to_int();
 			if (catch n) return false;
@@ -240,6 +245,7 @@ fn String Config.to_text(&self, Allocator allocator) {
 	out.appendf("filter = %s\n", self.filter);
 	out.appendf("scale = %d\n", self.scale);
 	if (self.link.len) out.appendf("link = %s\n", self.link);
+	if (self.workboy_clock) out.appendf("workboy-clock = %d\n", self.workboy_clock);
 	foreach (i, n : BUTTON_NAMES) out.appendf("key.%s = %s\n", n, self.keys[i]);
 	foreach (i, n : BUTTON_NAMES) out.appendf("pad.%s = %s\n", n, self.pads[i]);
 	foreach (i, n : HOTKEY_NAMES) out.appendf("key.%s = %s\n", n, self.hot_keys[i]);

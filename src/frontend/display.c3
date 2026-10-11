@@ -203,6 +203,10 @@ struct Input {
 	// Shift held, else to load.
 	int  state_slot;
 	bool state_save;
+	// F1-F12 pressed this poll (1-12, 0 = none), while typing too; Esc
+	// pressed without Shift (it also gives KEY_MENU).
+	int  fkey;
+	bool esc;
 	// The first key / gamepad button pressed this poll (-1 = none), for
 	// binding a control in the menu.
 	int  key;
@@ -607,6 +611,7 @@ fn Input Display.poll(&self) {
 					break;
 				}
 				if (!k.repeat && in.key < 0) in.key = (int)k.scancode;
+				if (!k.repeat && k.scancode >= sdl::SC_F1 && k.scancode <= sdl::SC_F12) in.fkey = (int)k.scancode - sdl::SC_F1 + 1;
 				// Hotkeys give way to a Game Boy button bound to the same key.
 				if (!k.repeat && !self.is_bound((int)k.scancode) && !self.typing) {
 					int sc = (int)k.scancode;
@@ -623,6 +628,8 @@ fn Input Display.poll(&self) {
 				}
 				switch (k.scancode) {
 					case sdl::SC_ESCAPE:
+						if (!k.repeat) in.pressed |= KEY_MENU;
+						if (!k.repeat && (k.mod & sdl::KMOD_SHIFT) == 0) in.esc = true;
 					case sdl::SC_AC_BACK: if (!k.repeat) in.pressed |= KEY_MENU;
 					case sdl::SC_UP:     in.pressed |= KEY_UP;
 					case sdl::SC_DOWN:   in.pressed |= KEY_DOWN;

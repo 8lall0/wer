@@ -556,6 +556,7 @@ fn bool frame() {
 	}
 
 	link_typing(&in);
+	workboy_keys(&in);
 	if (in.pressed & display::KEY_OPEN) screen.open_rom_dialog();
 	if ((in.pressed & display::KEY_MENU) && (controls || cheat_menu)) {
 		controls = false;               // back to the main menu
@@ -1176,6 +1177,9 @@ fn int main(String[] args) @winmain
 		link_apply();
 	} else if (link_arg == "kiss") {
 		link_pick = LinkMode.KISS;
+		link_apply();
+	} else if (link_arg == "workboy") {
+		link_pick = LinkMode.WORKBOY;
 		link_apply();
 	} else if (link_arg == "four") {
 		link_four();
