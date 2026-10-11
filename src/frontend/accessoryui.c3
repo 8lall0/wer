@@ -187,3 +187,39 @@ fn void antenna_light(char[] picture, gameboy::FrameSize size) {
 		}
 	}
 }
+
+// --input's device actions due at `frame`, as their menu lines would.
+fn void script_actions(ulong frame) {
+	foreach (a : input_script.actions[:input_script.actions_len]) {
+		if (a.frame != frame) continue;
+		switch (a.kind) {
+			case CARD:
+				if (link_mode != BARDIGUN && link_mode != BARCODE) {
+					notice.show("card=: no card reader on the link port");
+					continue;
+				}
+				swipe((String)a.digits[..]);
+			case WAVE:
+				if (link_mode != CHANGER) {
+					notice.show("wave=: no Full Changer on the link port");
+					continue;
+				}
+				changer_pick = a.number;
+				changer_wave();
+			case WATTS:
+				if (link_mode != PIKACHU) {
+					notice.show("watts=: no Pikachu 2 on the link port");
+					continue;
+				}
+				pikachu_watts = a.number;
+				pikachu_send();
+			case GIFT:
+				if (link_mode != SAKURA) {
+					notice.show("gift=: no Pocket Sakura on the link port");
+					continue;
+				}
+				sakura_pick = a.number;
+				sakura_send();
+		}
+	}
+}
