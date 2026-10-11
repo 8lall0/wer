@@ -1,5 +1,5 @@
 module config;
-import gameboy, display;
+import gameboy, display, mmu;
 
 import std::io, std::io::file, std::io::path, std::os::env;
 
@@ -68,6 +68,11 @@ struct Config {
 	int       scale;    // 1-4
 	String    link;     // the address the link cable last joined ("host" or "host:port")
 	long      workboy_clock; // seconds the WorkBoy's clock runs ahead of local time
+	String    mobile_dns;    // the Mobile Adapter's DNS servers ("1.2.3.4" or "1.2.3.4:5353"), or ""
+	String    mobile_dns2;
+	int       mobile_port;   // its calls' port (0: 1027)
+	String    mobile_adapter; // "blue" (PDC), "yellow" (cdmaOne), "red" (DDI)
+	bool      mobile_unmetered; // a flat-rate phone plan
 	String[8] keys;
 	String[8] pads;
 	String[7] hot_keys;
@@ -86,6 +91,9 @@ fn Config defaults() {
 	c.filter = "off".copy(mem);
 	c.scale = 3;
 	c.link = "".copy(mem);
+	c.mobile_dns = "".copy(mem);
+	c.mobile_dns2 = "".copy(mem);
+	c.mobile_adapter = "blue".copy(mem);
 	foreach (i, k : DEFAULT_KEYS) c.keys[i] = k.copy(mem);
 	foreach (i, p : DEFAULT_PADS) c.pads[i] = p.copy(mem);
 	foreach (i, k : DEFAULT_HOT_KEYS) c.hot_keys[i] = k.copy(mem);
@@ -102,6 +110,9 @@ fn void Config.free(&self) {
 	free(self.blend.ptr);
 	free(self.filter.ptr);
 	free(self.link.ptr);
+	free(self.mobile_dns.ptr);
+	free(self.mobile_dns2.ptr);
+	free(self.mobile_adapter.ptr);
 	foreach (k : self.keys) free(k.ptr);
 	foreach (p : self.pads) free(p.ptr);
 	foreach (k : self.hot_keys) free(k.ptr);
@@ -150,6 +161,26 @@ fn bool Config.set(&self, String name, String value) {
 			long? n = value.to_long();
 			if (catch n) return false;
 			self.workboy_clock = n;
+		case name == "mobile-dns":
+		case name == "mobile-dns2":
+			char[4] ip;
+			int port;
+			if (value.len && !parse_address(value, &ip, &port)) return false;
+			replace(name == "mobile-dns" ? &self.mobile_dns : &self.mobile_dns2, value);
+		case name == "mobile-port":
+			int? n = value.to_int();
+			if (catch n) return false;
+			if (n < 1 || n > 65535) return false;
+			self.mobile_port = n;
+		case name == "mobile-adapter":
+			if (mobile_device(value) == 0) return false;
+			replace(&self.mobile_adapter, value);
+		case name == "mobile-unmetered":
+			switch (value) {
+				case "yes": case "on": case "true":   self.mobile_unmetered = true;
+				case "no": case "off": case "false":  self.mobile_unmetered = false;
+				default: return false;
+			}
 		case name == "scale":
 			int? n = value.to_int();
 			if (catch n) return false;
@@ -181,6 +212,30 @@ fn bool Config.set(&self, String name, String value) {
 			return false;
 	}
 	return true;
+}
+
+// "1.2.3.4" or "1.2.3.4:5353" (port 0: none given).
+fn bool parse_address(String s, char[4]* ip, int* port) {
+	*port = 0;
+	sz? colon = s.index_of_char(':');
+	if (try colon) {
+		int? p = s[colon + 1..].to_int();
+		if (catch p) return false;
+		if (p < 1 || p > 65535) return false;
+		*port = p;
+		s = s[:colon];
+	}
+	return mmu::parse_ip(s, ip);
+}
+
+// The Mobile Adapter for a colour (0: none).
+fn char mobile_device(String name) {
+	switch (name) {
+		case "blue":   return mmu::MOBILE_BLUE;
+		case "yellow": return mmu::MOBILE_YELLOW;
+		case "red":    return mmu::MOBILE_RED;
+		default:       return 0;
+	}
 }
 
 fn int color_index(String name) {
@@ -246,6 +301,11 @@ fn String Config.to_text(&self, Allocator allocator) {
 	out.appendf("scale = %d\n", self.scale);
 	if (self.link.len) out.appendf("link = %s\n", self.link);
 	if (self.workboy_clock) out.appendf("workboy-clock = %d\n", self.workboy_clock);
+	if (self.mobile_dns.len) out.appendf("mobile-dns = %s\n", self.mobile_dns);
+	if (self.mobile_dns2.len) out.appendf("mobile-dns2 = %s\n", self.mobile_dns2);
+	if (self.mobile_port) out.appendf("mobile-port = %d\n", self.mobile_port);
+	if (self.mobile_adapter != "blue") out.appendf("mobile-adapter = %s\n", self.mobile_adapter);
+	if (self.mobile_unmetered) out.append("mobile-unmetered = yes\n");
 	foreach (i, n : BUTTON_NAMES) out.appendf("key.%s = %s\n", n, self.keys[i]);
 	foreach (i, n : BUTTON_NAMES) out.appendf("pad.%s = %s\n", n, self.pads[i]);
 	foreach (i, n : HOTKEY_NAMES) out.appendf("key.%s = %s\n", n, self.hot_keys[i]);
@@ -281,13 +341,17 @@ fn Config load_from(String p) {
 // Write ~/.wer/wer.conf, creating ~/.wer if needed.
 fn void? Config.save(&self) => self.save_to(tpath());
 
+// The folder a file of wer's goes in, made if it isn't there.
+fn void make_dir(String p) {
+	sz? slash = p.rindex_of_char('/');
+	if (catch slash) return;
+	String dir = p[:slash];
+	if (dir.len && !file::is_dir(dir)) (void)path::mkdir(dir, true);
+}
+
 fn void? Config.save_to(&self, String p) {
 	if (p.len == 0) return;
-	sz? slash = p.rindex_of_char('/');
-	if (try slash) {
-		String dir = p[:slash];
-		if (dir.len && !file::is_dir(dir)) path::mkdir(dir, true)!;
-	}
+	make_dir(p);
 	@pool() {
 		file::save(p, self.to_text(tmem))!;
 	};

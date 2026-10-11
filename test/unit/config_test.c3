@@ -119,3 +119,30 @@ fn void workboy_clock_round_trip() @test
 	b.parse(a.to_text(tmem), "test");
 	test::eq(-788918400, b.workboy_clock);
 }
+
+fn void mobile_settings_round_trip() @test
+{
+	config::Config a = config::defaults();
+	defer a.free();
+	test::@check(!a.to_text(tmem).contains("mobile"), "nothing written while unset");
+	test::@check(a.set("mobile-dns", "203.0.113.5"), "an address");
+	test::@check(a.set("mobile-dns2", "203.0.113.6:5353"), "an address and port");
+	test::@check(!a.set("mobile-dns", "reon.example"), "not an address");
+	test::@check(!a.set("mobile-dns", "1.2.3.4:0"), "no port 0");
+	test::@check(a.set("mobile-port", "2027"), "a port");
+	test::@check(!a.set("mobile-port", "70000"), "too big");
+	test::@check(a.set("mobile-adapter", "yellow"), "the cdmaOne one");
+	test::@check(!a.set("mobile-adapter", "green"), "never released");
+	test::@check(a.set("mobile-unmetered", "yes"), "flat rate");
+	config::Config b = config::defaults();
+	defer b.free();
+	b.parse(a.to_text(tmem), "test");
+	test::eq(b.mobile_dns, "203.0.113.5");
+	test::eq(b.mobile_dns2, "203.0.113.6:5353");
+	test::eq(b.mobile_port, 2027);
+	test::eq(b.mobile_adapter, "yellow");
+	test::@check(b.mobile_unmetered, "kept");
+	char[4] ip;
+	int port;
+	test::@check(config::parse_address(b.mobile_dns2, &ip, &port) && ip == (char[4]){ 203, 0, 113, 6 } && port == 5353, "parsed");
+}

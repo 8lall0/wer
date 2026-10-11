@@ -12,11 +12,12 @@ enum LinkMode : char {
 	BARCODE, // the Barcode Boy: cards typed in by number
 	KISS,    // the GB KISS LINK: Nectaris GB maps to and from files (kissui.c3)
 	WORKBOY, // the WorkBoy keyboard: the computer's keyboard types on it (workboyui.c3)
+	MOBILE,  // the Mobile Adapter GB: calls and the internet (mobileui.c3)
 	HOST,   // waiting for, or linked with, a side that joined
 	JOIN,   // linked with a side that hosts
 }
 
-const String[9] LINK_LABELS = { "Off", "2 players here", "4 players here", "Printer", "Barcode Boy", "GB KISS LINK", "WorkBoy", "Host", "Join" };
+const String[10] LINK_LABELS = { "Off", "2 players here", "4 players here", "Printer", "Barcode Boy", "GB KISS LINK", "WorkBoy", "Mobile Adapter", "Host", "Join" };
 
 // Pixels between the two pictures.
 const int LINK_GAP = 8;
@@ -59,7 +60,8 @@ bool typing;
 char[64] typed;
 int typed_len;
 
-fn bool link_available(LinkMode m) => true;
+// A browser has no sockets for the Mobile Adapter.
+fn bool link_available(LinkMode m) => m != MOBILE || !env::EMSCRIPTEN;
 
 fn void link_step(int step) {
 	int n = (int)LINK_LABELS.len;
@@ -108,6 +110,7 @@ fn String link_line() {
 			case PRINTER:
 			case KISS:
 			case WORKBOY:
+			case MOBILE:
 			case LOCAL:   state = "  on";
 			default:      break;
 		}
@@ -126,6 +129,7 @@ fn void link_stop() {
 		gb3.destroy();
 		gb4.destroy();
 	}
+	if (link_mode == MOBILE) mobile_unplug();
 	gb.mmu.unplug();
 	if (printer_on) printer.free();
 	printer_on = false;
@@ -156,6 +160,9 @@ fn void link_apply() {
 		case WORKBOY:
 			link_stop();
 			workboy_plug();
+		case MOBILE:
+			link_stop();
+			mobile_plug();
 		case LOCAL:
 			// The second game comes from the file dialog (link_second_chosen).
 			dialog_p2 = true;
@@ -279,6 +286,8 @@ fn void link_replug() {
 			gb.mmu.connect_kiss(&kiss_cable, &kiss);
 		case WORKBOY:
 			workboy_replug();
+		case MOBILE:
+			mobile_replug();
 		case HOST:
 		case JOIN:
 			net.replug(&gb.mmu);
@@ -396,6 +405,11 @@ fn void link_run_frame(display::Input* in) {
 	if (link_mode == WORKBOY) {
 		gb.run_frame();
 		workboy_poll();
+		return;
+	}
+	if (link_mode == MOBILE) {
+		gb.run_frame();
+		mobile_poll();
 		return;
 	}
 	if (net.state != OFF) {
