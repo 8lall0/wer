@@ -428,6 +428,9 @@ enum MenuItem : char {
 	SWIPE,
 	KISS_MAP,
 	KISS_FILE,
+	CHARACTER,
+	WATTS,
+	GIFT,
 	RESET,
 	QUIT,
 }
@@ -689,7 +692,10 @@ fn bool frame() {
 		if (has_rom) items[count++] = CHEATS;
 		if (has_rom) items[count++] = MOVIE;
 		items[count++] = LINK;
-		if (link_mode == BARCODE) items[count++] = SWIPE;
+		if (link_mode == BARCODE || link_mode == BARDIGUN) items[count++] = SWIPE;
+		if (link_mode == CHANGER) items[count++] = CHARACTER;
+		if (link_mode == PIKACHU) items[count++] = WATTS;
+		if (link_mode == SAKURA) items[count++] = GIFT;
 		if (link_mode == KISS) items[count++] = KISS_MAP;
 		if (link_mode == KISS) items[count++] = KISS_FILE;
 		if (has_rom) items[count++] = RESET;
@@ -750,6 +756,9 @@ fn bool frame() {
 		if (item == MOVIE && step != 0) movie_step(step);
 		if (item == KISS_MAP && step != 0) kiss_map_step(step);
 		if (item == KISS_FILE && step != 0) kiss_file_step(step);
+		if (item == CHARACTER && step != 0) changer_step(step);
+		if (item == WATTS && step != 0) pikachu_step(step);
+		if (item == GIFT && step != 0) sakura_step(step);
 		if ((item == SAVE_STATE || item == LOAD_STATE) && step != 0) {
 			slot = (slot - 1 + step + STATE_SLOTS) % STATE_SLOTS + 1;
 		}
@@ -802,6 +811,9 @@ fn bool frame() {
 				case QUIT:   break;
 				case KISS_MAP: break;
 				case KISS_FILE: break;
+				case CHARACTER: changer_wave();
+				case WATTS: pikachu_send();
+				case GIFT: sakura_send();
 				case PALETTE: break;
 				case COLORS:  break;
 				case BLEND:   break;
@@ -839,6 +851,9 @@ fn bool frame() {
 				case SWIPE:   lines[i] = swipe_line();
 				case KISS_MAP: lines[i] = kiss_map_line();
 				case KISS_FILE: lines[i] = kiss_file_line();
+				case CHARACTER: lines[i] = changer_line();
+				case WATTS: lines[i] = pikachu_line();
+				case GIFT: lines[i] = sakura_line();
 				case RESET:   lines[i] = "Reset";
 				case QUIT:    lines[i] = "Quit";
 			}
@@ -1180,6 +1195,24 @@ fn int main(String[] args) @winmain
 		link_apply();
 	} else if (link_arg == "workboy") {
 		link_pick = LinkMode.WORKBOY;
+		link_apply();
+	} else if (link_arg == "turbo") {
+		link_pick = LinkMode.TURBO;
+		link_apply();
+	} else if (link_arg == "antenna") {
+		link_pick = LinkMode.ANTENNA;
+		link_apply();
+	} else if (link_arg == "bardigun") {
+		link_pick = LinkMode.BARDIGUN;
+		link_apply();
+	} else if (link_arg == "sakura") {
+		link_pick = LinkMode.SAKURA;
+		link_apply();
+	} else if (link_arg == "pikachu") {
+		link_pick = LinkMode.PIKACHU;
+		link_apply();
+	} else if (link_arg == "changer") {
+		link_pick = LinkMode.CHANGER;
 		link_apply();
 	} else if (link_arg == "mobile" && link_available(MOBILE)) {
 		link_pick = LinkMode.MOBILE;

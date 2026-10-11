@@ -656,7 +656,11 @@ fn void Mmu.io_set(&self, ushort addr, char value) {
 			case 0xFF73: self.undoc[addr - 0xFF72] = value; return;
 			case 0xFF74: if (c) self.undoc[2] = value; return;
 			case 0xFF75: self.undoc[3] = value & 0x70; return;
-			case 0xFF56: if (c) self.rp = value & 0xC1; return;
+			case 0xFF56:
+				if (!c) return;
+				self.rp = value & 0xC1;
+				if (self.link) self.ir_written(); // a device watching the LED
+				return;
 		}
 	}
 	switch (addr) {
