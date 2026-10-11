@@ -18,6 +18,7 @@ struct Link {
 	KissLink* kiss;     // infrared: the GB KISS LINK (kiss.c3)
 	bool kiss_led;      // ... the game's LED as it last saw it
 	WorkBoy* workboy;   // ... or the WorkBoy keyboard (workboy.c3)
+	MobileAdapter* mobile; // ... or the Mobile Adapter GB (mobile.c3)
 	bool out_pending;   // network: a byte to send for a transfer this side clocks
 	char out_byte;
 	char out_control;   // SC as written (bit 1: the CGB's fast clock)
@@ -64,7 +65,7 @@ fn void Mmu.unplug(&self) {
 }
 
 // A device here answers each byte at once (no other Game Boy, no network).
-fn bool Link.device(&self) => self.printer || self.barcode || self.kiss || self.workboy;
+fn bool Link.device(&self) => self.printer || self.barcode || self.kiss || self.workboy || self.mobile;
 
 // SC = $81: a transfer this side clocks starts.
 fn void Mmu.link_start(&self) {
@@ -82,6 +83,7 @@ fn int Mmu.link_exchange(&self) {
 	if (l.printer) return l.printer.exchange(self.serial_out, self.rt_clock);
 	if (l.barcode) return l.barcode.exchange(self.serial_out);
 	if (l.workboy) return l.workboy.exchange(self.serial_out);
+	if (l.mobile) return l.mobile.exchange(self.serial_out, self.rt_clock);
 	if (l.kiss) return 0xFF; // infrared: nothing on the cable
 	if (l.peer) return l.peer.link_take(self.serial_out);
 	if (!l.in_ready) return -1;

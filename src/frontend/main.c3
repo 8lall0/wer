@@ -1181,6 +1181,9 @@ fn int main(String[] args) @winmain
 	} else if (link_arg == "workboy") {
 		link_pick = LinkMode.WORKBOY;
 		link_apply();
+	} else if (link_arg == "mobile" && link_available(MOBILE)) {
+		link_pick = LinkMode.MOBILE;
+		link_apply();
 	} else if (link_arg == "four") {
 		link_four();
 		link_pick = LinkMode.FOUR;
