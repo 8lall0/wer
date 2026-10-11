@@ -13,11 +13,15 @@ enum LinkMode : char {
 	KISS,    // the GB KISS LINK: Nectaris GB maps to and from files (kissui.c3)
 	WORKBOY, // the WorkBoy keyboard: the computer's keyboard types on it (workboyui.c3)
 	MOBILE,  // the Mobile Adapter GB: calls and the internet (mobileui.c3)
+	TURBO,   // the Turbo File GB (accessoryui.c3)
+	ANTENNA, // the Power Antenna / Bug Sensor
+	BARDIGUN, // Barcode Taisen Bardigun's reader
+	CHANGER, // Zok Zok Heroes' Full Changer
 	HOST,   // waiting for, or linked with, a side that joined
 	JOIN,   // linked with a side that hosts
 }
 
-const String[10] LINK_LABELS = { "Off", "2 players here", "4 players here", "Printer", "Barcode Boy", "GB KISS LINK", "WorkBoy", "Mobile Adapter", "Host", "Join" };
+const String[14] LINK_LABELS = { "Off", "2 players here", "4 players here", "Printer", "Barcode Boy", "GB KISS LINK", "WorkBoy", "Mobile Adapter", "Turbo File GB", "Power Antenna", "Bardigun reader", "Full Changer", "Host", "Join" };
 
 // Pixels between the two pictures.
 const int LINK_GAP = 8;
@@ -73,7 +77,7 @@ fn void link_step(int step) {
 // A card number typed in: through the reader.
 fn void swipe(String digits) {
 	if (!digits.len) return;
-	if (catch barcode.swipe_card(digits, gb.mmu.rt_clock)) {
+	if (catch (link_mode == BARDIGUN ? bardigun.swipe(digits) : barcode.swipe_card(digits, gb.mmu.rt_clock))) {
 		notice.show("A card number has 13 digits");
 		return;
 	}
@@ -111,6 +115,10 @@ fn String link_line() {
 			case KISS:
 			case WORKBOY:
 			case MOBILE:
+			case TURBO:
+			case ANTENNA:
+			case BARDIGUN:
+			case CHANGER:
 			case LOCAL:   state = "  on";
 			default:      break;
 		}
@@ -163,6 +171,18 @@ fn void link_apply() {
 		case MOBILE:
 			link_stop();
 			mobile_plug();
+		case TURBO:
+			link_stop();
+			turbo_plug();
+		case ANTENNA:
+			link_stop();
+			antenna_plug();
+		case BARDIGUN:
+			link_stop();
+			bardigun_plug();
+		case CHANGER:
+			link_stop();
+			changer_plug();
 		case LOCAL:
 			// The second game comes from the file dialog (link_second_chosen).
 			dialog_p2 = true;
@@ -288,6 +308,11 @@ fn void link_replug() {
 			workboy_replug();
 		case MOBILE:
 			mobile_replug();
+		case TURBO:
+		case ANTENNA:
+		case BARDIGUN:
+		case CHANGER:
+			accessory_replug();
 		case HOST:
 		case JOIN:
 			net.replug(&gb.mmu);
@@ -412,6 +437,11 @@ fn void link_run_frame(display::Input* in) {
 		mobile_poll();
 		return;
 	}
+	if (link_mode == TURBO) {
+		gb.run_frame_polled(fn (ctx) { turbo.tick(&gb.mmu); }, null, 128);
+		turbo_save();
+		return;
+	}
 	if (net.state != OFF) {
 		gb.run_frame_polled(fn (ctx) { (void)net.poll(&gb.mmu); }, null, 8);
 		(void)net.poll(&gb.mmu);
@@ -425,6 +455,7 @@ fn gameboy::FrameSize link_picture(char[]* out) {
 	gameboy::FrameSize a = gb.frame_rgb(rgb, colors);
 	*out = rgb;
 	if (link_mode == FOUR) return four_picture(a, out);
+	antenna_light(rgb, a);
 	if (link_mode != LOCAL || !has_p2) return a;
 	if (!rgb2.len) {
 		rgb2 = mem::new_array(char, gameboy::MAX_FRAME_RGB);
