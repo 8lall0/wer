@@ -333,6 +333,8 @@ fn void Cartridge.unl_reset(&self) {
 		case HICOL:
 			self.rom_bank = 1;
 			self.ram_enabled = false;
+		case GBMEM:
+			self.np_reset();
 		default:
 			break;
 	}

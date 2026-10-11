@@ -59,6 +59,7 @@ enum Mbc : char {
 	SKOB,     // SKOB LEE8: MBC5, banks shuffled and XORed
 	POKE2IN1, // Duz's Pokemon 2 in 1: a menu, then the chosen game
 	HICOL,    // the "GB HiCol" multicart menu (hicol.c3)
+	GBMEM,    // Nintendo Power GB Memory: a menu and up to seven games (gbmemory.c3)
 }
 
 // MBC7's own state (SameBoy's model, MIT: see LICENSE-sameboy). $A000-$AFFF
@@ -138,6 +139,7 @@ struct Cartridge {
 	Lee8 lee8;
 	TwoInOne two_in_one;
 	HiCol hicol;
+	GbMemory np;
 	Unlicensed unl;
 	bool reset_request; // the cartridge pulled the console's reset line (multicarts)
 }
@@ -202,7 +204,10 @@ const uint[6] RAM_SIZE = { 0, 0x800, 0x2000, 0x8000, 0x20000, 0x10000 };
 // Build from a full ROM image. `path` is used to derive the .sav filename.
 fn Cartridge* new(char[] image, String path) {
 	Cartridge* c = mem::new(Cartridge);
-	c.rom = mem::new_array(char, image.len < 0x8000 ? (usz)0x8000 : image.len);
+	char[128] map;
+	bool np = image.len <= NP_FLASH && (np_map(image, path, &map) ?? false);
+	c.rom = mem::new_array(char, np ? NP_FLASH : image.len < 0x8000 ? (usz)0x8000 : image.len);
+	if (np) c.rom[..] = 0xFF; // erased flash
 	foreach (i, b : image) c.rom[i] = b;
 
 	char type = image.len > 0x147 ? image[0x147] : 0;
@@ -221,7 +226,9 @@ fn Cartridge* new(char[] image, String path) {
 	c.mbc = mbc_of(type);
 	c.has_battery = has_battery(type);
 	// Mappers the header doesn't name.
-	if (is_tpp1(c.rom)) {
+	if (np) {
+		c.np_init(&map);
+	} else if (is_tpp1(c.rom)) {
 		c.mbc = TPP1;
 		c.has_battery = (c.rom[0x153] & 8) != 0;
 	} else if (c.rom.len == 0x40000 && (String)c.rom[0x134 : 10] == "TETRIS SET") {
@@ -270,6 +277,8 @@ fn Cartridge* new(char[] image, String path) {
 		ram_len = 0;
 	} else if (c.mbc == HICOL) {
 		ram_len = 0x10000; // the header says none: 32 KiB for each of two games
+	} else if (c.mbc == GBMEM) {
+		ram_len = NP_RAM;
 
 	} else {
 		ram_len = ram_code < 6 ? RAM_SIZE[ram_code] : 0;
@@ -285,8 +294,10 @@ fn Cartridge* new(char[] image, String path) {
 		c.mbc7.dout = true;
 	}
 
-	c.rom_bank = 1;
-	c.bank1 = 1;
+	if (c.mbc != GBMEM) {
+		c.rom_bank = 1;
+		c.bank1 = 1;
+	}
 	c.has_clock = c.mbc == HUC3 || c.mbc == TAMA5 || (c.mbc == TPP1 && (c.rom[0x153] & 4));
 	if (c.mbc == M161 || c.mbc == WISDOM) c.rom_bank = 0;
 	if (c.mbc == HUC3) c.huc3.unset();
@@ -391,6 +402,7 @@ fn usz Cartridge.rom_offset(&self, ushort addr) {
 	if (self.mbc.unlicensed()) return self.unl_rom_offset(addr);
 	if (self.mbc == POKE2IN1) return self.two_in_one_offset(addr);
 	if (self.mbc == HICOL) return self.hicol_rom_offset(addr);
+	if (self.mbc == GBMEM) return self.np_rom_offset(addr);
 
 	if (addr < 0x4000) return addr;
 	uint bank = self.rom_bank;
@@ -429,7 +441,8 @@ fn char Cartridge.peek_rom(&self, ushort addr) {
 
 fn void Cartridge.map_rom(&self) {
 	self.rom_mapped = true;
-	self.rom_linear = self.mbc != MBC6 && self.mbc != SACHEN && !self.bootleg_reads() && !self.unl_reads();
+	self.rom_linear = self.mbc != MBC6 && self.mbc != SACHEN && !self.bootleg_reads() && !self.unl_reads()
+		&& !(self.mbc == GBMEM && self.np.commands);
 	if (!self.rom_linear) return;
 	self.rom_lo = self.rom_offset(0x0000);
 	self.rom_hi = self.rom_offset(0x4000);
@@ -438,6 +451,7 @@ fn void Cartridge.map_rom(&self) {
 fn char Cartridge.read(&self, ushort addr) {
 	if (addr < 0x8000 && self.mbc == MBC6) return self.mbc6_read_rom(addr);
 	if (addr < 0x8000 && self.unl_reads()) return self.unl_read(addr);
+	if (self.np_registers(addr)) return self.np_register(addr);
 	if (addr < 0x8000) {
 		usz off = self.rom_offset(addr);
 		char v = off < self.rom.len ? self.rom[off] : 0xFF;
@@ -452,6 +466,7 @@ fn char Cartridge.read(&self, ushort addr) {
 		case HUC3:  return self.huc3_read(addr);
 		case TAMA5: return self.tama5_read(addr);
 		case CAMERA: return self.camera_read(addr);
+		case GBMEM: return self.np_read_ram(addr);
 		default:    break;
 	}
 	if (!self.ram_enabled) return 0xFF;
@@ -526,6 +541,7 @@ fn void Cartridge.write(&self, ushort addr, char value) {
 		case TAMA5: self.tama5_write(addr, value); return;
 		case TPP1:  self.tpp1_write(addr, value); return;
 		case CAMERA: self.camera_write(addr, value); return;
+		case GBMEM: self.np_write_ram(addr, value); return;
 		default:    break;
 	}
 	if (!self.ram_enabled) return;
@@ -586,6 +602,7 @@ fn void Cartridge.write_control(&self, ushort addr, char value) {
 		case SKOB:  self.lee8_control(addr, value);
 		case POKE2IN1: self.two_in_one_control(addr, value);
 		case HICOL: self.hicol_control(addr, value);
+		case GBMEM: self.np_control(addr, value);
 		case MMM01: self.mmm01_control(addr, value);
 		case HUC1:  self.huc1_control(addr, value);
 		case HUC3:  self.huc3_control(addr, value);

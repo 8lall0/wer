@@ -74,3 +74,28 @@ fn void input_script_rejects_mistakes() @test {
 	test::eq(@ok(joypad::parse_script("400:a*0")), false);
 	test::eq(@ok(joypad::parse_script("")), true);
 }
+
+fn void input_script_device_actions() @test {
+	joypad::Script s = joypad::parse_script("600:start,11020:card=4900363432103,700:wave=43,800:watts=999,900:gift=22")!!;
+	test::eq(s.len, (usz)1);
+	test::eq(s.actions_len, (usz)4);
+	test::eq(s.actions[0].frame, (ulong)11020);
+	test::eq(s.actions[0].kind, joypad::ActionKind.CARD);
+	test::@check((String)s.actions[0].digits[..] == "4900363432103", "the card's digits");
+	test::eq(s.actions[1].kind, joypad::ActionKind.WAVE);
+	test::eq(s.actions[1].number, 43);
+	test::eq(s.actions[2].kind, joypad::ActionKind.WATTS);
+	test::eq(s.actions[2].number, 999);
+	test::eq(s.actions[3].kind, joypad::ActionKind.GIFT);
+	test::eq(s.actions[3].number, 22);
+}
+
+fn void input_script_rejects_bad_actions() @test {
+	test::eq(@ok(joypad::parse_script("100:card=123")), false);           // not 13 digits
+	test::eq(@ok(joypad::parse_script("100:card=49003634321x3")), false);
+	test::eq(@ok(joypad::parse_script("100:wave=0")), false);             // 1-70
+	test::eq(@ok(joypad::parse_script("100:wave=71")), false);
+	test::eq(@ok(joypad::parse_script("100:watts=1000")), false);
+	test::eq(@ok(joypad::parse_script("100:gift=54")), false);
+	test::eq(@ok(joypad::parse_script("100:jump=1")), false);
+}

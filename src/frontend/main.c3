@@ -513,6 +513,7 @@ fn bool frame() {
 	display::Input in = screen.poll();
 	if (in.quit) return false;
 	input_script.at(frames_run, &in.buttons, &in.dpad);
+	script_actions(frames_run);
 
 	// A ROM chosen in the file dialog (menu or Ctrl+O) replaces the game.
 	String chosen = screen.take_dialog_result();
@@ -1085,7 +1086,7 @@ fn int main(String[] args) @winmain
 				if (try s = joypad::parse_script(a[8..])) {
 					input_script = s;
 				} else {
-					io::eprintfn("not an input script: '%s' (e.g. 400:down,460:a,600:start*30,900:a+b)", a[8..]);
+					io::eprintfn("not an input script: '%s' (e.g. 400:down,460:a,600:start*30,900:a+b,1200:card=4900363432103)", a[8..]);
 					return 1;
 				}
 			case a.starts_with("--filter="):
@@ -1197,6 +1198,7 @@ fn int main(String[] args) @winmain
 			char buttons;
 			char dpad;
 			input_script.at((ulong)f, &buttons, &dpad);
+			script_actions((ulong)f);
 			movie_frame(&buttons, &dpad);
 			// Through whatever is on the cable (link_run_frame), as in the window.
 			display::Input in = { .buttons = buttons, .dpad = dpad, .kb_buttons = buttons, .kb_dpad = dpad };
