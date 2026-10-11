@@ -283,7 +283,11 @@ struct Notice {
 	Clock    until;
 }
 
+// --headless: notices go to the terminal, there being no picture for them.
+bool headless_run;
+
 fn void Notice.show(&self, String s) {
+	if (headless_run) io::printfn("wer: %s", s);
 	self.len = s.len < self.text.len ? s.len : self.text.len;
 	for (usz i = 0; i < self.len; i++) self.text[i] = s[i];
 	self.until = clock::now() + (NanoDuration)2_000_000_000;
@@ -956,6 +960,64 @@ fn bool frame() {
 	return true;
 }
 
+// The link cable from the command line (--link=..., --link-rom=...), for
+// the window and --headless alike.
+fn void link_from_args(String link_arg, String link_rom) {
+	if (link_rom.len && has_rom) link_second_chosen(link_rom);
+	if (link_arg == "barcode") {
+		link_pick = LinkMode.BARCODE;
+		link_apply();
+	} else if (link_arg == "kiss") {
+		link_pick = LinkMode.KISS;
+		link_apply();
+	} else if (link_arg == "workboy") {
+		link_pick = LinkMode.WORKBOY;
+		link_apply();
+	} else if (link_arg == "turbo") {
+		link_pick = LinkMode.TURBO;
+		link_apply();
+	} else if (link_arg == "antenna") {
+		link_pick = LinkMode.ANTENNA;
+		link_apply();
+	} else if (link_arg == "bardigun") {
+		link_pick = LinkMode.BARDIGUN;
+		link_apply();
+	} else if (link_arg == "sakura") {
+		link_pick = LinkMode.SAKURA;
+		link_apply();
+	} else if (link_arg == "pikachu") {
+		link_pick = LinkMode.PIKACHU;
+		link_apply();
+	} else if (link_arg == "changer") {
+		link_pick = LinkMode.CHANGER;
+		link_apply();
+	} else if (link_arg == "mobile" && link_available(MOBILE)) {
+		link_pick = LinkMode.MOBILE;
+		link_apply();
+	} else if (link_arg == "four") {
+		link_four();
+		link_pick = LinkMode.FOUR;
+	} else if (link_arg == "printer") {
+		link_printer();
+		link_pick = LinkMode.PRINTER;
+	} else if (link_arg == "host") {
+		if (catch net.host(netlink::DEFAULT_PORT, &gb.mmu)) {
+			io::eprintn("link: can't listen on port 8765");
+		} else {
+			link_mode = HOST;
+			link_pick = LinkMode.HOST;
+			io::printn("link: waiting on port 8765");
+		}
+	} else if (link_arg.len) {
+		if (catch net.join(link_arg, &gb.mmu)) {
+			io::eprintfn("link: can't reach %s", link_arg);
+		} else {
+			link_mode = JOIN;
+			link_pick = LinkMode.JOIN;
+		}
+	}
+}
+
 fn int main(String[] args) @winmain
 {
 	$if env::WIN32:
@@ -1117,7 +1179,10 @@ fn int main(String[] args) @winmain
 	}
 
 	if (headless) {
+		headless_run = true;
 		if (!has_rom) setup_demo_scene(&gb);
+		link_from_args(link_arg, link_rom);
+		defer link_stop();
 		char[] picture = mem::new_array(char, gameboy::MAX_FRAME_RGB);
 		defer free(picture.ptr);
 		if (record_arg.len) {
@@ -1133,8 +1198,9 @@ fn int main(String[] args) @winmain
 			char dpad;
 			input_script.at((ulong)f, &buttons, &dpad);
 			movie_frame(&buttons, &dpad);
-			gb.mmu.set_input(buttons, dpad);
-			gb.run_frame();
+			// Through whatever is on the cable (link_run_frame), as in the window.
+			display::Input in = { .buttons = buttons, .dpad = dpad, .kb_buttons = buttons, .kb_dpad = dpad };
+			link_run_frame(&in);
 			uint got = gb.audio(&audio);
 			if (recorder.on) {
 				gameboy::FrameSize size = gb.frame_rgb(picture, colors);
@@ -1185,60 +1251,7 @@ fn int main(String[] args) @winmain
 	menu = !has_rom;
 	shot_after = (ulong)frames;
 
-	// The link cable from the command line.
-	if (link_rom.len && has_rom) link_second_chosen(link_rom);
-	if (link_arg == "barcode") {
-		link_pick = LinkMode.BARCODE;
-		link_apply();
-	} else if (link_arg == "kiss") {
-		link_pick = LinkMode.KISS;
-		link_apply();
-	} else if (link_arg == "workboy") {
-		link_pick = LinkMode.WORKBOY;
-		link_apply();
-	} else if (link_arg == "turbo") {
-		link_pick = LinkMode.TURBO;
-		link_apply();
-	} else if (link_arg == "antenna") {
-		link_pick = LinkMode.ANTENNA;
-		link_apply();
-	} else if (link_arg == "bardigun") {
-		link_pick = LinkMode.BARDIGUN;
-		link_apply();
-	} else if (link_arg == "sakura") {
-		link_pick = LinkMode.SAKURA;
-		link_apply();
-	} else if (link_arg == "pikachu") {
-		link_pick = LinkMode.PIKACHU;
-		link_apply();
-	} else if (link_arg == "changer") {
-		link_pick = LinkMode.CHANGER;
-		link_apply();
-	} else if (link_arg == "mobile" && link_available(MOBILE)) {
-		link_pick = LinkMode.MOBILE;
-		link_apply();
-	} else if (link_arg == "four") {
-		link_four();
-		link_pick = LinkMode.FOUR;
-	} else if (link_arg == "printer") {
-		link_printer();
-		link_pick = LinkMode.PRINTER;
-	} else if (link_arg == "host") {
-		if (catch net.host(netlink::DEFAULT_PORT, &gb.mmu)) {
-			io::eprintn("link: can't listen on port 8765");
-		} else {
-			link_mode = HOST;
-			link_pick = LinkMode.HOST;
-			io::printn("link: waiting on port 8765");
-		}
-	} else if (link_arg.len) {
-		if (catch net.join(link_arg, &gb.mmu)) {
-			io::eprintfn("link: can't reach %s", link_arg);
-		} else {
-			link_mode = JOIN;
-			link_pick = LinkMode.JOIN;
-		}
-	}
+	link_from_args(link_arg, link_rom);
 
 	rgb = mem::new_array(char, gameboy::MAX_FRAME_RGB);
 	defer free(rgb.ptr);

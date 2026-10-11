@@ -220,7 +220,7 @@ wer --mode=cgb game.gbc
 | `--link=host` | wait for another wer (or BGB) to join over the network, on port 8765 |
 | `--link=ADDRESS` | join one that waits there (`192.168.1.20`, or `host:port`) |
 | `--sgb-log` | print the commands an SGB game sends |
-| `--headless --frames=N` | no window: run N frames, write the last one to `wer-frame.ppm` |
+| `--headless --frames=N` | no window: run N frames, write the last one to `wer-frame.ppm`; `--link` works there too (notices print to the terminal) |
 
 Options given on the command line override `~/.wer/wer.conf` for that run.
 
