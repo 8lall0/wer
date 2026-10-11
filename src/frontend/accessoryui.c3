@@ -14,6 +14,7 @@ import mmu, config, gameboy;
 //     Enter waves it
 //   Pokémon Pikachu 2 (Gold, Silver): the Watts line, Enter sends them as a
 //     Mystery Gift
+//   Pocket Sakura (Sakura Taisen GB): the Gift line, Enter sends it
 
 const String TURBO_FILE = "turbo-file.bin";
 
@@ -31,6 +32,8 @@ mmu::Pikachu2 pikachu;
 mmu::Link pikachu_cable;
 int pikachu_watts = 500;     // the menu's Watts line
 mmu::PikaState pikachu_told;
+
+int sakura_pick;             // the menu's Gift line (an event, 0-$35)
 
 mmu::FullChanger changer;
 mmu::Link changer_cable;
@@ -120,10 +123,32 @@ fn void pikachu_poll() {
 	if (pikachu.state == pikachu_told) return;
 	pikachu_told = pikachu.state;
 	switch (pikachu.state) {
-		case DONE:   notice.show(string::tformat("Pikachu 2: sent %d watts", pikachu.watts));
-		case FAILED: notice.show("Pikachu 2: no answer");
+		case DONE:
+			notice.show(link_mode == SAKURA ? string::tformat("Pocket Sakura: sent %s", mmu::sakura_gift_name(sakura_pick)) : string::tformat("Pikachu 2: sent %d watts", pikachu.watts));
+		case FAILED: notice.show(link_mode == SAKURA ? "Pocket Sakura: no answer" : "Pikachu 2: no answer");
 		default:     break;
 	}
+}
+
+// The Pocket Sakura: the same device with Sakura Taisen GB's exchange.
+fn void sakura_plug() {
+	pikachu = {};
+	gb.mmu.connect_pikachu(&pikachu_cable, &pikachu);
+	link_mode = SAKURA;
+	pikachu_told = IDLE;
+	notice.show("Pocket Sakura: Menu > Gift");
+}
+
+fn String sakura_line() => string::tformat("Gift: < %s >", mmu::sakura_gift_name(sakura_pick));
+
+fn void sakura_step(int step) {
+	sakura_pick = (sakura_pick + step + mmu::SAKURA_EVENTS) % mmu::SAKURA_EVENTS;
+}
+
+fn void sakura_send() {
+	pikachu.send_sakura(sakura_pick);
+	menu = false;
+	notice.show("Pocket Sakura: sending (receive screen)");
 }
 
 fn void accessory_replug() {
@@ -132,7 +157,8 @@ fn void accessory_replug() {
 		case ANTENNA:  gb.mmu.connect_antenna(&antenna_cable, &antenna);
 		case BARDIGUN: gb.mmu.connect_bardigun(&bardigun_cable, &bardigun);
 		case CHANGER:  gb.mmu.connect_changer(&changer_cable, &changer);
-		case PIKACHU:  gb.mmu.connect_pikachu(&pikachu_cable, &pikachu);
+		case PIKACHU:
+		case SAKURA:   gb.mmu.connect_pikachu(&pikachu_cable, &pikachu);
 		default:       break;
 	}
 }

@@ -18,11 +18,12 @@ enum LinkMode : char {
 	BARDIGUN, // Barcode Taisen Bardigun's reader
 	CHANGER, // Zok Zok Heroes' Full Changer
 	PIKACHU, // the Pokémon Pikachu 2
+	SAKURA,  // the Pocket Sakura
 	HOST,   // waiting for, or linked with, a side that joined
 	JOIN,   // linked with a side that hosts
 }
 
-const String[15] LINK_LABELS = { "Off", "2 players here", "4 players here", "Printer", "Barcode Boy", "GB KISS LINK", "WorkBoy", "Mobile Adapter", "Turbo File GB", "Power Antenna", "Bardigun reader", "Full Changer", "Pikachu 2", "Host", "Join" };
+const String[16] LINK_LABELS = { "Off", "2 players here", "4 players here", "Printer", "Barcode Boy", "GB KISS LINK", "WorkBoy", "Mobile Adapter", "Turbo File GB", "Power Antenna", "Bardigun reader", "Full Changer", "Pikachu 2", "Pocket Sakura", "Host", "Join" };
 
 // Pixels between the two pictures.
 const int LINK_GAP = 8;
@@ -121,6 +122,7 @@ fn String link_line() {
 			case BARDIGUN:
 			case CHANGER:
 			case PIKACHU:
+			case SAKURA:
 			case LOCAL:   state = "  on";
 			default:      break;
 		}
@@ -188,6 +190,9 @@ fn void link_apply() {
 		case PIKACHU:
 			link_stop();
 			pikachu_plug();
+		case SAKURA:
+			link_stop();
+			sakura_plug();
 		case LOCAL:
 			// The second game comes from the file dialog (link_second_chosen).
 			dialog_p2 = true;
@@ -318,6 +323,7 @@ fn void link_replug() {
 		case BARDIGUN:
 		case CHANGER:
 		case PIKACHU:
+		case SAKURA:
 			accessory_replug();
 		case HOST:
 		case JOIN:
@@ -443,7 +449,7 @@ fn void link_run_frame(display::Input* in) {
 		mobile_poll();
 		return;
 	}
-	if (link_mode == PIKACHU) {
+	if (link_mode == PIKACHU || link_mode == SAKURA) {
 		gb.run_frame();
 		pikachu_poll();
 		return;

@@ -192,3 +192,43 @@ fn void pikachu_2_mystery_gift() @test {
 	uint crc = screen(&gb, "pikachu-2");
 	test::@check(crc == 0xc3815229, "the gift sent (screen CRC %08x)", crc);
 }
+
+// Sakura Taisen GB and the Pocket Sakura: from the title, the game's own
+// receiving scene ($10, entered as the game enters it: the scene to go
+// back to kept at $C942), the pet sends event $16 (1000 points): the game
+// takes it ("受信に成功しました").
+fn void pocket_sakura_sends_a_gift() @test {
+	char[]? rom = game("Sakura Taisen GB - Geki Hana Gumi Nyuutai! (Japan).zip");
+	if (catch rom) {
+		io::printn("  (Sakura Taisen GB not in resources/: the Pocket Sakura not tested with it)");
+		return;
+	}
+	gameboy::GameBoy gb = gameboy::new(false, CGB);
+	defer gb.destroy();
+	gb.load_rom(rom);
+	gb.mmu.cart.has_battery = false;
+	mmu::Pikachu2* pet = mem::new(mmu::Pikachu2);
+	defer free(pet);
+	mmu::Link l;
+	gb.mmu.connect_pikachu(&l, pet);
+	Press[*] presses = { { 300, 'A' }, { 450, 'S' } };
+	for (int f = 0; f < 1100; f++) {
+		if (f == 910) {
+			gb.mmu.set(0xC942, gb.mmu.get(0xC2A0));
+			gb.mmu.set(0xC943, gb.mmu.get(0xC2A1));
+			gb.mmu.set(0xC2A0, 0x10);
+			gb.mmu.set(0xC2A1, 0);
+		}
+		if (f == 940) pet.send_sakura(0x16);
+		press(&gb, &presses, f);
+		gb.run_frame();
+	}
+	test::eq(pet.state, mmu::PikaState.DONE);
+	test::eq(gb.mmu.get(0xC902), 0x6C);        // the game's status: fine
+	test::eq(gb.mmu.get(0xC903), 0x43);        // from a Pocket Sakura
+	char[12] got;
+	for (int i = 0; i < 12; i++) got[i] = gb.mmu.get((ushort)(0xC8C2 + i));
+	test::@check((String)got[:5] == "CRJDM" && got[8] == 0 && got[9] == 0x16, "the block as received");
+	uint crc = screen(&gb, "pocket-sakura");
+	test::@check(crc == 0xde32a3ce, "received (screen CRC %08x)", crc);
+}

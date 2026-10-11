@@ -189,6 +189,46 @@ fn void Pikachu2.send(&self, int watts) {
 	self.at = -1;
 }
 
+// The Pocket Sakura (Jupiter, 2000), Sakura Taisen GB's pedometer pet: the
+// same light pulses (the game has the same infrared code), its own exchange,
+// worked out from the game: hello, block "C" ($43), empty; hello, a 12-byte
+// block, empty. The block: "CRJDM", 3 bytes the game doesn't read, then a
+// type and its value: type 0 runs the game's event `value` ($00-$35):
+// $00-$15 one of its 22 items, $16-$35 a points bonus, 1000 to 65535 in
+// groups of four (each once). What the real pet sends when isn't known: the
+// player picks the gift.
+const int SAKURA_EVENTS = 0x36;
+const int[8] SAKURA_POINTS = { 1000, 2500, 5000, 7500, 10000, 25000, 50000, 65535 };
+
+fn String sakura_gift_name(int event) {
+	if (event < 0x16) return string::tformat("item %d", event + 1);
+	return string::tformat("%d points %d", SAKURA_POINTS[(event - 0x16) / 4], (event - 0x16) % 4 + 1);
+}
+
+fn void Pikachu2.send_sakura(&self, int event) {
+	self.slot_len[0] = 0;
+	self.slots[1][0] = 0x43;
+	self.slot_len[1] = 1;
+	char[] d = self.slots[2][:12];
+	d[..] = 0;
+	d[:5] = "CRJDM"[..];
+	d[8] = 0;            // type 0: an event
+	d[9] = (char)event;  // which (16 bits, little-endian)
+	self.slot_len[2] = 12;
+	self.slots[4][0] = PIKA_OKAY;
+	self.slot_len[4] = 1;
+	self.count = 0;
+	self.hello();
+	self.send_block(1);
+	self.send_block(0);
+	self.hello();
+	self.send_block(2);
+	self.send_block(0);
+	self.state = SENDING;
+	self.tries = 0;
+	self.at = -1;
+}
+
 fn bool Pikachu2.busy(&self) => self.state == SENDING;
 
 // The step after the running one, starting at `t`.
