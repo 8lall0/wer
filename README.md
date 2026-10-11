@@ -297,7 +297,9 @@ Enter to plug it in):
   keyboard types on the WorkBoy: letters, digits and signs as typed, F1-F9
   its nine tools (clock, temperature, money, calculator, date, conversion,
   records, world time, phone book), the arrows, Enter, Backspace and Esc;
-  **Shift+Esc** opens wer's menu (a gamepad's menu button too). Its clock
+  **Shift+Esc** opens wer's menu (a gamepad's menu button too). At its
+  first start the program asks for the home city: N and P go through the
+  cities, S picks one. Its clock
   is the computer's local time, set ahead or back as the program sets it
   (kept in `wer.conf` as `workboy-clock`). On a phone its keyboard comes up.
 - **Printer** plugs in the Game Boy Printer: each printout is saved as a
