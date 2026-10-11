@@ -36,7 +36,11 @@ ROMs: they never leave the browser; touch controls on phones).
   Sintax, SKOB LEE8, the NT boards, Pokemon Jade/Diamond's, Rocket Games, Vast Fame
   VF001, Yong Yong, New Game Boy Color HK, Liebao, Chong Wu, La Sa Ma, the
   SL, LB, GBCK003 and "GB HiCol" multi-game carts, Duz's Pokemon 2 in 1; known by their logo, header or, for the
-  163 dumps in MAME's lists, their CRC); battery saves (`.sav`, with the clocks in the formats other
+  163 dumps in MAME's lists, their CRC); the Nintendo Power GB Memory
+  cartridge (its menu and up to seven games, each with its own MBC and part
+  of the 128 KiB of RAM; its map from the `.map` beside the `.gb`, or worked
+  out from the menu's list of games, as [gbnp](https://github.com/orangeglo/gbnp)
+  builds them); battery saves (`.sav`, with the clocks in the formats other
   emulators use).
 - **Game Boy Camera**: the camera sees through your webcam, the phone's
   front camera or the browser's camera (the system asks first; without a
