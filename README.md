@@ -349,10 +349,11 @@ Enter to plug it in):
   at 100, Great Ball at 300 ... Rare Candy at 999), with no five-a-day
   limit. The exchange follows the games' Mystery Gift protocol (from the
   pret disassemblies); any region's game works.
-- **Pocket Sakura** is the pet of Sakura Taisen GB: on the game's
-  receiving screen (受信待ちです), Enter on the menu's **Gift** line sends
-  it: one of the game's 22 items, or a points bonus (1000 to 65535; the
-  game gives each once). Sakura Taisen GB shares Pokémon's infrared code;
+- **Pocket Sakura** is the pet of Sakura Taisen GB: in the game's title
+  menu, page right to 通信, then ポケットサクラ and はい; while it waits
+  (受信待ちです), Enter on the menu's **Gift** line sends it: one of the
+  game's 22 items (it comes into the Romandō shop) or a points bonus (1000
+  to 65535; the game gives each once). Sakura Taisen GB shares Pokémon's infrared code;
   the pet's message was worked out from the game itself. Which gifts the
   real pet sends, and when, isn't known, so you pick.
 - **Printer** plugs in the Game Boy Printer: each printout is saved as a

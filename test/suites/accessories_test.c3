@@ -193,10 +193,9 @@ fn void pikachu_2_mystery_gift() @test {
 	test::@check(crc == 0xc3815229, "the gift sent (screen CRC %08x)", crc);
 }
 
-// Sakura Taisen GB and the Pocket Sakura: from the title, the game's own
-// receiving scene ($10, entered as the game enters it: the scene to go
-// back to kept at $C942), the pet sends event $16 (1000 points): the game
-// takes it ("受信に成功しました").
+// Sakura Taisen GB and the Pocket Sakura: from power on, the title's
+// second page > 通信 > ポケットサクラ > はい, and the pet sends event $16:
+// "1000ポイント手に入れました", the Point counter at 01000.
 fn void pocket_sakura_sends_a_gift() @test {
 	char[]? rom = game("Sakura Taisen GB - Geki Hana Gumi Nyuutai! (Japan).zip");
 	if (catch rom) {
@@ -211,24 +210,23 @@ fn void pocket_sakura_sends_a_gift() @test {
 	defer free(pet);
 	mmu::Link l;
 	gb.mmu.connect_pikachu(&l, pet);
-	Press[*] presses = { { 300, 'A' }, { 450, 'S' } };
-	for (int f = 0; f < 1100; f++) {
-		if (f == 910) {
-			gb.mmu.set(0xC942, gb.mmu.get(0xC2A0));
-			gb.mmu.set(0xC943, gb.mmu.get(0xC2A1));
-			gb.mmu.set(0xC2A0, 0x10);
-			gb.mmu.set(0xC2A1, 0);
-		}
-		if (f == 940) pet.send_sakura(0x16);
-		press(&gb, &presses, f);
+	Press[30] presses;
+	int n;
+	presses[n++] = { 300, 'A' };
+	presses[n++] = { 450, 'S' };
+	for (int f = 600; f <= 1000; f += 60) presses[n++] = { f, 'A' };
+	foreach (p : (Press[*]){ { 1270, 'S' }, { 1490, 'R' }, { 1580, 'D' }, { 1650, 'D' }, { 1720, 'D' }, { 1810, 'A' },
+	                         { 1930, 'U' }, { 1990, 'U' }, { 2050, 'A' }, { 2300, 'A' }, { 2750, 'A' } }) presses[n++] = p;
+	uint message;
+	for (int f = 0; f < 3200; f++) {
+		if (f == 2450) pet.send_sakura(0x16);
+		press(&gb, presses[:n], f);
 		gb.run_frame();
+		if (f == 2920) message = screen(&gb, "pocket-sakura-message");
 	}
 	test::eq(pet.state, mmu::PikaState.DONE);
-	test::eq(gb.mmu.get(0xC902), 0x6C);        // the game's status: fine
-	test::eq(gb.mmu.get(0xC903), 0x43);        // from a Pocket Sakura
-	char[12] got;
-	for (int i = 0; i < 12; i++) got[i] = gb.mmu.get((ushort)(0xC8C2 + i));
-	test::@check((String)got[:5] == "CRJDM" && got[8] == 0 && got[9] == 0x16, "the block as received");
+	test::eq(gb.mmu.get(0xC903), 0x43); // from a Pocket Sakura
+	test::@check(message == 0x37d8e861, "1000ポイント手に入れました (screen CRC %08x)", message);
 	uint crc = screen(&gb, "pocket-sakura");
-	test::@check(crc == 0xde32a3ce, "received (screen CRC %08x)", crc);
+	test::@check(crc == 0x19299611, "Point 01000 (screen CRC %08x)", crc);
 }
