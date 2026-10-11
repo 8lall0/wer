@@ -4,13 +4,15 @@ module mmu;
 // (shonumi.github.io/dandocs.html#btb): the game clocks $FFs; the reader
 // answers $00 until a card is swiped, then the barcode as it passes under
 // it, bit by bit: 1 while it sees white, 0 while it sees a bar, about 15
-// bits for the thinnest bar. The cards' barcodes are EAN-13 (JAN).
+// bits for the thinnest bar. The cards' barcodes are EAN-13 (JAN). The game
+// needs some white before the code, as a real swipe has (tried with it: 3
+// to 20 modules all work).
 
 const int BARDIGUN_BITS = 15;   // bits per module (the thinnest bar)
-const int BARDIGUN_QUIET = 10;  // modules of white after the code
+const int BARDIGUN_QUIET = 10;  // modules of white before and after the code
 
 struct Bardigun {
-	char[256] stream;   // a card on its way in
+	char[512] stream;   // a card on its way in
 	int       len;
 	int       at;
 }
@@ -58,8 +60,8 @@ fn void? Bardigun.swipe(&self, String digits) {
 	ean13(digits, &modules)!;
 	self.stream[..] = 0;
 	int bit;
-	for (int m = 0; m < 95 + BARDIGUN_QUIET; m++) {
-		bool white = m >= 95 || !modules[m];
+	for (int m = -BARDIGUN_QUIET; m < 95 + BARDIGUN_QUIET; m++) {
+		bool white = m < 0 || m >= 95 || !modules[m];
 		for (int i = 0; i < BARDIGUN_BITS; i++) {
 			if (white) self.stream[bit >> 3] |= (char)(0x80 >> (bit & 7));
 			bit++;

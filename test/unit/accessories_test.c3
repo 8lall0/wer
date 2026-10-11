@@ -103,16 +103,20 @@ fn void bardigun_swipe() @test {
 	test::eq(b.exchange(0xFF), 0x00);
 	b.swipe("4901330547479")!!;
 	// Read it back as bars and white, 15 bits a module.
-	char[] stream = mem::temp_array(char, 256);
+	char[] stream = mem::temp_array(char, 512);
 	int n;
-	for (; n < 256; n++) {
+	for (; n < 512; n++) {
 		if (b.at >= b.len) break;
 		stream[n] = b.exchange(0xFF);
 	}
 	bool[95] want;
 	mmu::ean13("4901330547479", &want)!!;
+	// White first (the quiet zone), then the code.
+	for (int i = 0; i < mmu::BARDIGUN_QUIET * mmu::BARDIGUN_BITS; i++) {
+		test::@check((stream[i >> 3] >> (7 - (i & 7))) & 1 != 0, "white before, bit %d", i);
+	}
 	for (int i = 0; i < 95; i++) {
-		int bit = i * mmu::BARDIGUN_BITS + 7;
+		int bit = (mmu::BARDIGUN_QUIET + i) * mmu::BARDIGUN_BITS + 7;
 		bool white = (stream[bit >> 3] >> (7 - (bit & 7))) & 1 != 0;
 		test::@check(white == !want[i], "module %d", i);
 	}
