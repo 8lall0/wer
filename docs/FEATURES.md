@@ -27,7 +27,7 @@ it is in [USAGE.md](USAGE.md); the link cable and its accessories in
   Sintax, SKOB LEE8, the NT boards, Pokemon Jade/Diamond's, Rocket Games, Vast Fame
   VF001, Yong Yong, New Game Boy Color HK, Liebao, Chong Wu, La Sa Ma, the
   SL, LB, GBCK003 and "GB HiCol" multi-game carts, Duz's Pokemon 2 in 1; known by their logo, header or, for the
-  163 dumps in MAME's lists, their CRC); the Nintendo Power GB Memory
+  163 dumps in MAME's lists, their CRC); Pocket Sonar's MBC1S; the Nintendo Power GB Memory
   cartridge (its menu and up to seven games, each with its own MBC and part
   of the 128 KiB of RAM; its map from the `.map` beside the `.gb`, or worked
   out from the menu's list of games, as [gbnp](https://github.com/orangeglo/gbnp)
@@ -60,6 +60,11 @@ it is in [USAGE.md](USAGE.md); the link cable and its accessories in
 - **Pokémon Pikachu 2** and **Pocket Sakura**: the pedometer pets' gifts
   over the Game Boy Color's infrared port, to Pokémon Gold and Silver (watts
   as a Mystery Gift) and to Sakura Taisen GB (items and points).
+- **Pocket Sonar**: Bandai's fish finder cartridge sounds a made-up lake
+  (a floor 1 to 13 m down that rises and falls as the boat drifts, rocks,
+  fish), timed as real echoes, so the depth settings, the floor's depth
+  readout and the fish marks work. A real Game Boy Color sees nothing through
+  it; wer's does.
 - **Game Boy Printer**: printouts (Game Boy Camera photos, Pokédex pages,
   ...) become PNG files next to the game.
 - **4-Player Adapter** (DMG-07): four Game Boys in one window for F-1 Race,
