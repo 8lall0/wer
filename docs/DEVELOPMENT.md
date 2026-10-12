@@ -76,7 +76,7 @@ src/cart/      cartridges and their mappers, clocks and the Game Boy Camera
 src/link/      the link port: cable, network play, Printer, 4-Player Adapter,
                Barcode Boy, GB KISS LINK, WorkBoy, Mobile Adapter GB, Turbo
                File GB, Power Antenna, Bardigun reader, Full Changer, Pikachu 2,
-               Pocket Sakura
+               Pocket Sakura, sewing machines
 src/frontend/  the program: main, settings, window, menus, filters, touch,
                tilt, webcam, screenshots
 src/platform/  Android, Windows and web specifics
