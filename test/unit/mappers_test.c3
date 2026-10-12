@@ -712,3 +712,69 @@ fn void multicart_resets_the_console() @test {
 	test::@check(!c.unl.ck_config, "configured");
 	test::eq(bank_at(c, 0x0000), 32);
 }
+
+// The cycles the sound takes to `metres` deeper.
+fn uint sonar_cycles(cart::Cartridge* c, double metres) {
+	uint hz = c.rtc.cpu_hz ? c.rtc.cpu_hz : cart::RTC_CPU_HZ;
+	return (uint)((double)hz * metres / cart::SONAR_SOUND);
+}
+
+// Pocket Sonar's MBC1S: an MBC1's ROM banks; a pulse, then $A000 tells what
+// the sound meets as it goes down, 750 m of depth a second.
+fn void pocket_sonar_echoes() @test {
+	char[] rom = rom_of(0x01, 32);
+	rom[0x134 : 11] = ((String)"POCKETSONAR")[..];
+	cart::Cartridge* c = cart::new(rom, "");
+	defer c.free();
+	test::eq(c.mbc, cart::Mbc.SONAR);
+	assert(c.has_clock);
+	c.write(0x2000, 0x13);
+	test::eq(bank_at(c, 0x4000), 0x13);
+	c.write(0x2000, 0);
+	test::eq(bank_at(c, 0x4000), 1);
+
+	test::eq(c.read(0xA000), 0xFF);   // not in sonar mode
+	c.write(0x4000, 1);                // ignored outside it
+	test::eq(c.sonar.pings, 0u);
+	c.write(0x6000, 1);
+	// A ping with no fish and no rock (the lake's 8th ping).
+	for (int i = 0; i < 8; i++) {
+		c.write(0x4000, 1);
+		c.write(0x4000, 0);
+	}
+	test::eq(c.sonar.pings, 8u);
+	assert(cart::sonar_fish(8) == 0 && cart::sonar_rock(8) == 0);
+	double floor = cart::sonar_floor(8);
+	c.tick(sonar_cycles(c, floor - 0.5));
+	test::eq(c.read(0xA000), 7);      // open water
+	c.tick(sonar_cycles(c, 0.6));
+	test::eq(c.read(0xA000), 0);      // the floor, once
+	test::eq(c.read(0xA000), 0);      // its surface
+	c.tick(sonar_cycles(c, 1.0));
+	test::eq(c.read(0xA000), 4);      // the ground below
+	// The next ping starts from the top again.
+	c.write(0x4000, 1);
+	c.write(0x4000, 0);
+	test::eq(c.read(0xA000), 7);
+}
+
+// A fish is one echo: the first read at its depth, then water again.
+fn void pocket_sonar_fish() @test {
+	char[] rom = rom_of(0x01, 32);
+	rom[0x134 : 11] = ((String)"POCKETSONAR")[..];
+	cart::Cartridge* c = cart::new(rom, "");
+	defer c.free();
+	c.write(0x6000, 1);
+	uint p;
+	while (cart::sonar_fish(++p) == 0 || cart::sonar_rock(p) != 0) {}
+	while (c.sonar.pings < p) {
+		c.write(0x4000, 1);
+		c.write(0x4000, 0);
+	}
+	double fish = cart::sonar_fish(p);
+	c.tick(sonar_cycles(c, fish - 0.05));
+	test::eq(c.read(0xA000), 7);
+	c.tick(sonar_cycles(c, 0.1));
+	test::eq(c.read(0xA000), 1);
+	test::eq(c.read(0xA000), 7);
+}

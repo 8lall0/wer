@@ -1,14 +1,17 @@
 module accessories_suite;
 
-import gameboy, mmu, zip;
+import gameboy, mmu, zip, cart;
 import std::io, std::io::file, std::io::path, std::os::env, std::hash::crc32;
 import std::core::test;
 
-// The link port devices with their games, from power on (the games aren't
-// in the repository; without one its test passes with a note):
+// The accessories with their games, from power on (the games aren't in the
+// repository; without one its test passes with a note):
 //
 //   RPG Tsukuru GB saves a file to the Turbo File GB
 //   Barcode Taisen Bardigun hatches its first egg from a swiped card
+//   Pokémon Silver gets the Pikachu 2's Mystery Gift
+//   Sakura Taisen GB gets the Pocket Sakura's gift
+//   Pocket Sonar finds the lake's floor and its fish
 //
 // WER_ACC_SHOTS=DIR writes each test's last screen there.
 
@@ -229,4 +232,30 @@ fn void pocket_sakura_sends_a_gift() @test {
 	test::@check(message == 0x37d8e861, "1000ポイント手に入れました (screen CRC %08x)", message);
 	uint crc = screen(&gb, "pocket-sakura");
 	test::@check(crc == 0x19299611, "Point 01000 (screen CRC %08x)", crc);
+}
+
+// Pocket Sonar: the fish finder from power on, its depth set to 15 m (A on
+// 深度 three times) and its fish marks on (魚マーク): the lake's floor, a
+// rock, and fish drawn as fish.
+fn void pocket_sonar_finds_fish() @test {
+	char[]? rom = game("Pocket Sonar (Japan).zip");
+	if (catch rom) {
+		io::printn("  (Pocket Sonar not in resources/: its sonar not tested with it)");
+		return;
+	}
+	gameboy::GameBoy gb = gameboy::new(false, DMG);
+	defer gb.destroy();
+	gb.load_rom(rom);
+	test::eq(gb.mmu.cart.mbc, cart::Mbc.SONAR);
+	Press[*] presses = {
+		{ 400, 'S' }, { 1000, 'A' }, { 1060, 'A' }, { 1120, 'A' },
+		{ 1240, 'D' }, { 1300, 'R' }, { 1360, 'R' }, { 1420, 'A' },
+	};
+	for (int f = 0; f < 3500; f++) {
+		press(&gb, &presses, f);
+		gb.run_frame();
+	}
+	assert(gb.mmu.cart.sonar.pings > 100);
+	uint crc = screen(&gb, "pocket-sonar");
+	test::@check(crc == 0x24412bbb, "the lake at 15 m with fish (screen CRC %08x)", crc);
 }

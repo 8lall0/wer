@@ -60,6 +60,7 @@ enum Mbc : char {
 	POKE2IN1, // Duz's Pokemon 2 in 1: a menu, then the chosen game
 	HICOL,    // the "GB HiCol" multicart menu (hicol.c3)
 	GBMEM,    // Nintendo Power GB Memory: a menu and up to seven games (gbmemory.c3)
+	SONAR,    // Pocket Sonar's MBC1S: an MBC1 with a fish finder (sonar.c3)
 }
 
 // MBC7's own state (SameBoy's model, MIT: see LICENSE-sameboy). $A000-$AFFF
@@ -140,6 +141,7 @@ struct Cartridge {
 	TwoInOne two_in_one;
 	HiCol hicol;
 	GbMemory np;
+	Sonar sonar;
 	Unlicensed unl;
 	bool reset_request; // the cartridge pulled the console's reset line (multicarts)
 }
@@ -228,6 +230,9 @@ fn Cartridge* new(char[] image, String path) {
 	// Mappers the header doesn't name.
 	if (np) {
 		c.np_init(&map);
+	} else if (c.mbc == MBC1 && is_pocket_sonar(c.rom)) {
+		c.mbc = SONAR;
+		c.has_battery = false;
 	} else if (is_tpp1(c.rom)) {
 		c.mbc = TPP1;
 		c.has_battery = (c.rom[0x153] & 8) != 0;
@@ -279,6 +284,8 @@ fn Cartridge* new(char[] image, String path) {
 		ram_len = 0x10000; // the header says none: 32 KiB for each of two games
 	} else if (c.mbc == GBMEM) {
 		ram_len = NP_RAM;
+	} else if (c.mbc == SONAR) {
+		ram_len = 0;
 
 	} else {
 		ram_len = ram_code < 6 ? RAM_SIZE[ram_code] : 0;
@@ -298,7 +305,7 @@ fn Cartridge* new(char[] image, String path) {
 		c.rom_bank = 1;
 		c.bank1 = 1;
 	}
-	c.has_clock = c.mbc == HUC3 || c.mbc == TAMA5 || (c.mbc == TPP1 && (c.rom[0x153] & 4));
+	c.has_clock = c.mbc == HUC3 || c.mbc == TAMA5 || c.mbc == SONAR || (c.mbc == TPP1 && (c.rom[0x153] & 4));
 	if (c.mbc == M161 || c.mbc == WISDOM) c.rom_bank = 0;
 	if (c.mbc == HUC3) c.huc3.unset();
 	if (c.mbc == TAMA5) c.tama5.init();
@@ -394,7 +401,7 @@ fn usz Cartridge.mbc1_rom_offset(&self, ushort addr) {
 }
 
 fn usz Cartridge.rom_offset(&self, ushort addr) {
-	if (self.mbc == MBC1) return self.mbc1_rom_offset(addr);
+	if (self.mbc == MBC1 || self.mbc == SONAR) return self.mbc1_rom_offset(addr);
 	if (self.mbc == MMM01) return self.mmm01_rom_offset(addr);
 	if (self.mbc == M161 || self.mbc == WISDOM) return self.big_bank_offset(addr);
 	if (self.mbc == SACHEN) return self.sachen_rom_offset(addr);
@@ -467,6 +474,7 @@ fn char Cartridge.read(&self, ushort addr) {
 		case TAMA5: return self.tama5_read(addr);
 		case CAMERA: return self.camera_read(addr);
 		case GBMEM: return self.np_read_ram(addr);
+		case SONAR: return self.sonar_read();
 		default:    break;
 	}
 	if (!self.ram_enabled) return 0xFF;
@@ -492,6 +500,10 @@ fn void Cartridge.set_ram_byte(&self, ushort addr, char value) {
 
 // Emulated time for the cartridge's clock, if it has one.
 fn void Cartridge.tick(&self, uint tcycles) {
+	if (self.mbc == SONAR) {
+		self.sonar.tick(tcycles);
+		return;
+	}
 	if (self.has_rtc) {
 		self.rtc.tick(tcycles);
 		return;
@@ -542,6 +554,7 @@ fn void Cartridge.write(&self, ushort addr, char value) {
 		case TPP1:  self.tpp1_write(addr, value); return;
 		case CAMERA: self.camera_write(addr, value); return;
 		case GBMEM: self.np_write_ram(addr, value); return;
+		case SONAR: return;
 		default:    break;
 	}
 	if (!self.ram_enabled) return;
@@ -603,6 +616,7 @@ fn void Cartridge.write_control(&self, ushort addr, char value) {
 		case POKE2IN1: self.two_in_one_control(addr, value);
 		case HICOL: self.hicol_control(addr, value);
 		case GBMEM: self.np_control(addr, value);
+		case SONAR: self.sonar_control(addr, value);
 		case MMM01: self.mmm01_control(addr, value);
 		case HUC1:  self.huc1_control(addr, value);
 		case HUC3:  self.huc3_control(addr, value);
