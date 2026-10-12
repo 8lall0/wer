@@ -69,6 +69,10 @@ ROMs: they never leave the browser; touch controls on phones).
 - **Pokémon Pikachu 2** and **Pocket Sakura**: the pedometer pets' gifts
   over the Game Boy Color's infrared port, to Pokémon Gold and Silver (watts
   as a Mystery Gift) and to Sakura Taisen GB (items and points).
+- **Sewing machine** (Jaguar JN-100 / JN-2000, Singer IZEK-1500): Raku x Raku
+  Mishin's patterns and lettering are sewn, as the machine would
+  once its start switch is pressed, into a PNG of the fabric next to the game
+  (as printouts are).
 - **Game Boy Printer**: printouts (Game Boy Camera photos, Pokédex pages,
   ...) become PNG files next to the game.
 - **4-Player Adapter** (DMG-07): four Game Boys in one window for F-1 Race,
@@ -213,7 +217,7 @@ wer --mode=cgb game.gbc
 | `--link=kiss` | the GB KISS LINK (GB KISS files and Nectaris GB's maps: Menu → File, Map) |
 | `--link=workboy` | the WorkBoy keyboard (for the WorkBoy program) |
 | `--link=mobile` | the Mobile Adapter GB (desktop and phone) |
-| `--link=turbo`, `antenna`, `bardigun`, `changer`, `pikachu`, `sakura` | the Turbo File GB, Power Antenna, Bardigun reader, Full Changer, Pokémon Pikachu 2, Pocket Sakura |
+| `--link=turbo`, `antenna`, `bardigun`, `changer`, `pikachu`, `sakura`, `sewing` | the Turbo File GB, Power Antenna, Bardigun reader, Full Changer, Pokémon Pikachu 2, Pocket Sakura, a sewing machine |
 | `--link=printer` | the Game Boy Printer on the link port |
 | `--record=NAME` | record the run: `NAME.gif` (the picture) and `NAME.wav` (the sound), until wer quits; with `--headless --frames=N --input=...` a recording made without a window |
 | `--movie=FILE` | play a movie (`.wer`) from its start; with `--headless`, to its end unless `--frames` says otherwise |

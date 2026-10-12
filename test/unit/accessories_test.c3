@@ -3,7 +3,7 @@ import gameboy, mmu;
 import std::core::test;
 
 // The small link port devices: the Turbo File GB, the Power Antenna, the
-// Bardigun reader and the Full Changer.
+// Bardigun reader, the Full Changer and the sewing machines.
 
 // A packet as the game sends it: $6C, body, checksum, $F1 $7E, then $F2s
 // for the reply (whose length is given). Returns the reply.
@@ -168,4 +168,104 @@ fn void full_changer_sends_a_character() @test {
 	test::eq((char)~second, 43);
 	// Each count near what was meant (0x0A short, 0x1A long).
 	foreach (i, n : counts[1:16]) test::@check(n >= 0x08 && n <= 0x1C, "count %d: %02x", i + 1, n);
+}
+
+// --- Sewing machines ----------------------------------------------------------
+
+// A packet as Raku x Raku Mishin sends it: $B9, `body` (the header on the
+// first), zeros, `end` at 125, the sum.
+fn char[128] sew_packet(char[] body, char end) {
+	char[128] p;
+	p[0] = 0xB9;
+	p[1 : body.len] = body[..];
+	p[125] = end;
+	ushort sum;
+	foreach (c : p[:126]) sum += c;
+	p[126] = (char)sum;
+	p[127] = (char)(sum >> 8);
+	return p;
+}
+
+fn void sew_send(mmu::SewingMachine* s, char[] bytes) {
+	foreach (b : bytes) test::eq(s.exchange(b), 0xFF);
+}
+
+// Ordinary stitching, A-004 at 1.5 mm by 5.0 mm: the packet the game sent.
+const char[*] SEW_ZIGZAG = { 0xE8, 0x03, 0x00, 0x04, 0x00, 0x0E, 0x00, 0xC3,
+	0x18, 0x0E, 0x04, 0x0E, 0x18, 0x0E, 0x04, 0x0E, 0xBC };
+
+fn void sewing_machine_takes_a_zigzag() @test {
+	mmu::SewingMachine s;
+	s.init(4194304);
+	sew_send(&s, { 0x80, 0x80, 0x80, 0x86 });
+	char[128] p = sew_packet(&SEW_ZIGZAG, 0xBA);
+	test::eq(p[126], 0x5F); // as the game sent it
+	test::eq(p[127], 0x04);
+	sew_send(&s, p[:127]);
+	assert(!s.ready);
+	sew_send(&s, p[127:1]);
+	assert(s.ready);
+	assert(!s.once);
+	test::eq(s.start_x, 0x04);
+	test::eq(s.start_y, 0x0E);
+	test::@check(s.pairs[:s.len] == (char[]){ 0x18, 0x0E, 0x04, 0x0E, 0x18, 0x0E, 0x04, 0x0E }, "the pairs");
+	// The needle: 5 mm from side to side, 1.5 mm of fabric each stitch,
+	// repeated over 60 mm.
+	double[64] xs;
+	double[64] ys;
+	test::eq(s.drops(&xs, &ys), 40);
+	test::eq(xs[0], 6.0);
+	test::eq(xs[1], 1.0);
+	test::eq(ys[0], 1.5);
+	test::eq(ys[1], 3.0);
+	test::eq(ys[39], 60.0);
+	int w;
+	int h;
+	char[] rgb = s.picture(&w, &h, tmem);
+	test::eq(w, (int)((60.0 + 12.0) * 16));
+	test::eq(h, (int)((7.75 + 12.0) * 16));
+	test::eq((ulong)rgb.len, (ulong)w * (ulong)h * 3);
+}
+
+fn void sewing_machine_refuses_a_garbled_packet() @test {
+	mmu::SewingMachine s;
+	s.init(4194304);
+	sew_send(&s, { 0x80, 0x80, 0x80, 0x86 });
+	char[128] p = sew_packet(&SEW_ZIGZAG, 0xBA);
+	p[12] ^= 1;
+	sew_send(&s, &p);
+	assert(!s.ready);
+	assert(s.bad);
+	test::eq(s.state, mmu::SewState.IDLE);
+}
+
+// Two packets ($BB, then $BF), and a path end: sewn once. The first is
+// full: its header, $C1, then 58 pairs to byte 124.
+fn void sewing_machine_takes_two_packets() @test {
+	mmu::SewingMachine s;
+	s.init(4194304);
+	sew_send(&s, { 0x80, 0x80, 0x80, 0x86 });
+	char[124] body;
+	body[0:7] = (char[7]){ 0x00, 0x00, 0x00, 0x10, 0x00, 0x14, 0x00 }[..];
+	body[7] = 0xC1;
+	for (int i = 0; i < 58; i++) {
+		body[8 + i * 2] = (char)(i % 0x20);
+		body[9 + i * 2] = 0x10;            // 1 mm on
+	}
+	char[128] first = sew_packet(&body, 0xBB);
+	char[128] second = sew_packet({ 0x14, 0x10, 0xC7, 0x16, 0x10, 0x18, 0x10, 0x1A, 0x10, 0xBC }, 0xBF);
+	sew_send(&s, &first);
+	assert(!s.ready);
+	sew_send(&s, &second);
+	assert(s.ready);
+	assert(s.once);
+	// 58 pairs, then three: the path ends two pairs after $C7.
+	test::eq((ulong)s.len, (ulong)(58 + 3) * 2);
+	test::@check(s.pairs[s.len - 6 : 6] == (char[]){ 0x14, 0x10, 0x16, 0x10, 0x18, 0x10 }, "the last pairs");
+	double[128] xs;
+	double[128] ys;
+	test::eq(s.drops(&xs, &ys), 61);
+	test::eq(ys[0], 0.0);   // the header's Y: no feed before the first stitch
+	test::eq(xs[60], 6.0);
+	test::eq(ys[60], 60.0);
 }
