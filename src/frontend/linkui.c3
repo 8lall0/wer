@@ -19,11 +19,12 @@ enum LinkMode : char {
 	CHANGER, // Zok Zok Heroes' Full Changer
 	PIKACHU, // the Pokémon Pikachu 2
 	SAKURA,  // the Pocket Sakura
+	SEWING,  // a Jaguar / Singer sewing machine: its stitches become PNG files
 	HOST,   // waiting for, or linked with, a side that joined
 	JOIN,   // linked with a side that hosts
 }
 
-const String[16] LINK_LABELS = { "Off", "2 players here", "4 players here", "Printer", "Barcode Boy", "GB KISS LINK", "WorkBoy", "Mobile Adapter", "Turbo File GB", "Power Antenna", "Bardigun reader", "Full Changer", "Pikachu 2", "Pocket Sakura", "Host", "Join" };
+const String[17] LINK_LABELS = { "Off", "2 players here", "4 players here", "Printer", "Barcode Boy", "GB KISS LINK", "WorkBoy", "Mobile Adapter", "Turbo File GB", "Power Antenna", "Bardigun reader", "Full Changer", "Pikachu 2", "Pocket Sakura", "Sewing machine", "Host", "Join" };
 
 // Pixels between the two pictures.
 const int LINK_GAP = 8;
@@ -123,6 +124,7 @@ fn String link_line() {
 			case CHANGER:
 			case PIKACHU:
 			case SAKURA:
+			case SEWING:
 			case LOCAL:   state = "  on";
 			default:      break;
 		}
@@ -193,6 +195,9 @@ fn void link_apply() {
 		case SAKURA:
 			link_stop();
 			sakura_plug();
+		case SEWING:
+			link_stop();
+			sewing_plug();
 		case LOCAL:
 			// The second game comes from the file dialog (link_second_chosen).
 			dialog_p2 = true;
@@ -324,6 +329,7 @@ fn void link_replug() {
 		case CHANGER:
 		case PIKACHU:
 		case SAKURA:
+		case SEWING:
 			accessory_replug();
 		case HOST:
 		case JOIN:
@@ -452,6 +458,11 @@ fn void link_run_frame(display::Input* in) {
 	if (link_mode == PIKACHU || link_mode == SAKURA) {
 		gb.run_frame();
 		pikachu_poll();
+		return;
+	}
+	if (link_mode == SEWING) {
+		gb.run_frame_polled(fn (ctx) { sewing.tick(&gb.mmu); }, null, 128);
+		sewing_poll();
 		return;
 	}
 	if (link_mode == TURBO) {

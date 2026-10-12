@@ -12,6 +12,7 @@ import std::core::test;
 //   Pokémon Silver gets the Pikachu 2's Mystery Gift
 //   Sakura Taisen GB gets the Pocket Sakura's gift
 //   Pocket Sonar finds the lake's floor and its fish
+//   Raku x Raku Mishin sews あいう on a sewing machine
 //
 // WER_ACC_SHOTS=DIR writes each test's last screen there.
 
@@ -258,4 +259,57 @@ fn void pocket_sonar_finds_fish() @test {
 	assert(gb.mmu.cart.sonar.pings > 100);
 	uint crc = screen(&gb, "pocket-sonar");
 	test::@check(crc == 0x24412bbb, "the lake at 15 m with fish (screen CRC %08x)", crc);
+}
+
+mmu::Mmu* sew_mmu;
+mmu::SewingMachine* sew_machine;
+
+// Raku x Raku Mishin from power on: 文字ぬい, あいう typed and 終, sewn across
+// (横ぬい) at the usual spacing, the data sent (データの転送, without the
+// machine's guide): one pattern, sewn once, あいう on the fabric.
+fn void raku_raku_mishin_sews_letters() @test {
+	char[]? rom = game("Raku x Raku - Mishin (Japan).zip");
+	if (catch rom) {
+		io::printn("  (Raku x Raku Mishin not in resources/: the sewing machine not tested with it)");
+		return;
+	}
+	gameboy::GameBoy gb = gameboy::new(false, DMG);
+	defer gb.destroy();
+	gb.load_rom(rom);
+	gb.mmu.cart.has_battery = false;
+	mmu::SewingMachine* machine = mem::new(mmu::SewingMachine);
+	defer free(machine);
+	machine.init((uint)gb.mmu.model.clock_hz());
+	mmu::Link l;
+	gb.mmu.connect_sewing(&l, machine);
+	sew_mmu = &gb.mmu;
+	sew_machine = machine;
+	Press[*] presses = {
+		{ 400, 'S' }, { 700, 'D' }, { 760, 'D' }, { 820, 'A' },             // 文字ぬい
+		{ 1150, 'A' }, { 1250, 'R' }, { 1300, 'A' }, { 1400, 'R' }, { 1450, 'A' }, // あいう
+		{ 1550, 'D' }, { 1590, 'D' }, { 1630, 'D' }, { 1670, 'D' }, { 1710, 'D' },
+		{ 1750, 'R' }, { 1790, 'R' }, { 1830, 'R' }, { 1870, 'R' }, { 1910, 'R' }, { 1950, 'R' },
+		{ 2050, 'A' },                                                         // 終
+		{ 2400, 'A' }, { 2750, 'A' },                                          // 横ぬい, spacing
+		{ 3050, 'A' }, { 3350, 'D' }, { 3410, 'A' },                           // データの転送, no guide
+	};
+	bool sewn;
+	for (int f = 0; f < 5000 && !sewn; f++) {
+		press(&gb, &presses, f);
+		gb.run_frame_polled(fn (ctx) { sew_machine.tick(sew_mmu); }, null, 128);
+		sewn = machine.ready;
+	}
+	assert(sewn, "the pattern came");
+	assert(machine.once, "lettering is sewn once");
+	assert(!machine.bad);
+	int w;
+	int h;
+	char[] rgb = machine.picture(&w, &h, tmem);
+	String shots = env::tget_var("WER_ACC_SHOTS") ?? "";
+	if (shots.len) {
+		String head = string::tformat("P6\n%d %d\n255\n", w, h);
+		file::save(string::tformat("%s/raku-raku-mishin.ppm", shots), head.tconcat((String)rgb))!!;
+	}
+	uint crc = crc32::hash(rgb);
+	test::@check(crc == 0xc9904a4a, "あいう sewn (picture %dx%d, CRC %08x)", w, h, crc);
 }

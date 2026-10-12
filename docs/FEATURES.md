@@ -65,6 +65,10 @@ it is in [USAGE.md](USAGE.md); the link cable and its accessories in
   fish), timed as real echoes, so the depth settings, the floor's depth
   readout and the fish marks work. A real Game Boy Color sees nothing through
   it; wer's does.
+- **Sewing machine** (Jaguar JN-100 / JN-2000, Singer IZEK-1500): Raku x Raku
+  Mishin's patterns and lettering are sewn, as the machine would
+  once its start switch is pressed, into a PNG of the fabric next to the game
+  (as printouts are).
 - **Game Boy Printer**: printouts (Game Boy Camera photos, Pokédex pages,
   ...) become PNG files next to the game.
 - **4-Player Adapter** (DMG-07): four Game Boys in one window for F-1 Race,

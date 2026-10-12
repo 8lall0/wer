@@ -77,6 +77,13 @@ Enter to plug it in):
   to 65535; the game gives each once). Sakura Taisen GB shares Pokémon's infrared code;
   the pet's message was worked out from the game itself. Which gifts the
   real pet sends, and when, isn't known, so you pick.
+- **Sewing machine** plugs in a Jaguar JN-100 (the Singer IZEK-1500 is
+  the same machine), for Raku x Raku Mishin. When the game has sent a
+  pattern (データの転送) it asks you to press the machine's start switch; wer
+  sews it right away instead, into a picture of the fabric next to the game
+  (`game-sewing-1.png`, `-2`, ...; in a browser it downloads), the seam
+  running from left to right. Patterns repeat over 60 mm; lettering is sewn
+  once. Embroidery (the JN-2000's arm) isn't there.
 - **Printer** plugs in the Game Boy Printer: each printout is saved as a
   PNG next to the game (`game-print-1.png`, `-2`, ...; in a browser it
   downloads).

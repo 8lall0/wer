@@ -1,6 +1,6 @@
 module wer;
 import std::io, std::io::file;
-import mmu, config, gameboy;
+import mmu, config, gameboy, png, display;
 
 // The small link port devices in the Link menu:
 //
@@ -34,6 +34,9 @@ int pikachu_watts = 500;     // the menu's Watts line
 mmu::PikaState pikachu_told;
 
 int sakura_pick;             // the menu's Gift line (an event, 0-$35)
+
+mmu::SewingMachine sewing;
+mmu::Link sewing_cable;
 
 mmu::FullChanger changer;
 mmu::Link changer_cable;
@@ -159,6 +162,7 @@ fn void accessory_replug() {
 		case CHANGER:  gb.mmu.connect_changer(&changer_cable, &changer);
 		case PIKACHU:
 		case SAKURA:   gb.mmu.connect_pikachu(&pikachu_cable, &pikachu);
+		case SEWING:   gb.mmu.connect_sewing(&sewing_cable, &sewing);
 		default:       break;
 	}
 }
@@ -222,4 +226,40 @@ fn void script_actions(ulong frame) {
 				sakura_send();
 		}
 	}
+}
+
+fn void sewing_plug() {
+	sewing.init((uint)gb.mmu.model.clock_hz());
+	gb.mmu.connect_sewing(&sewing_cable, &sewing);
+	link_mode = SEWING;
+	notice.show("Sewing machine connected");
+}
+
+// After each frame: a pattern that has all come is sewn, into a PNG beside
+// the game (as a printout is).
+fn void sewing_poll() {
+	if (sewing.bad) {
+		sewing.bad = false;
+		notice.show("Sewing machine: a pattern came garbled");
+	}
+	if (!sewing.ready) return;
+	sewing.ready = false;
+	int w;
+	int h;
+	char[] rgb = sewing.picture(&w, &h, tmem);
+	String path;
+	for (int n = 1; n < 10000; n++) {
+		path = string::tformat("%s-sewing-%d.png", save_base, n);
+		if (!file::is_file(path)) break;
+	}
+	if (catch file::save(path, png::rgb(rgb, w, h, tmem))) {
+		notice.show("Could not save the sewing");
+		return;
+	}
+	io::printfn("sewn %s", path);
+	sz slash = path.rindex_of_char('/') ?? -1;
+	notice.show(string::tformat("Sewn %s", path[slash + 1..]));
+	$if env::EMSCRIPTEN:
+		display::run_script(string::tformat("werDownload('%s')", path).zstr_tcopy());
+	$endif
 }

@@ -989,6 +989,9 @@ fn void link_from_args(String link_arg, String link_rom) {
 	} else if (link_arg == "pikachu") {
 		link_pick = LinkMode.PIKACHU;
 		link_apply();
+	} else if (link_arg == "sewing") {
+		link_pick = LinkMode.SEWING;
+		link_apply();
 	} else if (link_arg == "changer") {
 		link_pick = LinkMode.CHANGER;
 		link_apply();

@@ -27,7 +27,7 @@ wer --mode=cgb game.gbc
 | `--link=kiss` | the GB KISS LINK (GB KISS files and Nectaris GB's maps: Menu → File, Map) |
 | `--link=workboy` | the WorkBoy keyboard (for the WorkBoy program) |
 | `--link=mobile` | the Mobile Adapter GB (desktop and phone) |
-| `--link=turbo`, `antenna`, `bardigun`, `changer`, `pikachu`, `sakura` | the Turbo File GB, Power Antenna, Bardigun reader, Full Changer, Pokémon Pikachu 2, Pocket Sakura |
+| `--link=turbo`, `antenna`, `bardigun`, `changer`, `pikachu`, `sakura`, `sewing` | the Turbo File GB, Power Antenna, Bardigun reader, Full Changer, Pokémon Pikachu 2, Pocket Sakura, a sewing machine |
 | `--link=printer` | the Game Boy Printer on the link port |
 | `--record=NAME` | record the run: `NAME.gif` (the picture) and `NAME.wav` (the sound), until wer quits; with `--headless --frames=N --input=...` a recording made without a window |
 | `--movie=FILE` | play a movie (`.wer`) from its start; with `--headless`, to its end unless `--frames` says otherwise |
